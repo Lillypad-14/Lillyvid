@@ -144,6 +144,40 @@ public sealed unsafe class PresentHookProbe : IDisposable
         set => this.nativeTestRenderer.ScreenSpaceProbeEnabled = value;
     }
 
+    public int NativeUpscaleFilter
+    {
+        get => this.nativeTestRenderer.UpscaleFilter;
+        set => this.nativeTestRenderer.UpscaleFilter = value;
+    }
+
+    public float NativeUpscaleSharpness
+    {
+        get => this.nativeTestRenderer.UpscaleSharpness;
+        set => this.nativeTestRenderer.UpscaleSharpness = value;
+    }
+
+    public float NativeDebandStrength
+    {
+        get => this.nativeTestRenderer.DebandStrength;
+        set => this.nativeTestRenderer.DebandStrength = value;
+    }
+
+    public float NativeArtifactStrength
+    {
+        get => this.nativeTestRenderer.ArtifactStrength;
+        set => this.nativeTestRenderer.ArtifactStrength = value;
+    }
+
+    public float NativeCompareSplit
+    {
+        get => this.nativeTestRenderer.CompareSplit;
+        set => this.nativeTestRenderer.CompareSplit = value;
+    }
+
+    public int NativeSourceWidth => this.nativeTestRenderer.SourceWidth;
+
+    public int NativeSourceHeight => this.nativeTestRenderer.SourceHeight;
+
     public void SetNativeQuad(Vector3 topLeft, Vector3 topRight, Vector3 bottomRight, Vector3 bottomLeft)
     {
         this.nativeTestRenderer.SetQuad(topLeft, topRight, bottomRight, bottomLeft);

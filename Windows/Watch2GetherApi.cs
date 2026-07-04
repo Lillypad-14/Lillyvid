@@ -24,6 +24,8 @@ namespace VideoSyncPrototype.Windows;
 public static class Watch2GetherApi
 {
     private const string CreateEndpoint = "https://api.w2g.tv/rooms/create.json";
+    // Watch2Gether's public API does not expose a bulk room-delete endpoint; account
+    // room cleanup is done from https://w2g.tv/en/account/dashboard/.
 
     // Reused across calls; a plugin makes very few of these so one client is plenty.
     private static readonly HttpClient Http = new()

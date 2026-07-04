@@ -12,7 +12,7 @@ namespace VideoSyncPrototype.Rendering;
 
 public sealed unsafe class NativeTestRenderer : IDisposable
 {
-    private const int QuadConstantFloats = 64;
+    private const int QuadConstantFloats = 72;
     private const uint QuadConstantBytes = QuadConstantFloats * sizeof(float);
     private static readonly Guid Id3D11Texture2DGuid = new("6f15aaf2-d208-4e89-9ab4-489535d34f9c");
 
@@ -37,8 +37,34 @@ public sealed unsafe class NativeTestRenderer : IDisposable
     private ID3D11Buffer* quadConstantBuffer;
     private bool resourcesReady;
     private string lastError = string.Empty;
+    private float srcTexelWidth;
+    private float srcTexelHeight;
 
     public bool Enabled { get; set; }
+
+    /// <summary>Upscaling filter for the video quad: 0 Bilinear (default), 1 Bicubic, 2 Lanczos.</summary>
+    public int UpscaleFilter { get; set; }
+
+    /// <summary>Adaptive sharpen amount (0..1) applied after upscaling. 0 = off (original look).</summary>
+    public float UpscaleSharpness { get; set; }
+
+    /// <summary>Debanding strength (0..1) applied after upscaling. 0 = off.</summary>
+    public float DebandStrength { get; set; }
+
+    /// <summary>Compression-artifact cleanup strength (0..1), a light bilateral smooth. 0 = off.</summary>
+    public float ArtifactStrength { get; set; }
+
+    /// <summary>
+    /// A/B compare split: 0 = off (process whole image); a value in (0,1) processes the left
+    /// portion and shows raw source on the right, with a divider — so the effect is visible.
+    /// </summary>
+    public float CompareSplit { get; set; }
+
+    /// <summary>Source video width in pixels, or 0 if unknown. Derived from the texel size the shader uses.</summary>
+    public int SourceWidth => this.srcTexelWidth > 0f ? (int)MathF.Round(1f / this.srcTexelWidth) : 0;
+
+    /// <summary>Source video height in pixels, or 0 if unknown. Derived from the texel size the shader uses.</summary>
+    public int SourceHeight => this.srcTexelHeight > 0f ? (int)MathF.Round(1f / this.srcTexelHeight) : 0;
 
     public bool ScreenSpaceProbeEnabled { get; set; }
 
@@ -524,6 +550,14 @@ public sealed unsafe class NativeTestRenderer : IDisposable
 
                 this.sharedTextureSrv = createdSrv;
                 this.openedSharedHandle = pending;
+
+                // Cache the source texel size so bicubic/Lanczos know how far a
+                // texel is in UV space. Zero (unknown) makes the shader fall back
+                // to a plain bilinear tap.
+                D3D11_TEXTURE2D_DESC textureDesc;
+                texture->GetDesc(&textureDesc);
+                this.srcTexelWidth = textureDesc.Width > 0 ? 1f / textureDesc.Width : 0f;
+                this.srcTexelHeight = textureDesc.Height > 0 ? 1f / textureDesc.Height : 0f;
             }
             finally
             {
@@ -851,6 +885,18 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         data[62] = 0f;
         data[63] = 0f;
 
+        // upscale: texel size (x,y), filter mode (z), sharpen amount (w).
+        data[64] = this.srcTexelWidth;
+        data[65] = this.srcTexelHeight;
+        data[66] = this.UpscaleFilter;
+        data[67] = Math.Clamp(this.UpscaleSharpness, 0f, 1f);
+
+        // enhance: deband strength (x), artifact cleanup strength (y), A/B compare split (z).
+        data[68] = Math.Clamp(this.DebandStrength, 0f, 1f);
+        data[69] = Math.Clamp(this.ArtifactStrength, 0f, 1f);
+        data[70] = Math.Clamp(this.CompareSplit, 0f, 1f);
+        data[71] = 0f;
+
         context->UpdateSubresource((ID3D11Resource*)this.quadConstantBuffer, 0, null, data, 0, 0);
     }
 
@@ -875,6 +921,14 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         data[61] = 0f;
         data[62] = 0f;
         data[63] = 0f;
+        data[64] = 0f;
+        data[65] = 0f;
+        data[66] = 0f;
+        data[67] = 0f;
+        data[68] = 0f;
+        data[69] = 0f;
+        data[70] = 0f;
+        data[71] = 0f;
 
         context->UpdateSubresource((ID3D11Resource*)this.quadConstantBuffer, 0, null, data, 0, 0);
     }
@@ -1008,16 +1062,190 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             row_major float4x4 projection;
             float4 color;
             float4 flags;
+            float4 upscale; // xy = source texel size, z = filter mode, w = sharpen amount
+            float4 enhance; // x = deband strength, y = artifact cleanup strength
         };
 
         Texture2D screenTexture : register(t0);
         SamplerState screenSampler : register(s0);
 
+        // Catmull-Rom cubic kernel (bicubic upscale — softer, cleaner edges).
+        float cubicWeight(float x)
+        {
+            x = abs(x);
+            if (x < 1.0)
+            {
+                return (1.5 * x - 2.5) * x * x + 1.0;
+            }
+            if (x < 2.0)
+            {
+                return ((-0.5 * x + 2.5) * x - 4.0) * x + 2.0;
+            }
+            return 0.0;
+        }
+
+        // Lanczos-2 kernel (sharp upscale).
+        float lanczosWeight(float x)
+        {
+            x = abs(x);
+            if (x < 1e-4)
+            {
+                return 1.0;
+            }
+            if (x >= 2.0)
+            {
+                return 0.0;
+            }
+            const float PI = 3.14159265;
+            float a = PI * x;
+            return (sin(a) / a) * (sin(a * 0.5) / (a * 0.5));
+        }
+
+        // Shared 4x4 separable resample around uv, weighted by the given kernel.
+        float3 resample4x4(float2 uv, float2 texel, int mode)
+        {
+            float2 texSize = 1.0 / texel;
+            float2 coord = uv * texSize - 0.5;
+            float2 baseCoord = floor(coord);
+            float2 f = coord - baseCoord;
+
+            float3 sum = 0.0;
+            float weightSum = 0.0;
+            [unroll]
+            for (int y = -1; y <= 2; y++)
+            {
+                [unroll]
+                for (int x = -1; x <= 2; x++)
+                {
+                    float2 tap = (baseCoord + float2(x, y) + 0.5) * texel;
+                    float wx = mode == 2 ? lanczosWeight(x - f.x) : cubicWeight(x - f.x);
+                    float wy = mode == 2 ? lanczosWeight(y - f.y) : cubicWeight(y - f.y);
+                    float w = wx * wy;
+                    sum += screenTexture.SampleLevel(screenSampler, tap, 0).rgb * w;
+                    weightSum += w;
+                }
+            }
+
+            return sum / max(weightSum, 1e-5);
+        }
+
+        float3 sampleSrc(float2 uv)
+        {
+            return screenTexture.SampleLevel(screenSampler, uv, 0).rgb;
+        }
+
+        // Debanding: on locally-flat areas (gradients), blend toward a wider-radius average
+        // to erase the stair-steps, then add ~1/255 dither to hide any residual banding.
+        // Strong edges keep their center value because their neighbours differ too much.
+        float3 deband(float3 center, float2 uv, float2 texel, float strength, float2 pos)
+        {
+            const float radius = 6.0;
+            float3 a = sampleSrc(uv + float2(radius, 0.0) * texel);
+            float3 b = sampleSrc(uv + float2(-radius, 0.0) * texel);
+            float3 c = sampleSrc(uv + float2(0.0, radius) * texel);
+            float3 d = sampleSrc(uv + float2(0.0, -radius) * texel);
+            float3 avg = (a + b + c + d) * 0.25;
+            float3 diff = abs(avg - center);
+            float3 flatness = 1.0 - smoothstep(0.0, 0.05, diff);
+            float3 result = lerp(center, avg, flatness * strength);
+            float dither = frac(sin(dot(pos, float2(12.9898, 78.233))) * 43758.5453) - 0.5;
+            result += dither * (strength / 255.0);
+            return saturate(result);
+        }
+
+        // Compression artifact cleanup: a light bilateral blur over 8 neighbours. Neighbours
+        // close in colour to the center (flat block interiors) are averaged in; dissimilar
+        // ones (real edges) are rejected — so DCT blocking and mosquito noise soften while
+        // edges stay sharp.
+        float3 declean(float3 center, float2 uv, float2 texel, float strength)
+        {
+            const float2 offs[8] =
+            {
+                float2(1, 0), float2(-1, 0), float2(0, 1), float2(0, -1),
+                float2(1, 1), float2(-1, 1), float2(1, -1), float2(-1, -1)
+            };
+
+            float3 sum = center;
+            float wsum = 1.0;
+            [unroll]
+            for (int i = 0; i < 8; i++)
+            {
+                float3 s = sampleSrc(uv + offs[i] * texel);
+                float dist = dot(abs(s - center), float3(0.333, 0.333, 0.333));
+                float w = exp(-dist * dist * 400.0);
+                sum += s * w;
+                wsum += w;
+            }
+
+            return lerp(center, sum / wsum, strength);
+        }
+
+        // Unsharp-mask sharpen using the four axis neighbours (adaptive, cheap).
+        float3 sharpen(float3 rgb, float2 uv, float2 texel, float amount)
+        {
+            float3 n = screenTexture.SampleLevel(screenSampler, uv + float2(0.0, -texel.y), 0).rgb;
+            float3 s = screenTexture.SampleLevel(screenSampler, uv + float2(0.0, texel.y), 0).rgb;
+            float3 e = screenTexture.SampleLevel(screenSampler, uv + float2(texel.x, 0.0), 0).rgb;
+            float3 w = screenTexture.SampleLevel(screenSampler, uv + float2(-texel.x, 0.0), 0).rgb;
+            float3 blur = (n + s + e + w) * 0.25;
+            return saturate(rgb + (rgb - blur) * amount);
+        }
+
         float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         {
             if (flags.x > 0.5)
             {
-                float3 rgb = screenTexture.Sample(screenSampler, uv).rgb;
+                int mode = (int)(upscale.z + 0.5);
+                float2 texel = upscale.xy;
+                bool canFilter = texel.x > 0.0 && texel.y > 0.0;
+
+                // A/B compare: when a split is set, the right side shows raw source (the "Off"
+                // baseline) and the left side gets the full processed pipeline, so the seam
+                // reveals exactly what the filters/enhancements are doing.
+                float split = enhance.z;
+                bool rawSide = split > 0.0 && uv.x >= split;
+
+                float3 rgb;
+                if (rawSide)
+                {
+                    rgb = screenTexture.Sample(screenSampler, uv).rgb;
+                }
+                else
+                {
+                    if (canFilter && (mode == 1 || mode == 2))
+                    {
+                        rgb = resample4x4(uv, texel, mode);
+                    }
+                    else
+                    {
+                        // Off / Fast / unknown source size: the original bilinear tap.
+                        rgb = screenTexture.Sample(screenSampler, uv).rgb;
+                    }
+
+                    // Cleanup first (smooth artifacts), then deband gradients, then sharpen so
+                    // the final image is crisp. All require a known source texel size.
+                    if (canFilter && enhance.y > 0.001)
+                    {
+                        rgb = declean(rgb, uv, texel, enhance.y);
+                    }
+
+                    if (canFilter && enhance.x > 0.001)
+                    {
+                        rgb = deband(rgb, uv, texel, enhance.x, pos.xy);
+                    }
+
+                    if (canFilter && upscale.w > 0.001)
+                    {
+                        rgb = sharpen(rgb, uv, texel, upscale.w);
+                    }
+                }
+
+                // Bright divider so the two halves are obvious.
+                if (split > 0.0 && abs(uv.x - split) < 0.0015)
+                {
+                    rgb = float3(1.0, 0.85, 0.1);
+                }
+
                 return float4(rgb, color.a);
             }
 

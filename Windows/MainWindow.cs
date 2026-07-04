@@ -29,6 +29,51 @@ public sealed class MainWindow : Window, IDisposable
     private const int SyncTransportCwls = 1;
     private static readonly string[] FrameStyleNames = ["None", "Classic wood", "Magitek", "Neon club", "Allagan"];
     private static readonly string[] CinemaPresetNames = ["Generic TV", "Cozy room", "Neon club", "Drive-in", "Allagan cinema"];
+    private static readonly string[] UpscaleModeNames = ["Off (default)", "Fast", "Balanced", "Quality", "Ultra", "Custom"];
+    private static readonly string[] UpscaleModeHints =
+    [
+        "The original look — plain bilinear, no processing.",
+        "Bilinear with a light sharpen. Cheap crispness.",
+        "Bicubic — softer, cleaner edges.",
+        "Lanczos — sharp, detailed upscale.",
+        "Lanczos plus a strong sharpen.",
+        "Pick the filter and sharpen amount yourself.",
+    ];
+    private static readonly string[] UpscaleFilterNames = ["Bilinear", "Bicubic", "Lanczos"];
+    private static readonly string[] ScreenResolutionNames = ["720p (default)", "1080p", "1440p", "4K"];
+    private static readonly (int Width, int Height)[] ScreenResolutionSizes =
+        [(1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)];
+    // Casual one-tap enhancement presets → (upscaleMode, debandMode, artifactMode). Balanced
+    // so effects don't fight (e.g. heavy cleanup is never paired with max sharpen). Resolution
+    // is deliberately NOT part of a preset — it stays its own separate control. A trailing
+    // "Custom" name (with no preset entry) is shown when Advanced values match none of these.
+    private static readonly string[] PicturePresetNames = ["Off", "Light", "Balanced", "Strong", "Ultra", "Custom"];
+    private static readonly (int Upscale, int Deband, int Artifact)[] PicturePresets =
+    [
+        (0, 0, 0), // Off — raw source, no processing
+        (2, 1, 0), // Light — bicubic upscale + gentle debanding
+        (3, 2, 1), // Balanced — Lanczos + medium deband + light cleanup
+        (4, 3, 2), // Strong — Lanczos+sharpen + high deband + medium cleanup
+        (4, 3, 3), // Ultra — Lanczos+sharpen + high deband + high cleanup
+    ];
+    private static readonly string[] PicturePresetHints =
+    [
+        "No processing — the raw captured image.",
+        "A light touch: cleaner upscale and gentle debanding.",
+        "Recommended. Sharp upscale, medium debanding, light artifact cleanup.",
+        "Heavier: high debanding and cleanup with a sharper upscale.",
+        "Maximum cleanup. Best on rough/low-quality streams; can look over-processed on good ones.",
+        "Custom — settings were hand-tuned in Advanced.",
+    ];
+    private static readonly string[] EnhanceModeNames = ["Off", "Low", "Medium", "High"];
+    private static readonly float[] DebandStrengths = [0f, 0.4f, 0.7f, 1.0f];
+    private static readonly float[] ArtifactStrengths = [0f, 0.3f, 0.55f, 0.8f];
+    private static readonly string[] CaptureModeNames = ["Default", "Smooth"];
+    private static readonly string[] CaptureModeHints =
+    [
+        "Balanced capture, synced to your refresh rate. Best default.",
+        "Extra frame buffering to recover dropped frames. Slightly more latency.",
+    ];
 
     private readonly string pluginDirectory;
     private readonly Configuration config;
@@ -37,6 +82,9 @@ public sealed class MainWindow : Window, IDisposable
     private Task<Watch2GetherRoom>? watch2GetherCreateTask;
     private bool showApiKey;
     private bool apiKeyFieldActive;
+    private bool forceOpenHostSetupSection = true;
+    private bool forceOpenCreateRoomSection = true;
+    private bool forceOpenJoinRoomSection = true;
     private string lastWatch2GetherRoomUrl = string.Empty;
     private string lastWatch2GetherRoomCode = string.Empty;
     private string pasteWatch2GetherRoomCode = string.Empty;
@@ -120,6 +168,21 @@ public sealed class MainWindow : Window, IDisposable
     private float ambientGlowSize = 0.42f;
     private float frameThickness = 0.16f;
     private int cinemaPresetIndex;
+    private int upscaleMode;
+    private int upscaleFilter;
+    private float upscaleSharpness;
+    private bool upscaleDebug;
+    private int screenResolution;
+    private int captureMode;
+    private bool foregroundCapture;
+    private int debandMode;
+    private int artifactMode;
+    private bool compareSplit;
+    private string? lastRendererUrl;
+    private string? lastRendererShareUrl;
+    private long lastCaptureFrameCount;
+    private DateTime lastCaptureFpsSampleUtc;
+    private float captureFps;
     private string realRendererProbe = "Not probed yet.";
     private readonly PresentHookProbe presentHookProbe = new();
 
@@ -131,6 +194,15 @@ public sealed class MainWindow : Window, IDisposable
         this.pluginDirectory = pluginDirectory;
         this.config = config;
         this.adBlockEnabled = config.AdBlockEnabled;
+        this.upscaleMode = Math.Clamp(config.UpscaleMode, 0, UpscaleModeNames.Length - 1);
+        this.upscaleFilter = Math.Clamp(config.UpscaleFilter, 0, UpscaleFilterNames.Length - 1);
+        this.upscaleSharpness = Math.Clamp(config.UpscaleSharpness, 0f, 1f);
+        this.upscaleDebug = config.UpscaleDebugOverlay;
+        this.screenResolution = Math.Clamp(config.ScreenResolution, 0, ScreenResolutionNames.Length - 1);
+        this.captureMode = Math.Clamp(config.CaptureMode, 0, CaptureModeNames.Length - 1);
+        this.foregroundCapture = config.ForegroundCapture;
+        this.debandMode = Math.Clamp(config.DebandMode, 0, EnhanceModeNames.Length - 1);
+        this.artifactMode = Math.Clamp(config.ArtifactMode, 0, EnhanceModeNames.Length - 1);
         this.SurfaceWindow = new VideoSurfaceWindow(this);
         this.SizeConstraints = new WindowSizeConstraints
         {
@@ -215,22 +287,43 @@ public sealed class MainWindow : Window, IDisposable
         // mounted no matter what, and only reveal the create-room UI once focus leaves it.
         if (string.IsNullOrWhiteSpace(this.config.Watch2GetherApiKey) || this.apiKeyFieldActive)
         {
-            this.DrawHostSetupSection();
+            if (UiTheme.BeginCollapsibleSection("Host setup", defaultOpen: true, forceOpen: this.forceOpenHostSetupSection))
+            {
+                this.DrawHostSetupSection();
+                ImGui.TreePop();
+            }
+
+            this.forceOpenHostSetupSection = false;
         }
         else
         {
-            this.DrawCreateRoomSection();
+            if (UiTheme.BeginCollapsibleSection("Create movie room", defaultOpen: true, primary: true, forceOpen: this.forceOpenCreateRoomSection))
+            {
+                this.DrawCreateRoomSection();
+                ImGui.TreePop();
+            }
+
+            this.forceOpenCreateRoomSection = false;
+
             if (!string.IsNullOrWhiteSpace(this.lastWatch2GetherRoomCode))
             {
                 ImGui.Spacing();
-                this.DrawCurrentShareCode();
+                if (UiTheme.BeginCollapsibleSection("Current share code", defaultOpen: true, primary: true))
+                {
+                    this.DrawCurrentShareCode();
+                    ImGui.TreePop();
+                }
             }
         }
 
         ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-        this.DrawJoinRoomSection();
+        if (UiTheme.BeginCollapsibleSection("Join a room", defaultOpen: true, primary: true, forceOpen: this.forceOpenJoinRoomSection))
+        {
+            this.DrawJoinRoomSection();
+            ImGui.TreePop();
+        }
+
+        this.forceOpenJoinRoomSection = false;
 
         if (running)
         {
@@ -239,13 +332,14 @@ public sealed class MainWindow : Window, IDisposable
         }
     }
 
-    // A persistent, always-visible toggle pinned above the tabs whenever a video is
+    // A persistent, always-visible action pinned above the tabs whenever a video is
     // running, so bringing the player on screen (to click past ads / consent / sign-ins)
-    // is one click away no matter which tab you're on.
+    // is one click away no matter which tab you're on. The overlay's Done button sends
+    // itself back, so this intentionally does not become a second "Hide" control.
     private void DrawTopMiniBrowserBar()
     {
-        var pressed = UiTheme.PrimaryButton(
-            this.browserShown ? "Hide mini-browser" : "Show mini-browser",
+        var pressed = UiTheme.QuietButton(
+            "Show mini-browser",
             new Vector2(-1f, 30f));
 
         if (ImGui.IsItemHovered())
@@ -255,27 +349,20 @@ public sealed class MainWindow : Window, IDisposable
 
         if (pressed)
         {
-            this.browserShown = !this.browserShown;
-            if (this.browserShown)
-            {
-                this.AllowRendererForeground();
-            }
-
-            this.SendPlaybackCommand(this.browserShown ? "show" : "hide");
-            this.QueueSnowSyncBroadcast();
-            this.status = this.browserShown
-                ? "Mini-browser is on screen. Click through any consent dialog, ad, or sign-in, then press Done."
-                : "Sent the mini-browser back off screen.";
+            this.AllowRendererForeground();
+            this.SendPlaybackCommand("show");
+            this.status = "Mini-browser is on screen. Click through any consent dialog, ad, or sign-in, then press Done.";
         }
     }
 
     private void DrawCreateRoomSection()
     {
-        UiTheme.SectionTitle("Create a movie room");
+        ImGui.TextColored(UiTheme.AccentHovered, "Paste a video link, then create a shared room.");
         ImGui.TextDisabled("YouTube, Vimeo, Twitch, or a direct video file.");
         ImGui.Spacing();
 
-        ImGui.SetNextItemWidth(-1f);
+        const float buttonWidth = 112f;
+        ImGui.SetNextItemWidth(Math.Max(120f, ImGui.GetContentRegionAvail().X - buttonWidth - ImGui.GetStyle().ItemSpacing.X));
         var submitted = ImGui.InputTextWithHint(
             "##videosync-url",
             "https://www.youtube.com/watch?v=...",
@@ -283,14 +370,14 @@ public sealed class MainWindow : Window, IDisposable
             512,
             ImGuiInputTextFlags.EnterReturnsTrue);
 
-        ImGui.Spacing();
+        ImGui.SameLine();
         var busy = this.creatingWatch2GetherRoom;
         if (busy)
         {
             ImGui.BeginDisabled();
         }
 
-        var pressed = UiTheme.PrimaryButton(busy ? "Creating room..." : "Create Movie Room", new Vector2(-1f, 40f));
+        var pressed = UiTheme.PrimaryButton(busy ? "Creating..." : "Create", new Vector2(buttonWidth, 0f));
         if (busy)
         {
             ImGui.EndDisabled();
@@ -324,7 +411,6 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawCurrentShareCode()
     {
-        UiTheme.SectionTitle("Current share code");
         ImGui.TextDisabled("Carries the room and your exact screen layout. Friends paste it into Join, or open the link in any browser.");
         ImGui.Spacing();
 
@@ -377,7 +463,7 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawJoinRoomSection()
     {
-        UiTheme.SectionTitle("Join a room");
+        ImGui.TextColored(UiTheme.AccentHovered, "Paste a friend's room code or W2G link.");
         ImGui.Spacing();
 
         const float buttonWidth = 78f;
@@ -398,7 +484,6 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawHostSetupSection()
     {
-        UiTheme.SectionTitle("Host a movie room");
         ImGui.TextWrapped("Hosting needs a free Watch2Gether key (one-time). Joining a friend's room doesn't.");
         ImGui.Spacing();
         ImGui.BulletText("Log in at w2g.tv, open Edit Profile.");
@@ -560,9 +645,6 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.Separator();
         ImGui.Spacing();
 
-        this.DrawAudioControls();
-
-        ImGui.Spacing();
         if (ImGui.Button(this.videoFullscreen ? "Exit fullscreen" : "Fullscreen"))
         {
             this.SetVideoFullscreen(!this.videoFullscreen);
@@ -2344,11 +2426,16 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         this.StopRendererProcess();
+        this.lastRendererUrl = url;
+        this.lastRendererShareUrl = watch2GetherShareUrl;
         this.frameTexture?.Dispose();
         this.frameTexture = null;
         this.frameTextureTask = null;
         this.lastLoadedFrameWriteUtc = DateTime.MinValue;
         this.browserShown = false;
+        this.lastCaptureFrameCount = 0;
+        this.lastCaptureFpsSampleUtc = DateTime.MinValue;
+        this.captureFps = 0f;
 
         var framePath = this.GetCaptureFramePath();
         TryDeleteFile(framePath);
@@ -2383,6 +2470,13 @@ public sealed class MainWindow : Window, IDisposable
         startInfo.ArgumentList.Add(framePath);
         startInfo.ArgumentList.Add("--adblock");
         startInfo.ArgumentList.Add(this.adBlockEnabled ? "enabled" : "disabled");
+        var (captureWidth, captureHeight) = this.ResolveCaptureSize();
+        startInfo.ArgumentList.Add("--capture-size");
+        startInfo.ArgumentList.Add($"{captureWidth}x{captureHeight}");
+        startInfo.ArgumentList.Add("--capture-mode");
+        startInfo.ArgumentList.Add(this.captureMode.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add("--foreground-capture");
+        startInfo.ArgumentList.Add(this.foregroundCapture ? "enabled" : "disabled");
         if (!string.IsNullOrWhiteSpace(watch2GetherShareUrl))
         {
             startInfo.ArgumentList.Add("--w2g-share");
@@ -2637,146 +2731,154 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.Spacing();
         }
 
-        UiTheme.SectionTitle("Screen placement");
-        ImGui.TextDisabled("Put the floating screen where your group is looking.");
-        ImGui.Spacing();
-
-        if (UiTheme.PrimaryButton(this.worldScreenAnchor is null ? "Place screen in front of me" : "Move screen to me"))
+        if (UiTheme.BeginCollapsibleSection("Audio", defaultOpen: true, warm: true))
         {
-            this.PlaceWorldScreenInFrontOfPlayer();
-            this.EnableNativeWorldScreen();
-            this.QueueSnowSyncBroadcast();
+            this.DrawAudioControls();
+            ImGui.TreePop();
         }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Turn toward me"))
+        if (UiTheme.BeginCollapsibleSection("Screen layout", defaultOpen: true, warm: true))
         {
-            this.FaceWorldScreenToPlayer();
-            this.QueueSnowSyncBroadcast();
-        }
+            UiTheme.SectionTitle("Placement");
+            ImGui.TextDisabled("Put the floating screen where your group is looking.");
+            ImGui.Spacing();
 
-        ImGui.SameLine();
-        if (this.worldScreenEnabled)
-        {
-            if (UiTheme.DangerButton("Hide screen"))
-            {
-                this.worldScreenEnabled = false;
-                this.presentHookProbe.NativeTestDrawEnabled = false;
-                this.presentHookProbe.NativeScreenSpaceProbeEnabled = false;
-                this.presentHookProbe.ClearNativeQuad();
-                this.status = "Hid the screen. Show it again any time.";
-                this.QueueSnowSyncBroadcast();
-            }
-        }
-        else if (ImGui.Button("Show screen"))
-        {
-            if (this.worldScreenAnchor is null)
+            if (UiTheme.PrimaryButton(this.worldScreenAnchor is null ? "Place screen in front of me" : "Move screen to me"))
             {
                 this.PlaceWorldScreenInFrontOfPlayer();
+                this.EnableNativeWorldScreen();
+                this.QueueSnowSyncBroadcast();
             }
 
-            this.EnableNativeWorldScreen();
-            this.QueueSnowSyncBroadcast();
-        }
+            ImGui.SameLine();
+            if (ImGui.Button("Turn toward me"))
+            {
+                this.FaceWorldScreenToPlayer();
+                this.QueueSnowSyncBroadcast();
+            }
 
-        ImGui.Spacing();
-        UiTheme.SectionTitle("Size");
-        ImGui.Spacing();
-        ImGui.PushItemWidth(-130f);
-        UiTheme.PushSliderAccent();
-        if (ImGui.SliderFloat("Width", ref this.worldScreenWidth, 1f, 14f, "%.1f yalms"))
-        {
-            if (this.worldScreenLockAspect)
+            ImGui.SameLine();
+            if (this.worldScreenEnabled)
+            {
+                if (UiTheme.DangerButton("Hide screen"))
+                {
+                    this.worldScreenEnabled = false;
+                    this.presentHookProbe.NativeTestDrawEnabled = false;
+                    this.presentHookProbe.NativeScreenSpaceProbeEnabled = false;
+                    this.presentHookProbe.ClearNativeQuad();
+                    this.status = "Hid the screen. Show it again any time.";
+                    this.QueueSnowSyncBroadcast();
+                }
+            }
+            else if (ImGui.Button("Show screen"))
+            {
+                if (this.worldScreenAnchor is null)
+                {
+                    this.PlaceWorldScreenInFrontOfPlayer();
+                }
+
+                this.EnableNativeWorldScreen();
+                this.QueueSnowSyncBroadcast();
+            }
+
+            ImGui.Spacing();
+            UiTheme.SectionTitle("Size");
+            ImGui.Spacing();
+            ImGui.PushItemWidth(-130f);
+            UiTheme.PushSliderAccent();
+            if (ImGui.SliderFloat("Width", ref this.worldScreenWidth, 1f, 14f, "%.1f yalms"))
+            {
+                if (this.worldScreenLockAspect)
+                {
+                    this.worldScreenHeight = this.worldScreenWidth * 9f / 16f;
+                }
+
+                this.QueueSnowSyncBroadcast();
+            }
+
+            var aspectLocked = this.worldScreenLockAspect;
+            if (aspectLocked)
+            {
+                ImGui.BeginDisabled();
+            }
+
+            if (ImGui.SliderFloat("Height", ref this.worldScreenHeight, 0.5f, 10f, "%.1f yalms"))
+            {
+                this.QueueSnowSyncBroadcast();
+            }
+
+            if (aspectLocked)
+            {
+                ImGui.EndDisabled();
+            }
+
+            UiTheme.PopSliderAccent();
+            ImGui.PopItemWidth();
+
+            if (ImGui.Checkbox("Lock to 16:9", ref this.worldScreenLockAspect) && this.worldScreenLockAspect)
             {
                 this.worldScreenHeight = this.worldScreenWidth * 9f / 16f;
+                this.QueueSnowSyncBroadcast();
             }
 
-            this.QueueSnowSyncBroadcast();
-        }
-
-        var aspectLocked = this.worldScreenLockAspect;
-        if (aspectLocked)
-        {
-            ImGui.BeginDisabled();
-        }
-
-        if (ImGui.SliderFloat("Height", ref this.worldScreenHeight, 0.5f, 10f, "%.1f yalms"))
-        {
-            this.QueueSnowSyncBroadcast();
-        }
-
-        if (aspectLocked)
-        {
-            ImGui.EndDisabled();
-        }
-
-        UiTheme.PopSliderAccent();
-        ImGui.PopItemWidth();
-
-        if (ImGui.Checkbox("Lock to 16:9", ref this.worldScreenLockAspect) && this.worldScreenLockAspect)
-        {
-            this.worldScreenHeight = this.worldScreenWidth * 9f / 16f;
-            this.QueueSnowSyncBroadcast();
-        }
-
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.SetTooltip("Turn off to stretch the picture. Width and Height then move independently.");
-        }
-
-        ImGui.Spacing();
-        UiTheme.SectionTitle("Position");
-        ImGui.Spacing();
-        ImGui.PushItemWidth(-130f);
-        UiTheme.PushSliderAccent();
-
-        var elevation = this.worldScreenElevation;
-        if (ImGui.SliderFloat("Elevation", ref elevation, -4f, 8f, "%.1f yalms"))
-        {
-            if (this.worldScreenAnchor is { } elevated)
+            if (ImGui.IsItemHovered())
             {
-                this.worldScreenAnchor = elevated + new Vector3(0f, elevation - this.worldScreenElevation, 0f);
+                ImGui.SetTooltip("Turn off to stretch the picture. Width and Height then move independently.");
             }
 
-            this.worldScreenElevation = elevation;
-            this.QueueSnowSyncBroadcast();
-        }
+            ImGui.Spacing();
+            UiTheme.SectionTitle("Position");
+            ImGui.Spacing();
+            ImGui.PushItemWidth(-130f);
+            UiTheme.PushSliderAccent();
 
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.SetTooltip("Raise or lower the screen from where it was placed.");
-        }
-
-        var push = this.worldScreenPush;
-        if (ImGui.SliderFloat("Distance", ref push, -6f, 14f, "%.1f yalms"))
-        {
-            if (this.worldScreenAnchor is { } pushed)
+            var elevation = this.worldScreenElevation;
+            if (ImGui.SliderFloat("Elevation", ref elevation, -4f, 8f, "%.1f yalms"))
             {
-                this.worldScreenAnchor = pushed + (this.GetViewerAwayAxis() * (push - this.worldScreenPush));
+                if (this.worldScreenAnchor is { } elevated)
+                {
+                    this.worldScreenAnchor = elevated + new Vector3(0f, elevation - this.worldScreenElevation, 0f);
+                }
+
+                this.worldScreenElevation = elevation;
+                this.QueueSnowSyncBroadcast();
             }
 
-            this.worldScreenPush = push;
-            this.QueueSnowSyncBroadcast();
-        }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Raise or lower the screen from where it was placed.");
+            }
 
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.SetTooltip("Push the screen closer or farther from you.");
-        }
+            var push = this.worldScreenPush;
+            if (ImGui.SliderFloat("Distance", ref push, -6f, 14f, "%.1f yalms"))
+            {
+                if (this.worldScreenAnchor is { } pushed)
+                {
+                    this.worldScreenAnchor = pushed + (this.GetViewerAwayAxis() * (push - this.worldScreenPush));
+                }
 
-        var yawDegrees = RadiansToDegrees(this.worldScreenRotation);
-        if (ImGui.SliderFloat("Facing angle", ref yawDegrees, -180f, 180f, "%.0f deg"))
-        {
-            this.worldScreenRotation = DegreesToRadians(yawDegrees);
-            this.QueueSnowSyncBroadcast();
-        }
+                this.worldScreenPush = push;
+                this.QueueSnowSyncBroadcast();
+            }
 
-        UiTheme.PopSliderAccent();
-        ImGui.PopItemWidth();
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Push the screen closer or farther from you.");
+            }
 
-        ImGui.Spacing();
-        if (ImGui.TreeNode("Fine position"))
-        {
+            var yawDegrees = RadiansToDegrees(this.worldScreenRotation);
+            if (ImGui.SliderFloat("Facing angle", ref yawDegrees, -180f, 180f, "%.0f deg"))
+            {
+                this.worldScreenRotation = DegreesToRadians(yawDegrees);
+                this.QueueSnowSyncBroadcast();
+            }
+
+            UiTheme.PopSliderAccent();
+            ImGui.PopItemWidth();
+            ImGui.Spacing();
+            UiTheme.SectionTitle("Fine position");
+            ImGui.Spacing();
+
             if (UiTheme.IconButton(FontAwesomeIcon.ArrowLeft, "videosync-nudge-left", new Vector2(32f, 0f), "Nudge left"))
             {
                 this.NudgeScreenFromViewer(-0.25f, 0f, 0f);
@@ -2824,8 +2926,12 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TreePop();
         }
 
-        if (ImGui.TreeNode("Compatibility"))
+        ImGui.Spacing();
+        this.DrawCasualPictureControls();
+
+        if (UiTheme.BeginCollapsibleSection("Advanced", warm: true))
         {
+            UiTheme.SectionTitle("Compatibility");
             var useFallback = this.drawImguiWorldScreen;
             if (ImGui.Checkbox("Use the 2D fallback screen", ref useFallback))
             {
@@ -2857,8 +2963,457 @@ public sealed class MainWindow : Window, IDisposable
                 }
             }
 
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+            this.DrawUpscalingControls();
             ImGui.TreePop();
         }
+    }
+
+    // Source resolution the renderer bridge renders the browser at. Higher = sharper
+    // (and less work for the upscaler), but costs VRAM/GPU. The capture window is sized
+    // at launch, so a change restarts the bridge if a video is currently playing.
+    // The resolution dropdown itself, shared by the casual Screen tab and Advanced. A
+    // full-width combo hides its own label, so callers put a heading above it.
+    private void DrawResolutionCombo()
+    {
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo("##resolution", ScreenResolutionNames[Math.Clamp(this.screenResolution, 0, ScreenResolutionNames.Length - 1)]))
+        {
+            for (var i = 0; i < ScreenResolutionNames.Length; i++)
+            {
+                var selected = this.screenResolution == i;
+                if (ImGui.Selectable(ScreenResolutionNames[i], selected) && i != this.screenResolution)
+                {
+                    this.screenResolution = i;
+                    this.config.ScreenResolution = i;
+                    this.config.Save();
+                    this.RestartRendererForSetting($"Resolution: {ScreenResolutionNames[i]}");
+                }
+
+                if (selected)
+                {
+                    ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        var (resWidth, resHeight) = this.ResolveCaptureSize();
+        ImGui.TextDisabled($"Targets {resWidth} x {resHeight}, capped to your monitor's resolution.");
+    }
+
+    // Casual Picture controls for the Screen tab: a Resolution dropdown and an Enhancement
+    // preset, kept as two separate controls (the preset never changes resolution).
+    private void DrawCasualPictureControls()
+    {
+        if (UiTheme.BeginCollapsibleSection("Picture quality", warm: true))
+        {
+            UiTheme.SectionTitle("Resolution");
+            ImGui.TextDisabled("How sharp the video is rendered. Higher = crisper; capped to your monitor.");
+            ImGui.Spacing();
+            this.DrawResolutionCombo();
+
+            ImGui.Spacing();
+            UiTheme.SectionTitle("Enhancement");
+            ImGui.TextDisabled("One-tap picture cleanup, light to heavy. Advanced has per-effect control.");
+            ImGui.Spacing();
+
+            var current = this.DetectPicturePreset();
+            ImGui.SetNextItemWidth(-1f);
+            if (ImGui.BeginCombo("##picturepreset", PicturePresetNames[current]))
+            {
+                // Only the real presets are selectable; "Custom" is a display-only state shown
+                // when the underlying Advanced values don't match any preset.
+                for (var i = 0; i < PicturePresets.Length; i++)
+                {
+                    var selected = current == i;
+                    if (ImGui.Selectable(PicturePresetNames[i], selected))
+                    {
+                        this.ApplyPicturePreset(i);
+                    }
+
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(PicturePresetHints[i]);
+                    }
+
+                    if (selected)
+                    {
+                        ImGui.SetItemDefaultFocus();
+                    }
+                }
+
+                ImGui.EndCombo();
+            }
+
+            ImGui.TextDisabled(PicturePresetHints[current]);
+
+            ImGui.Spacing();
+            this.DrawCompareToggle();
+            ImGui.TreePop();
+        }
+    }
+
+    // Maps the current upscale/deband/artifact settings to a preset index, or the "Custom"
+    // slot when they don't match one (e.g. the user hand-tuned things in Advanced).
+    private int DetectPicturePreset()
+    {
+        for (var i = 0; i < PicturePresets.Length; i++)
+        {
+            var (up, band, art) = PicturePresets[i];
+            if (this.upscaleMode == up && this.debandMode == band && this.artifactMode == art)
+            {
+                return i;
+            }
+        }
+
+        return PicturePresetNames.Length - 1; // Custom
+    }
+
+    private void ApplyPicturePreset(int index)
+    {
+        if (index < 0 || index >= PicturePresets.Length)
+        {
+            return; // "Custom" is not applied — it only reflects hand-tuned Advanced values.
+        }
+
+        var (up, band, art) = PicturePresets[index];
+        this.upscaleMode = up;
+        this.debandMode = band;
+        this.artifactMode = art;
+        this.config.UpscaleMode = up;
+        this.config.DebandMode = band;
+        this.config.ArtifactMode = art;
+        this.config.Save();
+        this.status = $"Enhancement: {PicturePresetNames[index]}.";
+    }
+
+    private void DrawResolutionControls()
+    {
+        UiTheme.SectionTitle("Resolution");
+        ImGui.TextDisabled("How sharp the video is rendered before it reaches the screen. Doesn't change the screen's size in-world.");
+        ImGui.Spacing();
+
+        this.DrawResolutionCombo();
+
+        ImGui.Spacing();
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo("Capture##capturemode", CaptureModeNames[Math.Clamp(this.captureMode, 0, CaptureModeNames.Length - 1)]))
+        {
+            for (var i = 0; i < CaptureModeNames.Length; i++)
+            {
+                var selected = this.captureMode == i;
+                if (ImGui.Selectable(CaptureModeNames[i], selected) && i != this.captureMode)
+                {
+                    this.captureMode = i;
+                    this.config.CaptureMode = i;
+                    this.config.Save();
+                    this.RestartRendererForSetting($"Capture mode: {CaptureModeNames[i]}");
+                }
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(CaptureModeHints[i]);
+                }
+
+                if (selected)
+                {
+                    ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.TextDisabled(CaptureModeHints[Math.Clamp(this.captureMode, 0, CaptureModeHints.Length - 1)]);
+
+        ImGui.Spacing();
+        if (ImGui.Checkbox("Foreground capture (experimental)", ref this.foregroundCapture))
+        {
+            this.config.ForegroundCapture = this.foregroundCapture;
+            this.config.Save();
+            this.RestartRendererForSetting($"Foreground capture {(this.foregroundCapture ? "on" : "off")}");
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(
+                "Tries to lift the ~50fps cap by keeping the hidden browser composited at full\n" +
+                "refresh rate (DWM cloak + top-most) instead of throttled behind the game.\n" +
+                "Invisible and click-through. Experimental: if the screen goes black or misbehaves,\n" +
+                "turn it off. Best paired with FFXIV in Borderless Windowed mode.");
+        }
+
+        ImGui.TextDisabled("Experimental fps fix — keeps the source composited at full rate. Turn off if the screen breaks.");
+    }
+
+    // Resolution and capture mode are both fixed when the bridge launches (capture window
+    // size / browser args / frame pool), so applying either relaunches the bridge with the
+    // same URL if a video is playing. Otherwise it just takes effect on the next start.
+    private void RestartRendererForSetting(string label)
+    {
+        var running = this.rendererProcess is not null && !this.rendererProcess.HasExited;
+        if (running && !string.IsNullOrWhiteSpace(this.lastRendererUrl))
+        {
+            this.status = $"{label}. Restarting the screen…";
+            this.StartRendererBridge(this.lastRendererUrl, this.lastRendererShareUrl);
+        }
+        else
+        {
+            this.status = $"{label}. Applies when the screen next starts.";
+        }
+    }
+
+    private (int Width, int Height) ResolveCaptureSize()
+    {
+        var index = Math.Clamp(this.screenResolution, 0, ScreenResolutionSizes.Length - 1);
+        return ScreenResolutionSizes[index];
+    }
+
+    // Post-process cleanup for compressed video: debanding (smooths gradient stair-steps) and
+    // artifact cleanup (softens blocking/mosquito noise). Both off by default and applied live
+    // in the shader — no bridge restart needed.
+    private void DrawEnhancementControls()
+    {
+        UiTheme.SectionTitle("Enhancement");
+        ImGui.TextDisabled("Live cleanup for compressed video (YouTube). Applies instantly — no restart. Off by default.");
+        ImGui.Spacing();
+
+        this.DrawEnhanceCombo("Debanding", "deband", ref this.debandMode, m => this.config.DebandMode = m,
+            "Smooths color banding in skies, gradients and dark scenes. The standout fix — try Medium.");
+        ImGui.Spacing();
+        this.DrawEnhanceCombo("Artifact cleanup", "artifact", ref this.artifactMode, m => this.config.ArtifactMode = m,
+            "Reduces blocky compression and mosquito noise on rough streams. Trades a little sharpness.");
+
+        ImGui.Spacing();
+        this.DrawCompareToggle();
+    }
+
+    // A/B split-view toggle. Shared by the casual Screen tab and Advanced — both flip the same
+    // flag, so they stay in sync and the shader picks it up on the next frame.
+    private void DrawCompareToggle()
+    {
+        if (ImGui.Checkbox("A/B compare (split view)", ref this.compareSplit))
+        {
+            this.status = this.compareSplit
+                ? "Compare on: left half processed, right half raw."
+                : "Compare off.";
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(
+                "Splits the in-world screen: the LEFT half gets the full pipeline (upscaling +\n" +
+                "enhancement), the RIGHT half is raw source, with a divider line. The seam makes\n" +
+                "even subtle effects obvious. Turn up Debanding/Sharpen while this is on to see it.");
+        }
+
+        ImGui.TextDisabled("Left = processed, right = raw. Diagnostic only — turn off when done.");
+    }
+
+    private void DrawEnhanceCombo(string label, string id, ref int mode, Action<int> persist, string description)
+    {
+        var clamped = Math.Clamp(mode, 0, EnhanceModeNames.Length - 1);
+
+        // Explicit label above the full-width combo: a full-width combo pushes its own label
+        // off-screen, so name it here instead.
+        ImGui.Text(label);
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo($"##{id}", EnhanceModeNames[clamped]))
+        {
+            for (var i = 0; i < EnhanceModeNames.Length; i++)
+            {
+                var selected = clamped == i;
+                if (ImGui.Selectable(EnhanceModeNames[i], selected))
+                {
+                    mode = i;
+                    persist(i);
+                    this.config.Save();
+                    this.status = $"{label}: {EnhanceModeNames[i]}.";
+                }
+
+                if (selected)
+                {
+                    ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.TextDisabled(description);
+    }
+
+    private (float Deband, float Artifact) ResolveEnhance()
+    {
+        var deband = DebandStrengths[Math.Clamp(this.debandMode, 0, DebandStrengths.Length - 1)];
+        var artifact = ArtifactStrengths[Math.Clamp(this.artifactMode, 0, ArtifactStrengths.Length - 1)];
+        return (deband, artifact);
+    }
+
+    // Video upscaling: a friendly quality preset, with a Custom mode that exposes the
+    // raw filter + sharpen. Off keeps the screen exactly as it renders today.
+    private void DrawUpscalingControls()
+    {
+        this.DrawResolutionControls();
+        ImGui.Spacing();
+
+        UiTheme.SectionTitle("Upscaling");
+        ImGui.TextDisabled("Cleans up the picture when the screen is large or close. Off keeps the original look.");
+        ImGui.Spacing();
+
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.BeginCombo("Quality", UpscaleModeNames[Math.Clamp(this.upscaleMode, 0, UpscaleModeNames.Length - 1)]))
+        {
+            for (var i = 0; i < UpscaleModeNames.Length; i++)
+            {
+                var selected = this.upscaleMode == i;
+                if (ImGui.Selectable(UpscaleModeNames[i], selected))
+                {
+                    this.upscaleMode = i;
+                    this.config.UpscaleMode = i;
+                    this.config.Save();
+                    this.status = $"Upscaling: {UpscaleModeNames[i]}.";
+                }
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(UpscaleModeHints[i]);
+                }
+
+                if (selected)
+                {
+                    ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.TextDisabled(UpscaleModeHints[Math.Clamp(this.upscaleMode, 0, UpscaleModeHints.Length - 1)]);
+
+        if (this.upscaleMode == 4)
+        {
+            ImGui.TextColored(UiTheme.Accent, "Ultra may impact FPS.");
+        }
+
+        // Custom (mode 5) unlocks the raw filter and sharpen amount.
+        if (this.upscaleMode == 5)
+        {
+            ImGui.Spacing();
+            ImGui.SetNextItemWidth(-1f);
+            if (ImGui.BeginCombo("Filter", UpscaleFilterNames[Math.Clamp(this.upscaleFilter, 0, UpscaleFilterNames.Length - 1)]))
+            {
+                for (var i = 0; i < UpscaleFilterNames.Length; i++)
+                {
+                    var selected = this.upscaleFilter == i;
+                    if (ImGui.Selectable(UpscaleFilterNames[i], selected))
+                    {
+                        this.upscaleFilter = i;
+                        this.config.UpscaleFilter = i;
+                        this.config.Save();
+                    }
+
+                    if (selected)
+                    {
+                        ImGui.SetItemDefaultFocus();
+                    }
+                }
+
+                ImGui.EndCombo();
+            }
+
+            UiTheme.PushSliderAccent();
+            ImGui.SetNextItemWidth(-1f);
+            if (ImGui.SliderFloat("Sharpen", ref this.upscaleSharpness, 0f, 1f, "%.2f"))
+            {
+                this.upscaleSharpness = Math.Clamp(this.upscaleSharpness, 0f, 1f);
+                this.config.UpscaleSharpness = this.upscaleSharpness;
+                this.config.Save();
+            }
+
+            UiTheme.PopSliderAccent();
+        }
+
+        ImGui.Spacing();
+        this.DrawEnhancementControls();
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        if (ImGui.Checkbox("Debug readout", ref this.upscaleDebug))
+        {
+            this.config.UpscaleDebugOverlay = this.upscaleDebug;
+            this.config.Save();
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Shows the resolved filter, sharpen amount and source resolution so you can confirm upscaling is actually doing something.");
+        }
+
+        if (this.upscaleDebug)
+        {
+            this.DrawUpscaleDebugReadout();
+        }
+
+        ImGui.Spacing();
+        ImGui.TextDisabled("Only affects the 3D screen (not the 2D fallback).");
+    }
+
+    // Live confirmation that the upscaling settings are reaching the shader. Reads the
+    // same resolved (filter, sharpen) pair the renderer gets each frame, plus the source
+    // resolution the shader actually samples, so it's the ground truth — not a guess.
+    private void DrawUpscaleDebugReadout()
+    {
+        var (filterMode, sharpen) = this.ResolveUpscale();
+        var srcWidth = this.presentHookProbe.NativeSourceWidth;
+        var srcHeight = this.presentHookProbe.NativeSourceHeight;
+        var knownSource = srcWidth > 0 && srcHeight > 0;
+        var filterName = UpscaleFilterNames[Math.Clamp(filterMode, 0, UpscaleFilterNames.Length - 1)];
+
+        ImGui.Indent();
+        ImGui.TextDisabled($"Resolved: {filterName}, sharpen {sharpen:0.00}");
+
+        var (deband, artifact) = this.ResolveEnhance();
+        ImGui.TextDisabled($"Enhance: deband {deband:0.00}, cleanup {artifact:0.00}");
+
+        if (knownSource)
+        {
+            ImGui.TextDisabled($"Source: {srcWidth} x {srcHeight}");
+        }
+        else
+        {
+            ImGui.TextColored(UiTheme.Accent, "Source: unknown - filters, sharpen & enhance all skipped");
+        }
+
+        // Live capture rate from the browser. Low here (well under the video's fps) means the
+        // choppiness is source-side (decode/capture); high here but still choppy is game-side.
+        var running = this.rendererProcess is not null && !this.rendererProcess.HasExited;
+        if (running && this.captureFps > 0f)
+        {
+            ImGui.TextDisabled($"Capture: {this.captureFps:0} fps arriving");
+        }
+        else if (running)
+        {
+            ImGui.TextDisabled("Capture: measuring…");
+        }
+
+        // The shader only diverges from the "Off" look when a real source size is known
+        // and either a non-bilinear filter or some sharpen is in play.
+        var active = knownSource && (filterMode != 0 || sharpen > 0.001f);
+        if (active)
+        {
+            ImGui.TextColored(UiTheme.Accent, "Status: ACTIVE (differs from Off)");
+        }
+        else
+        {
+            ImGui.TextDisabled("Status: idle (matches Off - try Ultra or Custom + Sharpen)");
+        }
+
+        ImGui.Unindent();
     }
 
     private void DrawStyleTab()
@@ -3012,6 +3567,21 @@ public sealed class MainWindow : Window, IDisposable
         this.status = $"Applied {CinemaPresetNames[this.cinemaPresetIndex]} preset.";
     }
 
+    // Turns the friendly upscaling preset into the renderer's (filter, sharpen) pair.
+    // Off is (bilinear, 0) — byte-identical to the original screen.
+    private (int Filter, float Sharpness) ResolveUpscale()
+    {
+        return this.upscaleMode switch
+        {
+            0 => (0, 0f),      // Off — the original bilinear look
+            1 => (0, 0.15f),   // Fast — bilinear + light sharpen
+            2 => (1, 0f),      // Balanced — bicubic
+            3 => (2, 0f),      // Quality — Lanczos
+            4 => (2, 0.40f),   // Ultra — Lanczos + strong sharpen
+            _ => (Math.Clamp(this.upscaleFilter, 0, 2), Math.Clamp(this.upscaleSharpness, 0f, 1f)),
+        };
+    }
+
     private void DrawSettingsTab(bool running)
     {
         ImGui.Spacing();
@@ -3026,21 +3596,60 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
+        if (UiTheme.BeginCollapsibleSection("Watch2Gether room cleanup"))
+        {
+            ImGui.TextWrapped("Watch2Gether does not expose a bulk delete API for temporary rooms. Use the dashboard to delete old rooms from your account; the plugin can also forget the current share code here.");
+            ImGui.Spacing();
+
+            if (UiTheme.PrimaryButton("Open room dashboard"))
+            {
+                this.OpenUrl("https://w2g.tv/en/account/dashboard/");
+                this.status = "Opened the Watch2Gether room dashboard.";
+            }
+
+            ImGui.SameLine();
+            var hasRoom = !string.IsNullOrWhiteSpace(this.lastWatch2GetherRoomUrl) ||
+                          !string.IsNullOrWhiteSpace(this.lastWatch2GetherRoomCode);
+            if (!hasRoom)
+            {
+                ImGui.BeginDisabled();
+            }
+
+            if (ImGui.Button("Forget current room"))
+            {
+                this.lastWatch2GetherRoomUrl = string.Empty;
+                this.lastWatch2GetherRoomCode = string.Empty;
+                this.lastOutboundWatch2GetherRoomKey = string.Empty;
+                this.lastOutboundWatch2GetherRoomUtc = DateTime.MinValue;
+                this.status = "Cleared the current Watch2Gether room from the plugin.";
+            }
+
+            if (!hasRoom)
+            {
+                ImGui.EndDisabled();
+            }
+
+            ImGui.TreePop();
+        }
+
+        ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
 
         // Everything below is niche, so it stays collapsed by default and out of the way.
-        if (ImGui.CollapsingHeader("Legacy party sync (chat channel)"))
+        if (UiTheme.BeginCollapsibleSection("Legacy party sync (chat channel)"))
         {
             ImGui.Spacing();
             this.DrawLegacyPartySync(running);
             ImGui.Spacing();
+            ImGui.TreePop();
         }
 
-        if (ImGui.CollapsingHeader("Diagnostics & troubleshooting"))
+        if (UiTheme.BeginCollapsibleSection("Diagnostics & troubleshooting"))
         {
             ImGui.Spacing();
             this.DrawDiagnostics();
+            ImGui.TreePop();
         }
     }
 
@@ -3409,6 +4018,15 @@ public sealed class MainWindow : Window, IDisposable
             this.presentHookProbe.SetNativeTexture(0);
             return;
         }
+
+        var (upscaleFilterMode, upscaleSharpenAmount) = this.ResolveUpscale();
+        this.presentHookProbe.NativeUpscaleFilter = upscaleFilterMode;
+        this.presentHookProbe.NativeUpscaleSharpness = upscaleSharpenAmount;
+
+        var (debandStrength, artifactStrength) = this.ResolveEnhance();
+        this.presentHookProbe.NativeDebandStrength = debandStrength;
+        this.presentHookProbe.NativeArtifactStrength = artifactStrength;
+        this.presentHookProbe.NativeCompareSplit = this.compareSplit ? 0.5f : 0f;
 
         if (this.worldScreenLockAspect)
         {
@@ -3833,12 +4451,28 @@ public sealed class MainWindow : Window, IDisposable
 
             using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(infoPath));
             if (document.RootElement.TryGetProperty("frames", out var framesElement) &&
-                framesElement.TryGetInt64(out var frames) &&
-                frames <= 0)
+                framesElement.TryGetInt64(out var frames))
             {
-                this.sharedTextureHandle = 0;
-                this.presentHookProbe.SetNativeSharedTexture(0);
-                return;
+                if (frames <= 0)
+                {
+                    this.sharedTextureHandle = 0;
+                    this.presentHookProbe.SetNativeSharedTexture(0);
+                    return;
+                }
+
+                // The sidecar's frame counter is cumulative and rewritten every ~2s, so the
+                // delta between two writes gives the live capture rate arriving from the browser.
+                if (this.lastCaptureFpsSampleUtc != DateTime.MinValue)
+                {
+                    var elapsed = (writeTime - this.lastCaptureFpsSampleUtc).TotalSeconds;
+                    if (elapsed > 0.1)
+                    {
+                        this.captureFps = (float)((frames - this.lastCaptureFrameCount) / elapsed);
+                    }
+                }
+
+                this.lastCaptureFrameCount = frames;
+                this.lastCaptureFpsSampleUtc = writeTime;
             }
 
             var handle = document.RootElement.GetProperty("handle").GetInt64();

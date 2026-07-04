@@ -28,11 +28,37 @@ internal static class Program
         long? adapterLuid = null;
         var adBlockEnabled = true;
         string? watch2GetherShareUrl = null;
+        var captureSize = new Size(1280, 720);
+        var captureMode = 0;
+        var foregroundCapture = false;
         for (var i = 3; i < args.Length - 1; i++)
         {
+            if (args[i] == "--capture-mode" && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedMode))
+            {
+                captureMode = Math.Clamp(parsedMode, 0, 2);
+                i++;
+                continue;
+            }
+
+            if (args[i] == "--foreground-capture")
+            {
+                foregroundCapture = string.Equals(args[i + 1], "enabled", StringComparison.OrdinalIgnoreCase) ||
+                                    args[i + 1] == "1" ||
+                                    string.Equals(args[i + 1], "true", StringComparison.OrdinalIgnoreCase);
+                i++;
+                continue;
+            }
+
             if (args[i] == "--adapter-luid" && long.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedLuid))
             {
                 adapterLuid = parsedLuid;
+                i++;
+                continue;
+            }
+
+            if (args[i] == "--capture-size" && TryParseSize(args[i + 1], out var parsedSize))
+            {
+                captureSize = parsedSize;
                 i++;
                 continue;
             }
@@ -53,7 +79,24 @@ internal static class Program
 
         }
 
-        Application.Run(new PlayerForm(url, captureFramePath, adapterLuid, adBlockEnabled, watch2GetherShareUrl));
+        Application.Run(new PlayerForm(url, captureFramePath, adapterLuid, adBlockEnabled, watch2GetherShareUrl, captureSize, captureMode, foregroundCapture));
+    }
+
+    // Parses a "WIDTHxHEIGHT" capture size (e.g. "1920x1080"), clamped to a sane range so
+    // a bad argument can never spawn a zero-size or absurdly large capture window.
+    private static bool TryParseSize(string value, out Size size)
+    {
+        size = new Size(1280, 720);
+        var parts = value.Split('x', 'X');
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var width) ||
+            !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var height))
+        {
+            return false;
+        }
+
+        size = new Size(Math.Clamp(width, 320, 3840), Math.Clamp(height, 180, 2160));
+        return true;
     }
 }
 
@@ -67,7 +110,23 @@ internal sealed class PlayerForm : Form
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const int WmNcLButtonDown = 0x00A1;
     private const int HtCaption = 0x0002;
-    private static readonly Size DesktopCaptureSize = new(1280, 720);
+    private const int DwmwaCloak = 13;
+    private const int GwlExStyle = -20;
+    private const int WsExTransparent = 0x20;
+    // The pixel size the browser renders and WGC captures at. Set once at launch from
+    // the plugin's Resolution setting (720p by default); higher = sharper in-world screen.
+    private readonly Size desktopCaptureSize;
+
+    // BrowserArguments plus the launch-time --window-size matching the capture size.
+    private readonly string browserArguments;
+
+    // Frame pool buffer count from the capture mode (Default 3, higher modes 5): more slack
+    // means fewer dropped frames when a CopyResource is slow, which shows up as higher fps.
+    private readonly int captureBufferCount;
+
+    // Experimental: cloak the capture window and keep it top-most so DWM composites it at
+    // full refresh (defeats occlusion throttling) while staying invisible over the game.
+    private readonly bool foregroundCapture;
     // Desktop UA, applied on every init path. Watch2Gether and YouTube fall back to
     // their stripped mobile layout (a black player behind a "switch to desktop" link)
     // whenever they think they're on a phone, so we present a plain desktop browser.
@@ -83,7 +142,6 @@ internal sealed class PlayerForm : Form
         // breaks the players' layout into a black screen — do not "simplify" these.)
         "--touch-events=disabled " +
         "--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2 " +
-        "--window-size=1280,720 " +
         "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling " +
         "--disable-backgrounding-occluded-windows " +
         "--disable-renderer-backgrounding " +
@@ -191,12 +249,33 @@ internal sealed class PlayerForm : Form
         "youtubei/v1/log_event",
     ];
 
-    public PlayerForm(string initialUrl, string? captureFramePath, long? adapterLuid, bool adBlockEnabled, string? watch2GetherShareUrl)
+    public PlayerForm(string initialUrl, string? captureFramePath, long? adapterLuid, bool adBlockEnabled, string? watch2GetherShareUrl, Size captureSize, int captureMode, bool foregroundCapture)
     {
+        this.foregroundCapture = foregroundCapture;
         this.captureFramePath = captureFramePath;
         this.adapterLuid = adapterLuid;
         this.adBlockEnabled = adBlockEnabled;
         this.watch2GetherShareUrl = watch2GetherShareUrl;
+        // Windows Graphics Capture can only composite a window up to the physical monitor
+        // size; a larger window (e.g. 1440p/4K on a 1080p screen) runs off the screen edges
+        // and those regions capture as black. Scale the request down to fit the monitor,
+        // preserving aspect ratio, so a too-high pick degrades gracefully instead of going
+        // black. The plugin's debug readout shows the resulting size.
+        var screen = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
+        var fit = Math.Min(1.0,
+            Math.Min((double)screen.Width / captureSize.Width, (double)screen.Height / captureSize.Height));
+        this.desktopCaptureSize = new Size(
+            Math.Max(2, (int)Math.Round(captureSize.Width * fit) & ~1),
+            Math.Max(2, (int)Math.Round(captureSize.Height * fit) & ~1));
+
+        // Capture mode: 0 Default (3 buffers), 1 Smooth (5 buffers). The vsync-uncap path was
+        // removed — it broke WebView2's presentation into the surface WGC captures.
+        this.captureBufferCount = captureMode == 0 ? 3 : 5;
+
+        // Match Chromium's initial window size to the capture size so the page lays out at
+        // the target resolution from the first paint (avoids a 720p->target reflow flash).
+        this.browserArguments = BrowserArguments +
+            $" --window-size={this.desktopCaptureSize.Width},{this.desktopCaptureSize.Height}";
         if (captureFramePath is not null)
         {
             this.controlPath = Path.ChangeExtension(captureFramePath, ".control.json");
@@ -404,7 +483,7 @@ internal sealed class PlayerForm : Form
             // bottom of the z-order behind the game, excluded from the taskbar and
             // Alt-Tab, and never activated - so it is effectively invisible in play.
             this.FormBorderStyle = FormBorderStyle.None;
-            this.ClientSize = DesktopCaptureSize;
+            this.ClientSize = this.desktopCaptureSize;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = new Point(0, 0);
             this.ShowInTaskbar = false;
@@ -465,14 +544,14 @@ internal sealed class PlayerForm : Form
         this.webView.CreationProperties = new CoreWebView2CreationProperties
         {
             UserDataFolder = userDataFolder,
-            AdditionalBrowserArguments = BrowserArguments,
+            AdditionalBrowserArguments = this.browserArguments,
         };
 
         try
         {
             var options = new CoreWebView2EnvironmentOptions
             {
-                AdditionalBrowserArguments = BrowserArguments,
+                AdditionalBrowserArguments = this.browserArguments,
                 AreBrowserExtensionsEnabled = true,
             };
             var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
@@ -829,7 +908,7 @@ internal sealed class PlayerForm : Form
         {
             this.BuryCaptureWindow();
             var infoPath = Path.ChangeExtension(this.captureFramePath, ".shared.json");
-            this.frameStreamer = SharedFrameStreamer.TryStart(this.Handle, infoPath, this.adapterLuid);
+            this.frameStreamer = SharedFrameStreamer.TryStart(this.Handle, infoPath, this.adapterLuid, this.captureBufferCount);
             if (this.frameStreamer is not null)
             {
                 this.captureTimer.Stop();
@@ -1629,6 +1708,9 @@ internal sealed class PlayerForm : Form
                     style.textContent = [
                         'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#000!important;}',
                         'ytd-app,#page-manager,ytd-watch-flexy,#columns,#primary,#primary-inner,#player,#player-container-outer,#player-container-inner,#player-container,#movie_player,.html5-video-player{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;z-index:2147483647!important;background:#000!important;}',
+                        '#w2g-app,#w2g-main,.w2g-app,.w2g-room,.w2g-player,.w2g-video,.w2g-video-container,.room-player,.player-container,[class*=player],[class*=Player],[class*=video],[class*=Video]{max-width:none!important;max-height:none!important;}',
+                        'iframe[src*=youtube],iframe[src*=youtu],iframe[src*=vimeo],iframe[src*=twitch],iframe[src*=dailymotion],iframe[src*=soundcloud]{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;z-index:2147483647!important;background:#000!important;}',
+                        'body:has(iframe[src*=youtube]) > *:not(iframe), body:has(iframe[src*=youtu]) > *:not(iframe){pointer-events:none;}',
                         '#secondary,#masthead-container,ytd-masthead,#below,#comments,#related,.ytp-chrome-top,.ytp-gradient-top{display:none!important;}',
                         'video{width:100%!important;height:100%!important;object-fit:contain!important;}'
                     ].join('\n');
@@ -1637,6 +1719,71 @@ internal sealed class PlayerForm : Form
 
                 window.__videoSyncCssFullscreen = true;
                 window.dispatchEvent(new Event('resize'));
+            }
+
+            function visible(el) {
+                if (!el) return false;
+                var r = el.getBoundingClientRect();
+                var s = getComputedStyle(el);
+                return r.width > 12 && r.height > 12 &&
+                    s.display !== 'none' &&
+                    s.visibility !== 'hidden' &&
+                    Number(s.opacity || 1) > 0.05;
+            }
+
+            function clickLikelyFullscreenButton() {
+                var selectors = [
+                    '.ytp-fullscreen-button',
+                    '[aria-label*=Fullscreen i]',
+                    '[aria-label*="full screen" i]',
+                    '[title*=Fullscreen i]',
+                    '[title*="full screen" i]',
+                    '[class*=fullscreen i]',
+                    '[class*=full-screen i]',
+                    '[data-testid*=fullscreen i]',
+                    '[data-w2g*=fullscreen i]',
+                    '[data-w2g*="fullScreen" i]',
+                    'button,[role=button],a,div,span'
+                ];
+                var seen = new Set();
+                var candidates = [];
+                selectors.forEach(function(selector) {
+                    try {
+                        document.querySelectorAll(selector).forEach(function(el) {
+                            if (seen.has(el) || !visible(el)) return;
+                            seen.add(el);
+                            var label = [
+                                el.getAttribute('aria-label') || '',
+                                el.getAttribute('title') || '',
+                                el.getAttribute('data-testid') || '',
+                                el.getAttribute('data-w2g') || '',
+                                el.className || '',
+                                el.innerText || '',
+                                el.textContent || ''
+                            ].join(' ').toLowerCase();
+                            if (label.indexOf('fullscreen') < 0 &&
+                                label.indexOf('full screen') < 0 &&
+                                label.indexOf('full-screen') < 0 &&
+                                label.indexOf('maximize') < 0 &&
+                                label.indexOf('open_in_full') < 0) {
+                                return;
+                            }
+                            var r = el.getBoundingClientRect();
+                            candidates.push({ el: el, score: (r.bottom * 2) + r.right });
+                        });
+                    } catch (e) {
+                    }
+                });
+
+                candidates.sort(function(a, b) { return b.score - a.score; });
+                for (var i = 0; i < candidates.length; i++) {
+                    try {
+                        candidates[i].el.click();
+                        return true;
+                    } catch (e) {
+                    }
+                }
+                return false;
             }
 
             var currentlyOn = !!(document.fullscreenElement || window.__videoSyncCssFullscreen);
@@ -1665,7 +1812,13 @@ internal sealed class PlayerForm : Form
             if (window.__videoSyncCleanupAds) window.__videoSyncCleanupAds();
             if (window.__videoSyncApplyVideoFill) window.__videoSyncApplyVideoFill();
 
+            clickLikelyFullscreenButton();
+
             var target =
+                document.querySelector('iframe[src*=youtube]') ||
+                document.querySelector('iframe[src*=youtu]') ||
+                document.querySelector('iframe[src*=vimeo]') ||
+                document.querySelector('iframe[src*=twitch]') ||
                 document.querySelector('.html5-video-player') ||
                 document.querySelector('#movie_player') ||
                 document.querySelector('video');
@@ -1679,8 +1832,7 @@ internal sealed class PlayerForm : Form
 
             try {
                 if (!document.fullscreenElement) {
-                    var button = document.querySelector('.ytp-fullscreen-button');
-                    if (button) button.click();
+                    clickLikelyFullscreenButton();
                 }
             } catch (e) {
             }
@@ -2102,6 +2254,12 @@ internal sealed class PlayerForm : Form
     private void ShowBrowserWindow()
     {
         this.browserWindowShown = true;
+
+        // If foreground capture cloaked / click-through'd the window, restore it so the user
+        // can actually see and interact with the browser while navigating. HideBrowserWindow
+        // re-applies both.
+        SetCloaked(this.Handle, false);
+        SetClickThrough(this.Handle, false);
         _ = this.ApplyCaptureInteractionAsync(captureOnly: false);
         if (this.WindowState == FormWindowState.Minimized)
         {
@@ -2115,7 +2273,12 @@ internal sealed class PlayerForm : Form
 
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
         this.FormBorderStyle = this.captureFramePath is not null ? FormBorderStyle.None : FormBorderStyle.Sizable;
-        this.ClientSize = new Size(Math.Min(1280, area.Width), Math.Min(720, area.Height));
+        // While the user is navigating with the window visible, keep it on-screen: the
+        // capture size may exceed the monitor (e.g. 4K), so clamp to the working area here.
+        // It returns to the full capture size when buried again (HideBrowserWindow).
+        this.ClientSize = new Size(
+            Math.Min(this.desktopCaptureSize.Width, area.Width),
+            Math.Min(this.desktopCaptureSize.Height, area.Height));
         this.Location = new Point(
             area.Left + ((area.Width - this.Width) / 2),
             area.Top + ((area.Height - this.Height) / 2));
@@ -2158,7 +2321,7 @@ internal sealed class PlayerForm : Form
 
         this.toolbar.Visible = false;
         this.hintBar.Visible = false;
-        this.ClientSize = DesktopCaptureSize;
+        this.ClientSize = this.desktopCaptureSize;
         this.Location = new Point(0, 0);
         this.BuryCaptureWindow();
     }
@@ -2170,6 +2333,33 @@ internal sealed class PlayerForm : Form
             return;
         }
 
+        if (this.foregroundCapture)
+        {
+            // Experimental path: instead of hiding the window behind the game (where DWM
+            // throttles its composition and caps capture fps), keep it top-most so DWM sees
+            // it as unoccluded and composites it every refresh, then DWM-cloak it so it is
+            // never actually drawn over the game. Cloaking is a DWM attribute, not a window
+            // style, so WGC still accepts and captures the window.
+            //
+            // Belt-and-suspenders: also make it click-through (WS_EX_TRANSPARENT). If cloaking
+            // ever failed, a top-most opaque window could otherwise swallow the game's input;
+            // click-through guarantees input always reaches the game, so the worst case is just
+            // a visible overlay the user can turn off — never a locked game.
+            SetClickThrough(this.Handle, true);
+            SetCloaked(this.Handle, true);
+            SetWindowPos(
+                this.Handle,
+                HwndTopMost,
+                0,
+                0,
+                0,
+                0,
+                SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+            return;
+        }
+
+        SetClickThrough(this.Handle, false);
+        SetCloaked(this.Handle, false);
         this.TopMost = false;
         SetWindowPos(
             this.Handle,
@@ -2179,6 +2369,40 @@ internal sealed class PlayerForm : Form
             0,
             0,
             SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+    }
+
+    // DWM cloaking hides a window from the desktop while DWM keeps compositing its content,
+    // which is exactly what a capture source wants: invisible to the player, still delivering
+    // frames to Windows.Graphics.Capture at full rate.
+    private static void SetCloaked(IntPtr handle, bool cloaked)
+    {
+        try
+        {
+            var value = cloaked ? 1 : 0;
+            DwmSetWindowAttribute(handle, DwmwaCloak, ref value, sizeof(int));
+        }
+        catch
+        {
+            // dwmapi is present on every supported OS; ignore if it ever fails so capture
+            // still runs (just without the experimental composition boost).
+        }
+    }
+
+    // Toggles WS_EX_TRANSPARENT so mouse input passes straight through the window to whatever
+    // is beneath it (the game). Used only in foreground-capture mode as an input safety net.
+    private static void SetClickThrough(IntPtr handle, bool enabled)
+    {
+        try
+        {
+            var ex = (long)GetWindowLongPtr(handle, GwlExStyle);
+            ex = enabled ? (ex | WsExTransparent) : (ex & ~(long)WsExTransparent);
+            SetWindowLongPtr(handle, GwlExStyle, (IntPtr)ex);
+        }
+        catch
+        {
+            // Non-fatal: without click-through the cloak still hides the window; we just lose
+            // the extra input safety net.
+        }
     }
 
     private static void ForceForegroundWindow(IntPtr handle)
@@ -2266,6 +2490,15 @@ internal sealed class PlayerForm : Form
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -2370,11 +2603,11 @@ internal sealed class SharedFrameStreamer : IDisposable
     private SizeInt32 poolSize;
     private bool disposed;
 
-    public static SharedFrameStreamer? TryStart(IntPtr windowHandle, string infoPath, long? adapterLuid)
+    public static SharedFrameStreamer? TryStart(IntPtr windowHandle, string infoPath, long? adapterLuid, int bufferCount)
     {
         try
         {
-            return new SharedFrameStreamer(windowHandle, infoPath, adapterLuid);
+            return new SharedFrameStreamer(windowHandle, infoPath, adapterLuid, bufferCount);
         }
         catch (Exception ex)
         {
@@ -2393,7 +2626,7 @@ internal sealed class SharedFrameStreamer : IDisposable
         }
     }
 
-    private SharedFrameStreamer(IntPtr windowHandle, string infoPath, long? adapterLuid)
+    private SharedFrameStreamer(IntPtr windowHandle, string infoPath, long? adapterLuid, int bufferCount)
     {
         this.infoPath = infoPath;
 
@@ -2420,10 +2653,14 @@ internal sealed class SharedFrameStreamer : IDisposable
 
         this.captureItem = CreateItemForWindow(windowHandle);
         this.poolSize = this.captureItem.Size;
+
+        // Buffer count comes from the capture mode (Default 3, Smooth/High FPS 5): more slack
+        // means a slow CopyResource frame doesn't force WGC to drop the next frame, which
+        // shows up as a lower captured fps. More buffers mostly just add latency.
         this.framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
             this.direct3DDevice,
             DirectXPixelFormat.B8G8R8A8UIntNormalized,
-            2,
+            Math.Clamp(bufferCount, 2, 6),
             this.poolSize);
         this.framePool.FrameArrived += this.OnFrameArrived;
         this.session = this.framePool.CreateCaptureSession(this.captureItem);

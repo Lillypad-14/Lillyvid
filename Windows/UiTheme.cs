@@ -87,6 +87,17 @@ internal static class UiTheme
         return clicked;
     }
 
+    public static bool QuietButton(string label, Vector2 size = default)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.18f, 0.17f, 0.15f, 0.95f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.25f, 0.23f, 0.20f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.30f, 0.27f, 0.22f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.93f, 0.88f, 0.78f, 1f));
+        var clicked = ImGui.Button(label, size);
+        ImGui.PopStyleColor(4);
+        return clicked;
+    }
+
     public static bool IconButton(
         FontAwesomeIcon icon,
         string id,
@@ -149,6 +160,52 @@ internal static class UiTheme
         ImGui.Indent(11f);
         ImGui.TextColored(Accent, text.ToUpperInvariant());
         ImGui.Unindent(11f);
+    }
+
+    public static bool BeginCollapsibleSection(string label, bool defaultOpen = false, bool primary = false, bool forceOpen = false, bool warm = false)
+    {
+        var flags = ImGuiTreeNodeFlags.Framed |
+                    ImGuiTreeNodeFlags.SpanAvailWidth |
+                    ImGuiTreeNodeFlags.FramePadding |
+                    ImGuiTreeNodeFlags.AllowItemOverlap;
+        if (defaultOpen)
+        {
+            flags |= ImGuiTreeNodeFlags.DefaultOpen;
+        }
+
+        if (forceOpen)
+        {
+            ImGui.SetNextItemOpen(true, ImGuiCond.Always);
+        }
+
+        var header = primary
+            ? new Vector4(0.17f, 0.145f, 0.105f, 0.96f)
+            : warm
+                ? new Vector4(0.18f, 0.145f, 0.09f, 0.92f)
+                : new Vector4(0.12f, 0.11f, 0.095f, 0.92f);
+        var hovered = primary
+            ? new Vector4(0.23f, 0.19f, 0.13f, 1f)
+            : warm
+                ? new Vector4(0.33f, 0.245f, 0.13f, 0.96f)
+                : new Vector4(0.18f, 0.16f, 0.13f, 0.96f);
+        var active = primary
+            ? new Vector4(0.28f, 0.23f, 0.15f, 1f)
+            : warm
+                ? new Vector4(0.42f, 0.31f, 0.15f, 1f)
+                : new Vector4(0.22f, 0.19f, 0.15f, 1f);
+        var text = primary
+            ? new Vector4(0.98f, 0.86f, 0.58f, 1f)
+            : warm
+                ? new Vector4(0.96f, 0.88f, 0.70f, 1f)
+                : new Vector4(0.91f, 0.86f, 0.75f, 1f);
+
+        ImGui.PushStyleColor(ImGuiCol.Header, header);
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, hovered);
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, active);
+        ImGui.PushStyleColor(ImGuiCol.Text, text);
+        var open = ImGui.TreeNodeEx(label, flags);
+        ImGui.PopStyleColor(4);
+        return open;
     }
 
     public static void StatusDot(Vector4 color)
