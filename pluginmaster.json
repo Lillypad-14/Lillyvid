@@ -17,8 +17,8 @@
     "IsHide":  false,
     "IsTestingExclusive":  false,
     "DownloadCount":  0,
-    "DownloadLinkInstall":  "https://github.com/Lillypad-14/Lillyvid/releases/download/v0.0.0.1/VideoSyncPrototype.zip",
-    "DownloadLinkUpdate":  "https://github.com/Lillypad-14/Lillyvid/releases/download/v0.0.0.1/VideoSyncPrototype.zip",
+    "DownloadLinkInstall":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype.zip",
+    "DownloadLinkUpdate":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype.zip",
     "DownloadLinkTesting":  null,
     "LastUpdate":  1783165083
 }
