@@ -80,8 +80,9 @@ if ($WritePluginMaster) {
     $pluginMasterJson = "[`n" + ($entry | ConvertTo-Json -Depth 8) + "`n]"
     $artifactPluginMaster = Join-Path $artifactRoot "pluginmaster.json"
     $rootPluginMaster = Join-Path $repoRoot "pluginmaster.json"
-    Set-Content -LiteralPath $artifactPluginMaster -Value $pluginMasterJson -Encoding UTF8
-    Set-Content -LiteralPath $rootPluginMaster -Value $pluginMasterJson -Encoding UTF8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($artifactPluginMaster, $pluginMasterJson, $utf8NoBom)
+    [System.IO.File]::WriteAllText($rootPluginMaster, $pluginMasterJson, $utf8NoBom)
     Write-Host "Plugin master:"
     Write-Host $rootPluginMaster
 }
