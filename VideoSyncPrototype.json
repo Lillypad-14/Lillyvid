@@ -1,0 +1,12 @@
+{
+  "Author": "clemm",
+  "Name": "Video Sync Prototype",
+  "Punchline": "Shared Watch2Gether rooms on an in-world TV.",
+  "Description": "Create and join Watch2Gether rooms from inside FFXIV, then watch them on a styled in-world TV. Use /videosync to open the window.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "watch2gether",
+    "video",
+    "tv"
+  ]
+}

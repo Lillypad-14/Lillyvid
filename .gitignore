@@ -1,0 +1,27 @@
+bin/
+obj/
+.vs/
+.idea/
+.vscode/
+
+# Local build/package outputs
+artifacts/
+*.nupkg
+
+# Runtime bridge files written beside the dev build
+videosync-preview*.json
+videosync-preview*.png
+*.tmp
+*.error.txt
+
+# Local SDKs/tools/backups
+.dotnet/
+emergency-backups/
+*.7z
+*.zip
+
+# OS/editor noise
+Thumbs.db
+desktop.ini
+*.user
+*.suo

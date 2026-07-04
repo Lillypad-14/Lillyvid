@@ -1,0 +1,25 @@
+[
+  {
+    "Author": "clemm",
+    "Name": "Video Sync Prototype",
+    "InternalName": "VideoSyncPrototype",
+    "AssemblyVersion": "0.0.0.1",
+    "Description": "Create and join Watch2Gether rooms from inside FFXIV, then watch them on a styled in-world TV. Use /videosync to open the window.",
+    "Punchline": "Shared Watch2Gether rooms on an in-world TV.",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "RepoUrl": "https://github.com/YOUR_GITHUB_NAME/YOUR_REPO_NAME",
+    "Tags": [
+      "watch2gether",
+      "video",
+      "tv"
+    ],
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadCount": 0,
+    "DownloadLinkInstall": "https://github.com/YOUR_GITHUB_NAME/YOUR_REPO_NAME/releases/download/v0.0.0.1/VideoSyncPrototype.zip",
+    "DownloadLinkUpdate": "https://github.com/YOUR_GITHUB_NAME/YOUR_REPO_NAME/releases/download/v0.0.0.1/VideoSyncPrototype.zip",
+    "DownloadLinkTesting": null,
+    "LastUpdate": 1783123200
+  }
+]
