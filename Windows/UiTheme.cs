@@ -224,7 +224,11 @@ internal static class UiTheme
         ImGui.PushStyleColor(ImGuiCol.ChildBg, CardBg);
         ImGui.PushStyleColor(ImGuiCol.Border, CardBorder);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(CardPadding, CardPadding));
-        return ImGui.BeginChild(id, new Vector2(0f, height), true, ImGuiWindowFlags.AlwaysUseWindowPadding);
+        return ImGui.BeginChild(
+            id,
+            new Vector2(0f, height),
+            true,
+            ImGuiWindowFlags.AlwaysUseWindowPadding | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
     }
 
     public static void EndCard()

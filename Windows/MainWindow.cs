@@ -14,12 +14,14 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Windowing;
+using VideoSyncPrototype.Emotes;
 using VideoSyncPrototype.Rendering;
 
 namespace VideoSyncPrototype.Windows;
 
 public sealed class MainWindow : Window, IDisposable
 {
+    private const string DefaultStatus = "Ready. Paste a YouTube link on the Watch tab to get started.";
     private const double SoftSyncDriftThresholdSeconds = 0.35;
     private const double RunningSyncDriftThresholdSeconds = 1.25;
     private const double StartupSyncDriftThresholdSeconds = 0.8;
@@ -111,7 +113,7 @@ public sealed class MainWindow : Window, IDisposable
     private DateTime discoveredPartyUtc = DateTime.MinValue;
     private string generatedCode = string.Empty;
     private string pasteCode = string.Empty;
-    private string status = "Ready. Paste a YouTube link on the Watch tab to get started.";
+    private string status = DefaultStatus;
     private string decodedSummary = string.Empty;
     private Process? rendererProcess;
     private DateTime rendererStartedUtc;
@@ -186,14 +188,16 @@ public sealed class MainWindow : Window, IDisposable
     private string realRendererProbe = "Not probed yet.";
     private readonly PresentHookProbe presentHookProbe = new();
     private readonly PlayerSearch.PlayerSearchTab playerSearchTab = new();
+    private readonly EmoteRemapperTab emoteRemapperTab;
 
     public VideoSurfaceWindow SurfaceWindow { get; }
 
-    public MainWindow(string pluginDirectory, Configuration config)
+    internal MainWindow(string pluginDirectory, Configuration config, EmoteRemapperService emoteRemapperService)
         : base("Lillypad Toolkit###VideoSyncPrototypeMain")
     {
         this.pluginDirectory = pluginDirectory;
         this.config = config;
+        this.emoteRemapperTab = new EmoteRemapperTab(config, emoteRemapperService);
         this.adBlockEnabled = config.AdBlockEnabled;
         this.upscaleMode = Math.Clamp(config.UpscaleMode, 0, UpscaleModeNames.Length - 1);
         this.upscaleFilter = Math.Clamp(config.UpscaleFilter, 0, UpscaleFilterNames.Length - 1);
@@ -234,7 +238,10 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.Spacing();
         }
 
-        var footerHeight = (ImGui.GetTextLineHeightWithSpacing() * 2f) + ImGui.GetStyle().ItemSpacing.Y;
+        var showStatusBar = !string.Equals(this.status, DefaultStatus, StringComparison.Ordinal);
+        var footerHeight = showStatusBar
+            ? (ImGui.GetTextLineHeightWithSpacing() * 2f) + ImGui.GetStyle().ItemSpacing.Y
+            : 0f;
         ImGui.BeginChild("##videosync-body", new Vector2(0f, -footerHeight));
 
         // Top-level features live side by side here. Each existing video screen stays a
@@ -254,11 +261,20 @@ public sealed class MainWindow : Window, IDisposable
                 ImGui.EndTabItem();
             }
 
+            if (ImGui.BeginTabItem("Emote Remapper"))
+            {
+                this.emoteRemapperTab.Draw();
+                ImGui.EndTabItem();
+            }
+
             ImGui.EndTabBar();
         }
 
         ImGui.EndChild();
-        this.DrawStatusBar(running);
+        if (showStatusBar)
+        {
+            this.DrawStatusBar(running);
+        }
     }
 
     // The original four video tabs, unchanged — just nested under the "Video" top-level tab.

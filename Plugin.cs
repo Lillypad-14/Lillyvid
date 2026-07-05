@@ -7,6 +7,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using VideoSyncPrototype.Emotes;
 using VideoSyncPrototype.Windows;
 
 namespace VideoSyncPrototype;
@@ -20,9 +21,11 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
+    [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
     [PluginService] internal static IClientState ClientState { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
@@ -32,6 +35,7 @@ public sealed class Plugin : IDalamudPlugin
     private static readonly Regex LegacySnowSyncRegex = new(@"VSYNC1:(F14YT1-[A-Za-z0-9_-]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly MainWindow mainWindow;
+    private readonly EmoteRemapperService emoteRemapperService;
     private readonly MapMarkers.MapMarkerService mapMarkerService = new();
     private readonly WindowSystem windowSystem = new("VideoSyncPrototype");
     internal static GameChatSender ChatSender { get; private set; } = null!;
@@ -42,7 +46,8 @@ public sealed class Plugin : IDalamudPlugin
         ChatSender = new GameChatSender();
         Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         var pluginDirectory = PluginInterface.AssemblyLocation.Directory?.FullName ?? Directory.GetCurrentDirectory();
-        this.mainWindow = new MainWindow(pluginDirectory, Config);
+        this.emoteRemapperService = new EmoteRemapperService(Config);
+        this.mainWindow = new MainWindow(pluginDirectory, Config, this.emoteRemapperService);
         this.windowSystem.AddWindow(this.mainWindow);
         this.windowSystem.AddWindow(this.mainWindow.SurfaceWindow);
 
@@ -74,6 +79,7 @@ public sealed class Plugin : IDalamudPlugin
         }
         this.windowSystem.RemoveAllWindows();
         this.mainWindow.Dispose();
+        this.emoteRemapperService.Dispose();
     }
 
     private void OnCommand(string command, string args)

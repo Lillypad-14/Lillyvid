@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Configuration;
 
@@ -94,8 +96,26 @@ public sealed class Configuration : IPluginConfiguration
     public Vector4 MarkFcColor { get; set; } = new(0.44f, 0.68f, 1.0f, 1f);
     public Vector4 MarkEveryoneColor { get; set; } = new(0.90f, 0.88f, 0.82f, 1f);
 
+    // --- Emote remapper / locked-emote carrier swaps ----------------------------------
+
+    public bool EmoteRemapperEnabled { get; set; } = true;
+
+    public List<EmoteRemapEntry> EmoteRemaps { get; set; } = [];
+
     public void Save()
     {
         Plugin.PluginInterface.SavePluginConfig(this);
     }
+}
+
+[Serializable]
+public sealed class EmoteRemapEntry
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = "New remap";
+    public string TargetEmoteCommand { get; set; } = "/golddance";
+    public string CarrierEmoteCommand { get; set; } = "/dance";
+    public bool AutoCarrier { get; set; } = true;
+    public string TriggerCommand { get; set; } = string.Empty;
+    public bool Enabled { get; set; } = true;
 }

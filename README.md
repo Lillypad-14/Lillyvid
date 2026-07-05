@@ -12,6 +12,10 @@ Use `/lilly` or `/pad` in game to open the plugin window.
 - Native world-space TV rendering with depth, so players can stand in front of it.
 - TV size, height, distance, stretch, and placement controls.
 - Style tab with optional frame skins, ambient glow, and cinema presets.
+- Search nearby players, flag them on the map, examine them, view adventurer plates, or open Lodestone searches.
+- Show configurable friend, Free Company, and nearby-player markers on the minimap and main map.
+- Remap Penumbra dance/emote mods from locked emotes onto emotes you own.
+- Searchable emote presets, automatic unlocked-carrier selection, and duo/group position alignment.
 - No constant playback-sync spam through chat. Watch2Gether handles play, pause, seek, and room state.
 
 ## Requirements

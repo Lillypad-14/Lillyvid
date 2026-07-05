@@ -16,6 +16,7 @@ namespace VideoSyncPrototype.PlayerSearch;
 internal sealed class PlayerSearchTab
 {
     private readonly PlayerScanner scanner = new();
+    private readonly PlayerProfileService profiles = new();
     private string searchText = string.Empty;
     private List<NearbyPlayer> results = [];
     private bool hasSearched;
@@ -203,10 +204,14 @@ internal sealed class PlayerSearchTab
 
     private void DrawPlayerCard(int index, NearbyPlayer player, string? zoneName)
     {
-        var cardHeight = ImGui.GetFrameHeight() + ImGui.GetTextLineHeightWithSpacing() + (UiTheme.CardPadding * 2f);
+        var cardHeight = (ImGui.GetTextLineHeightWithSpacing() * 2f) + ImGui.GetFrameHeight() +
+                         (UiTheme.CardPadding * 2f) + (ImGui.GetStyle().ItemSpacing.Y * 2f);
         if (UiTheme.BeginCard($"##playersearch-card-{index}", cardHeight))
         {
-            ImGui.TextColored(UiTheme.AccentHovered, player.Name);
+            var title = string.IsNullOrWhiteSpace(player.HomeWorld)
+                ? player.Name
+                : $"{player.Name}  -  {player.HomeWorld}";
+            ImGui.TextColored(UiTheme.AccentHovered, title);
 
             var haveCoords = MapCoordinateConverter.TryWorldToMapCoordinates(player.WorldPosition, out var coords);
             var detail = zoneName ?? "Current zone";
@@ -217,19 +222,13 @@ internal sealed class PlayerSearchTab
 
             detail += $"  •  {player.Distance:0} yalms away";
 
-            ImGui.AlignTextToFramePadding();
             ImGui.TextDisabled(detail);
 
             // "Find" flags the player on the map. When their coordinates can't be resolved
             // (rare — e.g. a loading screen), the button explains instead of silently failing.
-            const float buttonWidth = 110f;
-            ImGui.SameLine();
-            var pad = ImGui.GetContentRegionAvail().X - buttonWidth;
-            if (pad > 0f)
-            {
-                ImGui.SetCursorPosX(ImGui.GetCursorPosX() + pad);
-            }
-
+            ImGui.Spacing();
+            var spacing = ImGui.GetStyle().ItemSpacing.X;
+            var buttonWidth = Math.Max(76f, (ImGui.GetContentRegionAvail().X - (spacing * 3f)) / 4f);
             if (UiTheme.PrimaryButton($"Find##playersearch-find-{index}", new Vector2(buttonWidth, 0f)))
             {
                 this.FindPlayer(player);
@@ -238,6 +237,63 @@ internal sealed class PlayerSearchTab
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip("Open the map and drop a flag on this player.");
+            }
+
+            ImGui.SameLine();
+            if (!this.profiles.CanExamine)
+            {
+                ImGui.BeginDisabled();
+            }
+
+            if (ImGui.Button($"Examine##playersearch-examine-{index}", new Vector2(buttonWidth, 0f)))
+            {
+                this.ExaminePlayer(player);
+            }
+
+            if (!this.profiles.CanExamine)
+            {
+                ImGui.EndDisabled();
+            }
+
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.SetTooltip(this.profiles.CanExamine
+                    ? "Open this player's examine window."
+                    : "Examine is unavailable for this game version.");
+            }
+
+            ImGui.SameLine();
+            if (!this.profiles.CanOpenPlate)
+            {
+                ImGui.BeginDisabled();
+            }
+
+            if (ImGui.Button($"Plate##playersearch-plate-{index}", new Vector2(buttonWidth, 0f)))
+            {
+                this.OpenPlate(player);
+            }
+
+            if (!this.profiles.CanOpenPlate)
+            {
+                ImGui.EndDisabled();
+            }
+
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.SetTooltip(this.profiles.CanOpenPlate
+                    ? "Open this player's adventurer plate in game."
+                    : "Adventurer plates are unavailable for this game version.");
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button($"Lodestone##playersearch-lodestone-{index}", new Vector2(buttonWidth, 0f)))
+            {
+                this.OpenLodestone(player);
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Open an exact name and home-world search on the Lodestone.");
             }
         }
 
@@ -254,6 +310,43 @@ internal sealed class PlayerSearchTab
         else
         {
             this.SetStatus($"Could not get coordinates for {player.Name}.", UiTheme.Danger);
+        }
+    }
+
+    private void OpenPlate(NearbyPlayer player)
+    {
+        if (this.profiles.TryOpenPlate(player, out var error))
+        {
+            this.SetStatus($"Opened {player.Name}'s adventurer plate.", UiTheme.Live);
+        }
+        else
+        {
+            this.SetStatus(error, UiTheme.Danger);
+        }
+    }
+
+    private void ExaminePlayer(NearbyPlayer player)
+    {
+        if (this.profiles.TryExamine(player, out var error))
+        {
+            this.SetStatus($"Examining {player.Name}.", UiTheme.Live);
+        }
+        else
+        {
+            this.SetStatus(error, UiTheme.Danger);
+        }
+    }
+
+    private void OpenLodestone(NearbyPlayer player)
+    {
+        if (PlayerProfileService.TryOpenLodestone(player, out var error))
+        {
+            var world = string.IsNullOrWhiteSpace(player.HomeWorld) ? string.Empty : $" on {player.HomeWorld}";
+            this.SetStatus($"Opened Lodestone search for {player.Name}{world}.", UiTheme.Live);
+        }
+        else
+        {
+            this.SetStatus(error, UiTheme.Danger);
         }
     }
 

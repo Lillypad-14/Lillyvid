@@ -57,7 +57,10 @@ internal sealed class PlayerScanner
             }
 
             var distance = Vector3.Distance(localPosition, player.Position);
-            results.Add(new NearbyPlayer(name, player.Position, distance));
+            var homeWorld = player.HomeWorld.IsValid
+                ? player.HomeWorld.Value.Name.ToString()
+                : string.Empty;
+            results.Add(new NearbyPlayer(name, homeWorld, player.Address, player.Position, distance));
         }
 
         results.Sort(static (left, right) => left.Distance.CompareTo(right.Distance));
