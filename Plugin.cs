@@ -20,6 +20,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
+    [PluginService] internal static IClientState ClientState { get; private set; } = null!;
+    [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
@@ -30,6 +32,7 @@ public sealed class Plugin : IDalamudPlugin
     private static readonly Regex LegacySnowSyncRegex = new(@"VSYNC1:(F14YT1-[A-Za-z0-9_-]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly MainWindow mainWindow;
+    private readonly MapMarkers.MapMarkerService mapMarkerService = new();
     private readonly WindowSystem windowSystem = new("VideoSyncPrototype");
     internal static GameChatSender ChatSender { get; private set; } = null!;
     internal static Configuration Config { get; private set; } = null!;
@@ -45,7 +48,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(this.OnCommand)
         {
-            HelpMessage = "Open the serverless YouTube sync-code prototype.",
+            HelpMessage = "Open Lillypad Toolkit.",
         });
 
         PluginInterface.UiBuilder.Draw += this.Draw;
@@ -53,7 +56,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += this.OpenMainUi;
         ChatGui.ChatMessage += this.OnChatMessage;
 
-        Log.Information("Video Sync Prototype loaded.");
+        Log.Information("Lillypad Toolkit loaded.");
     }
 
     public void Dispose()
@@ -81,6 +84,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         this.windowSystem.Draw();
         this.mainWindow.DrawWorldSurfaceOverlay();
+        this.mapMarkerService.Draw(Config);
     }
 
     private void OnChatMessage(IHandleableChatMessage message)

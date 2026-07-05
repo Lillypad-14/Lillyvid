@@ -185,11 +185,12 @@ public sealed class MainWindow : Window, IDisposable
     private float captureFps;
     private string realRendererProbe = "Not probed yet.";
     private readonly PresentHookProbe presentHookProbe = new();
+    private readonly PlayerSearch.PlayerSearchTab playerSearchTab = new();
 
     public VideoSurfaceWindow SurfaceWindow { get; }
 
     public MainWindow(string pluginDirectory, Configuration config)
-        : base("VideoSync###VideoSyncPrototypeMain")
+        : base("Lillypad Toolkit###VideoSyncPrototypeMain")
     {
         this.pluginDirectory = pluginDirectory;
         this.config = config;
@@ -235,6 +236,34 @@ public sealed class MainWindow : Window, IDisposable
 
         var footerHeight = (ImGui.GetTextLineHeightWithSpacing() * 2f) + ImGui.GetStyle().ItemSpacing.Y;
         ImGui.BeginChild("##videosync-body", new Vector2(0f, -footerHeight));
+
+        // Top-level features live side by side here. Each existing video screen stays a
+        // sub-tab under "Video"; new features (Player Search, and anything later) get their
+        // own top-level tab so the layout scales without touching the video UI.
+        if (ImGui.BeginTabBar("##videosync-top-tabs"))
+        {
+            if (ImGui.BeginTabItem("Video"))
+            {
+                this.DrawVideoTabs(running);
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Player Search"))
+            {
+                this.playerSearchTab.Draw();
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
+        }
+
+        ImGui.EndChild();
+        this.DrawStatusBar(running);
+    }
+
+    // The original four video tabs, unchanged — just nested under the "Video" top-level tab.
+    private void DrawVideoTabs(bool running)
+    {
         if (ImGui.BeginTabBar("##videosync-tabs"))
         {
             if (ImGui.BeginTabItem("Watch"))
@@ -263,9 +292,6 @@ public sealed class MainWindow : Window, IDisposable
 
             ImGui.EndTabBar();
         }
-
-        ImGui.EndChild();
-        this.DrawStatusBar(running);
     }
 
     private void DrawWatchTab(bool running)

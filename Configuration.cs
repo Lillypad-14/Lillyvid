@@ -1,3 +1,4 @@
+using System.Numerics;
 using Dalamud.Configuration;
 
 namespace VideoSyncPrototype;
@@ -68,6 +69,30 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>Compression-artifact cleanup preset: 0 Off, 1 Low, 2 Medium, 3 High. Off by default.</summary>
     public int ArtifactMode { get; set; }
+
+    // --- Player map markers (dots on the minimap / main map) ---------------------------
+
+    /// <summary>Master switch for drawing player dots on the maps. Off until the user opts in.</summary>
+    public bool MapMarkersEnabled { get; set; }
+
+    /// <summary>Draw dots on the round minimap (_NaviMap).</summary>
+    public bool MarkersOnMinimap { get; set; } = true;
+
+    /// <summary>Draw dots on the large open map (AreaMap).</summary>
+    public bool MarkersOnMainMap { get; set; } = true;
+
+    /// <summary>Show players on your friend list.</summary>
+    public bool MarkShowFriends { get; set; } = true;
+
+    /// <summary>Show players in your Free Company (matched by FC tag).</summary>
+    public bool MarkShowFcMembers { get; set; } = true;
+
+    /// <summary>Show every other player in the zone.</summary>
+    public bool MarkShowEveryone { get; set; }
+
+    public Vector4 MarkFriendColor { get; set; } = new(0.36f, 0.85f, 0.45f, 1f);
+    public Vector4 MarkFcColor { get; set; } = new(0.44f, 0.68f, 1.0f, 1f);
+    public Vector4 MarkEveryoneColor { get; set; } = new(0.90f, 0.88f, 0.82f, 1f);
 
     public void Save()
     {

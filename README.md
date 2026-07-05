@@ -1,4 +1,4 @@
-# Video Sync Prototype
+# Lillypad Toolkit
 
 Dalamud dev plugin for starting a shared Watch2Gether room from inside FFXIV and displaying it on an in-world TV.
 
@@ -30,7 +30,7 @@ Joining a room does not require a Watch2Gether API key.
 2. In game, open `/xlsettings`.
 3. Go to `Experimental`.
 4. Add the extracted `VideoSyncPrototype.dll` as a dev plugin location.
-5. Open `/xldev` or `/xlplugins`, then enable `Video Sync Prototype`.
+5. Open `/xldev` or `/xlplugins`, then enable `Lillypad Toolkit`.
 6. Open `/videosync`.
 
 Keep the `OverlayPlayer` folder next to `VideoSyncPrototype.dll`. The TV uses that helper app to render the browser.

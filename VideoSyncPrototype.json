@@ -1,12 +1,14 @@
 {
   "Author": "Lillypad",
-  "Name": "Video Sync Prototype",
-  "Punchline": "Shared Watch2Gether rooms on an in-world TV.",
-  "Description": "Create and join Watch2Gether rooms from inside FFXIV, then watch them on a styled in-world TV. Use /videosync to open the window.",
+  "Name": "Lillypad Toolkit",
+  "Punchline": "Shared watch rooms, in-world TV, and player map tools.",
+  "Description": "Create and join Watch2Gether rooms from inside FFXIV, watch them on a styled in-world TV, and track nearby players on the map. Use /videosync to open the window.",
   "ApplicableVersion": "any",
   "Tags": [
+    "toolkit",
     "watch2gether",
     "video",
-    "tv"
+    "tv",
+    "map"
   ]
 }
