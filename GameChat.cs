@@ -60,6 +60,55 @@ internal static unsafe class GameChat
     }
 
     /// <summary>
+    /// Sends a fully-encoded chat entry (SeString payload bytes, e.g. an item link),
+    /// optionally with a leading channel command already prepended by the caller. Uses the
+    /// game's own <see cref="Utf8String"/> so long messages are sized correctly.
+    /// Must be called from the main/framework thread.
+    /// </summary>
+    public static bool TrySendEncoded(byte[] bytes, out string error)
+    {
+        error = string.Empty;
+        if (bytes is not { Length: > 0 })
+        {
+            error = "The chat message was empty.";
+            return false;
+        }
+
+        if (bytes.Length > MaxMessageBytes)
+        {
+            error = $"The message is longer than the game's {MaxMessageBytes}-byte chat limit.";
+            return false;
+        }
+
+        var uiModule = UIModule.Instance();
+        if (uiModule == null)
+        {
+            error = "The game UI is not ready yet.";
+            return false;
+        }
+
+        // Utf8String.FromSequence reads up to a null terminator, so append one. SeString
+        // payload bytes never contain an interior null.
+        var buffer = new byte[bytes.Length + 1];
+        Array.Copy(bytes, buffer, bytes.Length);
+
+        fixed (byte* p = buffer)
+        {
+            var text = Utf8String.FromSequence(p);
+            try
+            {
+                uiModule->ProcessChatBoxEntry(text, IntPtr.Zero, false);
+            }
+            finally
+            {
+                text->Dtor(true);
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Returns the name of the cross-world linkshell in the given slot (1-8),
     /// or null when the slot is empty or the info proxy is unavailable.
     /// </summary>

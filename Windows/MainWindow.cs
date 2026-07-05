@@ -15,6 +15,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Windowing;
 using VideoSyncPrototype.Emotes;
+using VideoSyncPrototype.Fun;
 using VideoSyncPrototype.Rendering;
 
 namespace VideoSyncPrototype.Windows;
@@ -189,6 +190,9 @@ public sealed class MainWindow : Window, IDisposable
     private readonly PresentHookProbe presentHookProbe = new();
     private readonly PlayerSearch.PlayerSearchTab playerSearchTab = new();
     private readonly EmoteRemapperTab emoteRemapperTab;
+    private readonly FunTab funTab;
+    private readonly Inventory.InventoryTab inventoryTab;
+    private readonly Inventory.ItemSearchTab itemSearchTab = new();
 
     public VideoSurfaceWindow SurfaceWindow { get; }
 
@@ -198,6 +202,8 @@ public sealed class MainWindow : Window, IDisposable
         this.pluginDirectory = pluginDirectory;
         this.config = config;
         this.emoteRemapperTab = new EmoteRemapperTab(config, emoteRemapperService);
+        this.funTab = new FunTab(config);
+        this.inventoryTab = new Inventory.InventoryTab(config);
         this.adBlockEnabled = config.AdBlockEnabled;
         this.upscaleMode = Math.Clamp(config.UpscaleMode, 0, UpscaleModeNames.Length - 1);
         this.upscaleFilter = Math.Clamp(config.UpscaleFilter, 0, UpscaleFilterNames.Length - 1);
@@ -219,6 +225,7 @@ public sealed class MainWindow : Window, IDisposable
     public void Dispose()
     {
         this.presentHookProbe.Dispose();
+        this.inventoryTab.Dispose();
         this.StopInWindowPreview();
     }
 
@@ -264,6 +271,24 @@ public sealed class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem("Emote Remapper"))
             {
                 this.emoteRemapperTab.Draw();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Inventory"))
+            {
+                this.inventoryTab.Draw();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Item"))
+            {
+                this.itemSearchTab.Draw();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Fun"))
+            {
+                this.funTab.Draw();
                 ImGui.EndTabItem();
             }
 

@@ -102,6 +102,22 @@ public sealed class Configuration : IPluginConfiguration
 
     public List<EmoteRemapEntry> EmoteRemaps { get; set; } = [];
 
+    // --- Fun chat composer -------------------------------------------------------------
+
+    /// <summary>Last channel selected in the Fun chat composer.</summary>
+    public int FunChatChannel { get; set; }
+
+    /// <summary>Last UwU intensity selected: 0 Soft, 1 Normal, 2 Chaos.</summary>
+    public int FunChatIntensity { get; set; } = 1;
+
+    /// <summary>Update the translated preview whenever its source text changes.</summary>
+    public bool FunChatAutoPreview { get; set; } = true;
+
+    // --- Inventory tab -----------------------------------------------------------------
+
+    /// <summary>Safety filters, price options and the user blacklist for the Inventory tab.</summary>
+    public Inventory.InventorySettings Inventory { get; set; } = new();
+
     public void Save()
     {
         Plugin.PluginInterface.SavePluginConfig(this);

@@ -2,7 +2,7 @@
   "Author": "Lillypad",
   "Name": "Lillypad Toolkit",
   "Punchline": "Shared watch rooms, in-world TV, player tools, and emote remapping.",
-  "Description": "Create Watch2Gether rooms, watch them on a styled in-world TV, find nearby players, and remap modded or locked emotes through Penumbra. Use /lilly or /pad to open the window.",
+  "Description": "Use responsibly",
   "ApplicableVersion": "any",
   "Tags": [
     "toolkit",
@@ -11,6 +11,9 @@
     "tv",
     "map",
     "emotes",
-    "penumbra"
+    "penumbra",
+    "inventory",
+    "items",
+    "chat"
   ]
 }
