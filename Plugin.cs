@@ -13,7 +13,7 @@ namespace VideoSyncPrototype;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    private const string CommandName = "/videosync";
+    private static readonly string[] CommandNames = ["/lilly", "/pad"];
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -46,10 +46,13 @@ public sealed class Plugin : IDalamudPlugin
         this.windowSystem.AddWindow(this.mainWindow);
         this.windowSystem.AddWindow(this.mainWindow.SurfaceWindow);
 
-        CommandManager.AddHandler(CommandName, new CommandInfo(this.OnCommand)
+        foreach (var commandName in CommandNames)
         {
-            HelpMessage = "Open Lillypad Toolkit.",
-        });
+            CommandManager.AddHandler(commandName, new CommandInfo(this.OnCommand)
+            {
+                HelpMessage = "Open Lillypad Toolkit.",
+            });
+        }
 
         PluginInterface.UiBuilder.Draw += this.Draw;
         PluginInterface.UiBuilder.OpenMainUi += this.OpenMainUi;
@@ -65,7 +68,10 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= this.OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= this.OpenMainUi;
         ChatGui.ChatMessage -= this.OnChatMessage;
-        CommandManager.RemoveHandler(CommandName);
+        foreach (var commandName in CommandNames)
+        {
+            CommandManager.RemoveHandler(commandName);
+        }
         this.windowSystem.RemoveAllWindows();
         this.mainWindow.Dispose();
     }

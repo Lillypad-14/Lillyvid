@@ -3,8 +3,8 @@
     "Author":  "Lillypad",
     "Name":  "Lillypad Toolkit",
     "InternalName":  "VideoSyncPrototype",
-    "AssemblyVersion":  "3.0.0.0",
-    "Description":  "Create and join Watch2Gether rooms from inside FFXIV, watch them on a styled in-world TV, and track nearby players on the map. Use /videosync to open the window.",
+    "AssemblyVersion":  "3.0.1.0",
+    "Description":  "Create and join Watch2Gether rooms from inside FFXIV, watch them on a styled in-world TV, and track nearby players on the map. Use /lilly or /pad to open the window.",
     "Punchline":  "Shared watch rooms, in-world TV, and player map tools.",
     "ApplicableVersion":  "any",
     "DalamudApiLevel":  15,
@@ -19,9 +19,9 @@
     "IsHide":  false,
     "IsTestingExclusive":  false,
     "DownloadCount":  0,
-    "DownloadLinkInstall":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-3.0.0.0.zip",
-    "DownloadLinkUpdate":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-3.0.0.0.zip",
+    "DownloadLinkInstall":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-3.0.1.0.zip",
+    "DownloadLinkUpdate":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-3.0.1.0.zip",
     "DownloadLinkTesting":  null,
-    "LastUpdate":  1783226128
+    "LastUpdate":  1783226705
 }
 ]

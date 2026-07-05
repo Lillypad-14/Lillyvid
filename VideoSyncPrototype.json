@@ -2,7 +2,7 @@
   "Author": "Lillypad",
   "Name": "Lillypad Toolkit",
   "Punchline": "Shared watch rooms, in-world TV, and player map tools.",
-  "Description": "Create and join Watch2Gether rooms from inside FFXIV, watch them on a styled in-world TV, and track nearby players on the map. Use /videosync to open the window.",
+  "Description": "Create and join Watch2Gether rooms from inside FFXIV, watch them on a styled in-world TV, and track nearby players on the map. Use /lilly or /pad to open the window.",
   "ApplicableVersion": "any",
   "Tags": [
     "toolkit",

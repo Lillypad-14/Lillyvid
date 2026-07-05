@@ -1646,7 +1646,7 @@ public sealed class MainWindow : Window, IDisposable
             if (isNewDiscovery)
             {
                 this.status = "Found a watch party in your linkshell. Join it from the Watch tab.";
-                Plugin.ChatGui.Print("[VideoSync] A watch party is running in your linkshell. Type /videosync to join.");
+                Plugin.ChatGui.Print("[VideoSync] A watch party is running in your linkshell. Type /lilly or /pad to join.");
             }
 
             return;
@@ -1689,7 +1689,7 @@ public sealed class MainWindow : Window, IDisposable
         this.incomingWatch2GetherRoomKey = key;
         this.incomingWatch2GetherRoomUtc = DateTime.UtcNow;
         this.status = "A shared Watch2Gether room was created. Open it from the Watch tab.";
-        Plugin.ChatGui.Print("[VideoSync] A shared video room was created. Type /videosync to open it.");
+        Plugin.ChatGui.Print("[VideoSync] A shared video room was created. Type /lilly or /pad to open it.");
         this.IsOpen = true;
     }
 
