@@ -1,0 +1,41 @@
+namespace VideoSyncPrototype.Phone.Core.Animation;
+
+internal delegate float EasingFunction(float progress);
+
+internal static class Easing
+{
+    public static float Linear(float progress) => progress;
+    public static float SmoothStep(float progress) => progress * progress * (3f - 2f * progress);
+    public static float EaseInCubic(float progress) => progress * progress * progress;
+
+    public static float EaseOutCubic(float progress)
+    {
+        var inverse = 1f - progress;
+        return 1f - inverse * inverse * inverse;
+    }
+
+    public static float EaseInOutCubic(float progress)
+    {
+        if (progress < 0.5f)
+        {
+            return 4f * progress * progress * progress;
+        }
+
+        var inverse = -2f * progress + 2f;
+        return 1f - inverse * inverse * inverse * 0.5f;
+    }
+
+    public static float EaseOutQuint(float progress)
+    {
+        var inverse = 1f - progress;
+        return 1f - inverse * inverse * inverse * inverse * inverse;
+    }
+
+    public static float EaseOutBack(float progress)
+    {
+        const float overshoot = 1.70158f;
+        const float scaled = overshoot + 1f;
+        var inverse = progress - 1f;
+        return 1f + scaled * inverse * inverse * inverse + overshoot * inverse * inverse;
+    }
+}

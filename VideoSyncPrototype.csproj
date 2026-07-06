@@ -1,15 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>5.0.0.0</Version>
+    <Version>6.0.0.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Required by the vendored Aetherphone "Phone" module (Apps/Games + phone shell),
+         which is written against ImplicitUsings + preview C# with these global usings. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>preview</LangVersion>
   </PropertyGroup>
+
+  <ItemGroup Label="Global usings for the vendored Phone module">
+    <Using Include="System" />
+    <Using Include="System.Collections" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Numerics" />
+  </ItemGroup>
 
   <ItemGroup>
     <Compile Remove="OverlayPlayer\**\*.cs" />
     <None Remove="OverlayPlayer\**\*" />
+  </ItemGroup>
+
+  <ItemGroup Label="Vendored Phone module assets (Inter fonts, OFL-licensed; wallpapers AGPL)">
+    <Content Include="Fonts\*.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Fonts\Inter-OFL.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Wallpapers\*.jpg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="THIRD-PARTY-NOTICES.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Label="Lillypad Go: animated creature spritesheets (Pokémon Showdown gen5ani)">
+    <Content Include="Assets\pokemon\**\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\pokemon\manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

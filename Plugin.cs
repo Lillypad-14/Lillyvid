@@ -46,6 +46,7 @@ public sealed class Plugin : IDalamudPlugin
         ChatSender = new GameChatSender();
         Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         var pluginDirectory = PluginInterface.AssemblyLocation.Directory?.FullName ?? Directory.GetCurrentDirectory();
+        Phone.Plugin.Initialize(PluginInterface);
         this.emoteRemapperService = new EmoteRemapperService(Config);
         this.mainWindow = new MainWindow(pluginDirectory, Config, this.emoteRemapperService);
         this.windowSystem.AddWindow(this.mainWindow);
@@ -80,6 +81,7 @@ public sealed class Plugin : IDalamudPlugin
         this.windowSystem.RemoveAllWindows();
         this.mainWindow.Dispose();
         this.emoteRemapperService.Dispose();
+        Phone.Plugin.Dispose();
     }
 
     private void OnCommand(string command, string args)
