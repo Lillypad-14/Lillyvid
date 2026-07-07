@@ -27,6 +27,8 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         Dex,
         DexEntry,
         Bag,
+        Market,
+        Arena,
         Options,
         Detail,
     }
@@ -94,6 +96,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private View view = View.Map;
     private Menu menu = Menu.Root;
     private Battle? battle;
+    private int pendingGymIndex = -1;
     private MonsterInstance? displayedPlayer;
     private int displayedPlayerHp;
     private int displayedWildHp;
@@ -138,6 +141,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private float dexMaxScroll;
     private bool dexInitialized;
     private MonsterSpecies? dexEntrySpecies;
+    private View dexEntryReturnView = View.Dex;
     private int dexEntryTab;
     private float dexEntryTabIndicator = -1f;
     private float dexEntryScroll;
@@ -171,6 +175,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         PokemonSprites.Dispose();
         MoveFxSprites.Dispose();
         BiomeBgTextures.Dispose();
+        AssetTextures.Dispose();
     }
 
     public void Draw(in PhoneContext context)
@@ -228,6 +233,12 @@ internal sealed partial class LillypadGoApp : IPhoneApp
                 break;
             case View.Bag:
                 DrawBag(content, theme);
+                break;
+            case View.Market:
+                DrawMarket(content, theme);
+                break;
+            case View.Arena:
+                DrawArena(content, theme);
                 break;
             case View.Options:
                 DrawOptions(content, theme);

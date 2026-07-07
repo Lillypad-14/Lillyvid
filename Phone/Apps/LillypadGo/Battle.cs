@@ -10,6 +10,7 @@ internal enum BattleCue : byte
     PlayerFaint,
     PlayerSwitch,
     WildFaint,
+    EnemySwitch,
     Buff,
     Heal,
     CaptureShake,
@@ -19,6 +20,7 @@ internal enum BattleCue : byte
     FleeFail,
     XpGain,
     LevelUp,
+    Evolve,
 }
 
 internal enum BattleOutcome : byte
@@ -93,15 +95,41 @@ internal sealed class Battle
     private readonly Random rng;
     private readonly HashSet<MonsterInstance> participants = new();
     private readonly Queue<MoveLearnChoice> pendingMoveChoices = new();
+    private readonly IReadOnlyList<MonsterInstance>? enemyTeam;
+    private readonly int trainerPrize;
+    private int enemyIndex;
     private int activeIndex;
     private bool statsFinalized;
 
+    // Wild encounter: a lone opponent that can be caught.
     public Battle(List<MonsterInstance> party, MonsterInstance wild, Bag bag, Random rng)
+        : this(party, bag, rng)
+    {
+        Wild = wild;
+        Wild.ResetBattleState();
+        Log.Enqueue(new BattleMessage($"A wild {Wild.Name} appeared!", BattleCue.Info));
+    }
+
+    // Trainer or gym battle: the opponent fields a team of 1-6 and their Pokémon cannot be caught.
+    public Battle(List<MonsterInstance> party, IReadOnlyList<MonsterInstance> enemyTeam, string trainerName,
+        int prize, Bag bag, Random rng)
+        : this(party, bag, rng)
+    {
+        this.enemyTeam = enemyTeam;
+        this.trainerPrize = prize;
+        TrainerName = trainerName;
+        Wild = enemyTeam[0];
+        Wild.ResetBattleState();
+        Log.Enqueue(new BattleMessage($"{trainerName} wants to battle!", BattleCue.Info));
+        Log.Enqueue(new BattleMessage($"{trainerName} sent out {Wild.Name}!", BattleCue.EnemySwitch, Wild,
+            stateAfter: BattleSnapshot.Capture(Wild)));
+    }
+
+    private Battle(List<MonsterInstance> party, Bag bag, Random rng)
     {
         this.party = party;
         this.bag = bag;
         this.rng = rng;
-        Wild = wild;
         activeIndex = party.FindIndex(m => !m.Fainted);
         if (activeIndex < 0)
         {
@@ -110,21 +138,41 @@ internal sealed class Battle
 
         Active.ResetBattleState();
         participants.Add(Active);
-        Wild.ResetBattleState();
-        Log.Enqueue(new BattleMessage($"A wild {Wild.Name} appeared!", BattleCue.Info));
     }
 
-    public MonsterInstance Wild { get; }
+    public MonsterInstance Wild { get; private set; } = null!;
     public MonsterInstance Active => party[activeIndex];
     public IReadOnlyList<MonsterInstance> Party => party;
     public int ActiveIndex => activeIndex;
     public Queue<BattleMessage> Log { get; } = new();
     public BattleOutcome Outcome { get; private set; } = BattleOutcome.Ongoing;
     public MonsterInstance? Captured { get; private set; }
+    public int PrizeMoney { get; private set; }
+    public string? TrainerName { get; }
+    public bool IsTrainerBattle => enemyTeam is not null;
+    public bool CanCatch => enemyTeam is null;
     public MoveLearnChoice? PendingMoveChoice => pendingMoveChoices.Count > 0 ? pendingMoveChoices.Peek() : null;
 
     public bool RequiresSwitch { get; private set; }
-    public bool CanAct => Outcome == BattleOutcome.Ongoing && !RequiresSwitch;
+    public bool RequiresEnemySend { get; private set; }
+    public bool CanAct => Outcome == BattleOutcome.Ongoing && !RequiresSwitch && !RequiresEnemySend;
+
+    // Sends out the trainer's next Pokémon. Called by the UI once the previous faint has finished
+    // animating, so the display swaps cleanly instead of mid-message.
+    public void SendNextEnemy()
+    {
+        if (!RequiresEnemySend || enemyTeam is null)
+        {
+            return;
+        }
+
+        RequiresEnemySend = false;
+        enemyIndex++;
+        Wild = enemyTeam[enemyIndex];
+        Wild.ResetBattleState();
+        Log.Enqueue(new BattleMessage($"{TrainerName} sent out {Wild.Name}!", BattleCue.EnemySwitch, Wild,
+            stateAfter: BattleSnapshot.Capture(Wild)));
+    }
 
     public float EscapeChance
     {
@@ -137,13 +185,11 @@ internal sealed class Battle
         }
     }
 
-    public float CaptureChance
+    // The odds a given Ball captures the wild creature right now (accounts for its catch bonus).
+    public float CaptureChanceWith(ItemDef ball)
     {
-        get
-        {
-            var rate = CaptureCheckChance();
-            return Math.Clamp(rate + rate * rate * rate - rate * rate * rate * rate, 0f, 1f);
-        }
+        var rate = CaptureCheckChance(ball.CatchBonus);
+        return Math.Clamp(rate + rate * rate * rate - rate * rate * rate * rate, 0f, 1f);
     }
 
     // ---- Player actions -------------------------------------------------------------
@@ -258,17 +304,66 @@ internal sealed class Battle
         EndOfTurn();
     }
 
-    public void UseTonic()
+    // Whether an item can currently be used in battle (drives button enabling + tooltips).
+    public bool CanUseItem(ItemDef item)
     {
-        if (!CanAct || bag.Tonics <= 0 || Active.CurrentHp >= Active.MaxHp)
+        if (!CanAct || !bag.Has(item.Id))
+        {
+            return false;
+        }
+
+        return item.Category switch
+        {
+            ItemCategory.Ball => !IsTrainerBattle,
+            ItemCategory.Potion => !Active.Fainted && Active.CurrentHp < Active.MaxHp,
+            ItemCategory.Revive => party.Any(monster => monster.Fainted),
+            ItemCategory.StatusHeal => item.CuresAllStatus
+                ? Active.Status != Status.None
+                : Active.Status == item.CuresStatus,
+            _ => false,
+        };
+    }
+
+    public void UseItem(ItemDef item)
+    {
+        if (!CanUseItem(item))
         {
             return;
         }
 
-        bag.Tonics--;
-        Active.Heal(Bag.TonicHeal);
-        Log.Enqueue(new BattleMessage($"{Active.Name} sipped a Tonic. (+{Bag.TonicHeal} HP)", BattleCue.Heal,
-            Active, Active.CurrentHp, stateAfter: BattleSnapshot.Capture(Active)));
+        if (item.Category == ItemCategory.Ball)
+        {
+            UseBall(item);
+            return;
+        }
+
+        bag.Consume(item.Id);
+        switch (item.Category)
+        {
+            case ItemCategory.Potion:
+                var before = Active.CurrentHp;
+                Active.Heal(item.RestoresFullHp ? Active.MaxHp : item.HealAmount);
+                Log.Enqueue(new BattleMessage($"{Active.Name} was healed for {Active.CurrentHp - before} HP.",
+                    BattleCue.Heal, Active, Active.CurrentHp, stateAfter: BattleSnapshot.Capture(Active)));
+                break;
+            case ItemCategory.StatusHeal:
+                Active.CureStatus();
+                Log.Enqueue(new BattleMessage($"{Active.Name}'s status returned to normal.", BattleCue.Heal,
+                    Active, Active.CurrentHp, stateAfter: BattleSnapshot.Capture(Active)));
+                break;
+            case ItemCategory.Revive:
+                var target = party.FirstOrDefault(monster => monster.Fainted);
+                if (target is null)
+                {
+                    return;
+                }
+
+                target.Revive(item.RevivesToFull);
+                Log.Enqueue(new BattleMessage($"{target.Name} was revived and is ready to battle!", BattleCue.Heal,
+                    target, target.CurrentHp, stateAfter: BattleSnapshot.Capture(target)));
+                break;
+        }
+
         WildTurn();
         if (PlayerDown())
         {
@@ -278,17 +373,17 @@ internal sealed class Battle
         EndOfTurn();
     }
 
-    public void ThrowSnare()
+    private void UseBall(ItemDef ball)
     {
-        if (!CanAct || bag.Snares <= 0)
+        if (!CanAct || IsTrainerBattle || !bag.Has(ball.Id))
         {
             return;
         }
 
-        bag.Snares--;
-        Log.Enqueue(new BattleMessage("You lobbed an Aether Snare!", BattleCue.Info));
+        bag.Consume(ball.Id);
+        Log.Enqueue(new BattleMessage($"You used one {ball.Name}!", BattleCue.Info));
 
-        var rate = CaptureCheckChance();
+        var rate = CaptureCheckChance(ball.CatchBonus);
         var shakes = 0;
         for (var i = 0; i < 3; i++)
         {
@@ -330,6 +425,15 @@ internal sealed class Battle
     {
         if (!CanAct)
         {
+            return;
+        }
+
+        // You can always flee a trainer/gym fight, but forfeiting counts as a loss: no badge,
+        // money or end-of-battle spoils (any XP already earned from KOs this fight is kept).
+        if (IsTrainerBattle)
+        {
+            Outcome = BattleOutcome.Fled;
+            Log.Enqueue(new BattleMessage($"You forfeited the battle against {TrainerName}.", BattleCue.Fled));
             return;
         }
 
@@ -453,11 +557,11 @@ internal sealed class Battle
         return true;
     }
 
-    private float CaptureCheckChance()
+    private float CaptureCheckChance(float ballBonus)
     {
         var hpTerm = (3f * Wild.MaxHp - 2f * Wild.CurrentHp) / (3f * Wild.MaxHp);
         var statusBonus = Wild.Status != Status.None ? 1.5f : 1f;
-        return Math.Clamp(hpTerm * (Wild.Species.CatchRate / 255f) * Bag.SnareBonus * statusBonus, 0.03f, 1f);
+        return Math.Clamp(hpTerm * (Wild.Species.CatchRate / 255f) * ballBonus * statusBonus, 0.03f, 1f);
     }
 
     private MoveDef ChooseWildMove()
@@ -499,10 +603,17 @@ internal sealed class Battle
     {
         Log.Enqueue(new BattleMessage($"{attacker.Name} used {move.Name}!", attackCue, attacker, move: move));
 
-        if (move.Accuracy > 0 && rng.NextDouble() * 100f >= move.Accuracy)
+        if (move.Accuracy > 0)
         {
-            Log.Enqueue(new BattleMessage($"{attacker.Name}'s attack missed!", BattleCue.Info));
-            return;
+            // Accuracy is scaled by the attacker's accuracy stage vs the defender's evasion stage
+            // (Sand Attack, Double Team, etc.), using the standard 3/(3±n) stage ratio.
+            var stage = Math.Clamp(attacker.AccuracyStage - defender.EvasionStage, -6, 6);
+            var stageMul = stage >= 0 ? (3f + stage) / 3f : 3f / (3f - stage);
+            if (rng.NextDouble() * 100f >= move.Accuracy * stageMul)
+            {
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s attack missed!", BattleCue.Info));
+                return;
+            }
         }
 
         if (!move.IsStatus)
@@ -601,6 +712,16 @@ internal sealed class Battle
                 Log.Enqueue(new BattleMessage($"{defender.Name}'s Sp. Def fell!", BattleCue.Buff, defender,
                     stateAfter: BattleSnapshot.Capture(defender)));
                 break;
+            case MoveEffect.LowerTargetAccuracy:
+                defender.AccuracyStage = Math.Max(-6, defender.AccuracyStage - move.StageChange);
+                Log.Enqueue(new BattleMessage($"{defender.Name}'s accuracy fell!", BattleCue.Buff, defender,
+                    stateAfter: BattleSnapshot.Capture(defender)));
+                break;
+            case MoveEffect.RaiseEvasion:
+                attacker.EvasionStage = Math.Min(6, attacker.EvasionStage + move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s evasiveness rose!", BattleCue.Buff, attacker,
+                    stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
             case MoveEffect.HealUser:
                 attacker.Heal(attacker.MaxHp / 2);
                 Log.Enqueue(new BattleMessage($"{attacker.Name} mended its wounds.", BattleCue.Heal, attacker,
@@ -689,6 +810,15 @@ internal sealed class Battle
 
         Log.Enqueue(new BattleMessage($"{Wild.Name} fainted!", BattleCue.WildFaint));
         AwardXp();
+
+        // Trainer with reserves: pause so the UI can send out their next Pokémon.
+        if (enemyTeam is not null && enemyIndex + 1 < enemyTeam.Count)
+        {
+            RequiresEnemySend = true;
+            return true;
+        }
+
+        PrizeMoney = enemyTeam is not null ? trainerPrize : 40 + Wild.Level * 20;
         Outcome = BattleOutcome.Won;
         return true;
     }
@@ -716,9 +846,15 @@ internal sealed class Battle
     private void AwardXp()
     {
         var gain = 8 + Wild.Level * 6;
-        var learned = Active.GainXp(gain, out var pendingMoves);
+        var learned = Active.GainXp(gain, out var pendingMoves, out var evolutions);
         Log.Enqueue(new BattleMessage($"{Active.Name} gained {gain} XP.", BattleCue.XpGain, Active,
             stateAfter: BattleSnapshot.Capture(Active)));
+        foreach (var announcement in evolutions)
+        {
+            Log.Enqueue(new BattleMessage(announcement, BattleCue.Evolve, Active, Active.CurrentHp,
+                stateAfter: BattleSnapshot.Capture(Active)));
+        }
+
         foreach (var move in learned)
         {
             Log.Enqueue(new BattleMessage($"{Active.Name} learned {move.Name}!", BattleCue.LevelUp));

@@ -57,9 +57,11 @@ public sealed partial class MainWindow
 
             if (UiTheme.PrimaryButton(this.worldScreenAnchor is null ? "Place screen in front of me" : "Move screen to me"))
             {
-                this.PlaceWorldScreenInFrontOfPlayer();
-                this.EnableNativeWorldScreen();
-                this.QueueSnowSyncBroadcast();
+                if (this.PlaceWorldScreenInFrontOfPlayer())
+                {
+                    this.EnableNativeWorldScreen();
+                    this.QueueSnowSyncBroadcast();
+                }
             }
 
             ImGui.SameLine();
@@ -84,13 +86,11 @@ public sealed partial class MainWindow
             }
             else if (ImGui.Button("Show screen"))
             {
-                if (this.worldScreenAnchor is null)
+                if (this.PlaceWorldScreenInFrontOfPlayer())
                 {
-                    this.PlaceWorldScreenInFrontOfPlayer();
+                    this.EnableNativeWorldScreen();
+                    this.QueueSnowSyncBroadcast();
                 }
-
-                this.EnableNativeWorldScreen();
-                this.QueueSnowSyncBroadcast();
             }
 
             ImGui.Spacing();

@@ -25,7 +25,7 @@ internal sealed class MonsterInstance
         RelearnForLevel();
     }
 
-    public MonsterSpecies Species { get; }
+    public MonsterSpecies Species { get; private set; }
     public int Level { get; private set; }
     public int Xp { get; private set; }
     public int MaxHp { get; private set; }
@@ -49,6 +49,8 @@ internal sealed class MonsterInstance
     public int SpdStage { get; set; }
     public int SpAtkStage { get; set; }
     public int SpDefStage { get; set; }
+    public int AccuracyStage { get; set; }
+    public int EvasionStage { get; set; }
     public bool Flinched { get; set; }
     public int ConfusionTurns { get; set; }
 
@@ -90,6 +92,8 @@ internal sealed class MonsterInstance
         SpdStage = 0;
         SpAtkStage = 0;
         SpDefStage = 0;
+        AccuracyStage = 0;
+        EvasionStage = 0;
         Flinched = false;
         ConfusionTurns = 0;
     }
@@ -146,6 +150,20 @@ internal sealed class MonsterInstance
 
     public void Heal(int amount) => CurrentHp = Math.Min(MaxHp, CurrentHp + Math.Max(0, amount));
 
+    // Brings a fainted creature back. Revive restores half HP; Max-style items restore full.
+    public void Revive(bool full)
+    {
+        if (!Fainted)
+        {
+            return;
+        }
+
+        Status = Status.None;
+        CurrentHp = full ? MaxHp : Math.Max(1, MaxHp / 2);
+    }
+
+    public void CureStatus() => Status = Status.None;
+
     public void FullHeal()
     {
         CurrentHp = MaxHp;
@@ -156,11 +174,13 @@ internal sealed class MonsterInstance
         }
     }
 
-    // Returns the list of newly learned moves (for the battle log).
-    public List<MoveDef> GainXp(int amount, out List<MoveDef> pendingMoves)
+    // Returns the list of newly learned moves (for the battle log). `evolutions` collects any
+    // level-up evolution announcements ("Bulbasaur evolved into Ivysaur!").
+    public List<MoveDef> GainXp(int amount, out List<MoveDef> pendingMoves, out List<string> evolutions)
     {
         var learned = new List<MoveDef>();
         pendingMoves = new List<MoveDef>();
+        evolutions = new List<string>();
         Xp += Math.Max(0, amount);
         while (Xp >= XpToNext && Level < 100)
         {
@@ -188,9 +208,29 @@ internal sealed class MonsterInstance
                     }
                 }
             }
+
+            TryEvolve(evolutions);
         }
 
         return learned;
+    }
+
+    // Applies level-up evolutions (possibly several in a chain if many levels were gained at once).
+    private void TryEvolve(List<string> evolutions)
+    {
+        while (Species.EvolveLevel > 0 && Level >= Species.EvolveLevel && Dex.EvolutionOf(Species) is { } next)
+        {
+            var before = Name;
+            var beforeHp = MaxHp;
+            Species = next;
+            RecomputeStats();
+            if (CurrentHp > 0)
+            {
+                CurrentHp = Math.Min(MaxHp, CurrentHp + (MaxHp - beforeHp));
+            }
+
+            evolutions.Add($"{before} evolved into {Species.Name}!");
+        }
     }
 
     public void ReplaceMove(int index, MoveDef move)

@@ -215,9 +215,13 @@ internal sealed partial class LillypadGoApp
                 var hints = new[]
                 {
                     "Choose a move. Hover over a move to inspect its power and effects.",
-                    "Use a capture snare or restore your active creature's HP.",
-                    "Switch creatures. The wild creature will attack after the switch.",
-                    $"Attempt to escape. Current success chance: {battle.EscapeChance:P0}.",
+                    battle.IsTrainerBattle
+                        ? "Use an item to heal, revive or cure your team."
+                        : "Throw a Poké Ball, or restore your active creature's HP.",
+                    "Switch creatures. The opponent will attack after the switch.",
+                    battle.IsTrainerBattle
+                        ? "Forfeit the battle. Counts as a loss — no badge, money or spoils."
+                        : $"Attempt to escape. Current success chance: {battle.EscapeChance:P0}.",
                 };
                 Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale),
                     $"What will {battle.Active.Name} do?", theme.TextMuted, TextStyles.Caption2);
@@ -418,44 +422,88 @@ internal sealed partial class LillypadGoApp
         };
     }
 
+    private float battleItemScroll;
+
     private void DrawItemMenu(Rect panel, PhoneTheme theme, float scale)
     {
-        var bag = State.Bag;
-        var size = new Vector2(panel.Width * 0.7f, panel.Height * 0.26f);
-        var snareRect = Centered(panel, 0.32f, size);
-        if (LgUi.Button(snareRect, "Aether Snare", Accent, theme, bag.Snares > 0,
-                "Capture  x" + bag.Snares))
+        var owned = State.Bag.Contents().ToList();
+        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale), "Choose an item",
+            theme.TextMuted, TextStyles.Caption2);
+
+        if (owned.Count == 0)
         {
-            battle!.ThrowSnare();
-            menu = Menu.Root;
+            Typography.DrawCentered(new Vector2(panel.Center.X, panel.Center.Y - 6f * scale),
+                "Your bag is empty. Restock at a town Marketboard.", theme.TextMuted, TextStyles.Subheadline);
+            BackButton(panel, theme, scale);
+            return;
         }
 
-        if (ImGui.IsMouseHoveringRect(snareRect.Min, snareRect.Max))
-        {
-            var stock = bag.Snares > 0 ? string.Empty : "\nNo Aether Snares remain.";
-            ImGui.SetTooltip($"Attempts to capture {battle!.Wild.Name}.\nEstimated chance: {battle.CaptureChance:P0}\n" +
-                $"Lower HP and status effects improve the odds.{stock}");
-        }
-
-        var tonicRect = Centered(panel, 0.6f, size);
-        var canHeal = bag.Tonics > 0 && battle!.Active.CurrentHp < battle.Active.MaxHp;
-        if (LgUi.Button(tonicRect, "Tonic", theme.Accent, theme, canHeal,
-                "+" + Bag.TonicHeal + " HP  x" + bag.Tonics))
-        {
-            battle!.UseTonic();
-            menu = Menu.Root;
-        }
-
-        if (ImGui.IsMouseHoveringRect(tonicRect.Min, tonicRect.Max))
-        {
-            var reason = bag.Tonics <= 0 ? "No Tonics remain." :
-                battle!.Active.CurrentHp >= battle.Active.MaxHp ? "HP is already full." :
-                $"Restores up to {Bag.TonicHeal} HP. The wild creature acts afterward.";
-            ImGui.SetTooltip(reason);
-        }
+        var listArea = new Rect(new Vector2(panel.Min.X + 10f * scale, panel.Min.Y + 24f * scale),
+            new Vector2(panel.Max.X - 10f * scale, panel.Max.Y - 30f * scale));
+        DrawScrollList(listArea, 36f * scale, 6f * scale, owned.Count, ref battleItemScroll, scale,
+            (i, rowRect) => DrawBattleItemRow(owned[i].Def, owned[i].Count, rowRect, theme, scale));
 
         BackButton(panel, theme, scale);
     }
+
+    private void DrawBattleItemRow(ItemDef item, int count, Rect rect, PhoneTheme theme, float scale)
+    {
+        var enabled = battle!.CanUseItem(item);
+        var tint = LgUi.ItemTint(item.Category);
+        if (LgUi.Button(rect, item.Name, enabled ? tint : GamePalette.CellSunken, theme, enabled,
+                BattleItemSub(item, count)))
+        {
+            battle.UseItem(item);
+            menu = Menu.Root;
+        }
+
+        if (LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max))
+        {
+            ImGui.SetTooltip(BuildBattleItemTooltip(item));
+        }
+    }
+
+    private string BattleItemSub(ItemDef item, int count) => item.Category switch
+    {
+        ItemCategory.Ball => battle!.IsTrainerBattle
+            ? $"x{count}   ·   can't catch"
+            : $"x{count}   ·   {battle.CaptureChanceWith(item):P0} catch",
+        ItemCategory.Potion => $"x{count}   ·   {(item.RestoresFullHp ? "full" : "+" + item.HealAmount)} HP",
+        ItemCategory.Revive => $"x{count}   ·   revive a fainted ally",
+        ItemCategory.StatusHeal => $"x{count}   ·   {(item.CuresAllStatus ? "cure any status" : "cure " + StatusWord(item.CuresStatus))}",
+        _ => "x" + count,
+    };
+
+    private string BuildBattleItemTooltip(ItemDef item)
+    {
+        var line = item.Category switch
+        {
+            ItemCategory.Ball => battle!.IsTrainerBattle
+                ? "You can't catch another trainer's Pokémon!"
+                : $"Estimated catch chance on {battle.Wild.Name}: {battle.CaptureChanceWith(item):P0}.\n" +
+                  "Lower its HP or inflict a status to improve the odds.",
+            ItemCategory.Potion => battle!.CanUseItem(item)
+                ? $"Restores {(item.RestoresFullHp ? "all" : item.HealAmount.ToString())} HP to {battle.Active.Name}."
+                : $"{battle.Active.Name} is already at full HP.",
+            ItemCategory.Revive => battle!.CanUseItem(item)
+                ? "Revives your first fainted creature (it stays on the bench)."
+                : "None of your creatures have fainted.",
+            ItemCategory.StatusHeal => battle!.CanUseItem(item)
+                ? $"Cures {battle.Active.Name}'s condition."
+                : $"{battle.Active.Name} has no matching condition to cure.",
+            _ => item.Description,
+        };
+        return $"{item.Name}\n{item.Description}\n\n{line}\nUsing an item takes your turn.";
+    }
+
+    private static string StatusWord(Status status) => status switch
+    {
+        Status.Burn => "burn",
+        Status.Freeze => "freeze",
+        Status.Paralysis => "paralysis",
+        Status.Poison => "poison",
+        _ => "status",
+    };
 
     private void DrawMoveLearnMenu(Rect panel, PhoneTheme theme, float scale)
     {
@@ -511,9 +559,11 @@ internal sealed partial class LillypadGoApp
 
     private void DrawSwitchMenu(Rect panel, PhoneTheme theme, float scale)
     {
+        var drawList = ImGui.GetWindowDrawList();
         var forced = battle!.RequiresSwitch;
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale),
-            forced ? "Choose your next creature" : "Switch creature", theme.TextMuted, TextStyles.Caption2);
+            forced ? "Choose your next creature" : "Switch creature", theme.TextStrong with { W = 0.82f },
+            TextStyles.Caption2);
         var count = 0;
         for (var i = 0; i < State.Party.Count; i++)
         {
@@ -529,13 +579,18 @@ internal sealed partial class LillypadGoApp
             var center = new Vector2(panel.Center.X + (column == 0 ? -1f : 1f) * panel.Width * 0.235f,
                 panel.Min.Y + (0.24f + row * 0.25f) * panel.Height);
             var rect = new Rect(center - size * 0.5f, center + size * 0.5f);
-            if (LgUi.Button(rect, m.Name,
+            if (LgUi.Button(rect, "     " + m.Name,
                     m.Fainted ? GamePalette.CellSunken : Elements.Color(m.Element), theme, !m.Fainted,
                     $"Lv {m.Level}   {m.CurrentHp}/{m.MaxHp} HP"))
             {
                 battle.Switch(i);
                 menu = Menu.Root;
             }
+
+            // Animated sprite tucked into the button's left edge for quick recognition.
+            var spriteCenter = new Vector2(rect.Min.X + rect.Height * 0.5f, rect.Center.Y);
+            MonsterArt.Draw(drawList, spriteCenter, rect.Height * 0.34f, m.Species, 1f,
+                new MonsterPose(time + i, 0f, 0f, m.Fainted ? 0.4f : 1f, m.Fainted));
 
             if (ImGui.IsMouseHoveringRect(rect.Min, rect.Max))
             {
@@ -560,25 +615,31 @@ internal sealed partial class LillypadGoApp
 
     private void DrawResult(Rect panel, PhoneTheme theme, float scale)
     {
+        var win = new Vector4(0.42f, 0.86f, 0.5f, 1f);
+        var gym = pendingGymIndex >= 0 ? Gyms.All[pendingGymIndex] : null;
         var (title, color) = battle!.Outcome switch
         {
             BattleOutcome.Captured when State.Party.Count >= LillypadGoState.PartyLimit =>
-                ($"{battle.Wild.Name} was caught!", new Vector4(0.42f, 0.86f, 0.5f, 1f)),
-            BattleOutcome.Captured => ($"{battle.Wild.Name} joined your team!", new Vector4(0.42f, 0.86f, 0.5f, 1f)),
-            BattleOutcome.Won => ("You won the battle!", new Vector4(0.42f, 0.86f, 0.5f, 1f)),
-            BattleOutcome.Fled => ("Got away safely.", theme.TextMuted),
-            BattleOutcome.Whiteout => ("Your team was rescued and healed.", theme.Danger),
+                ($"{battle.Wild.Name} was caught!", win),
+            BattleOutcome.Captured => ($"{battle.Wild.Name} joined your team!", win),
+            BattleOutcome.Won when battle.IsTrainerBattle => ($"You defeated {battle.TrainerName}!", win),
+            BattleOutcome.Won => ("You won the battle!", win),
+            BattleOutcome.Fled when battle.IsTrainerBattle => ("You forfeited the battle.", theme.Danger),
+            BattleOutcome.Fled => ("Got away safely.", theme.TextStrong with { W = 0.85f }),
+            BattleOutcome.Whiteout => ("Your team was wiped out!", theme.Danger),
             _ => ("…", theme.TextStrong),
         };
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.34f), title, color,
             TextStyles.Headline);
         var detail = battle.Outcome switch
         {
-            BattleOutcome.Won when (State.BattlesWon + 1) % 3 == 0 => "Reward: 1 Aether Snare and 1 Tonic",
-            BattleOutcome.Won => "Reward: 1 Aether Snare",
+            BattleOutcome.Won when gym is not null && !State.HasBadge(gym.Index) =>
+                $"You earned the {gym.Badge}!  (+{LgUi.Money(battle.PrizeMoney)})",
+            BattleOutcome.Won => $"Earned {LgUi.Money(battle.PrizeMoney)}.",
             BattleOutcome.Captured when State.Party.Count >= LillypadGoState.PartyLimit => "Sent safely to storage.",
             BattleOutcome.Captured => "Added to your active team.",
-            BattleOutcome.Whiteout => "Your team will return at full health.",
+            BattleOutcome.Fled when battle.IsTrainerBattle => "No badge, money or spoils for forfeiting.",
+            BattleOutcome.Whiteout => "Revive your team at a town Marketboard.",
             _ => string.Empty,
         };
         if (detail.Length > 0)
@@ -613,21 +674,23 @@ internal sealed partial class LillypadGoApp
         if (battle.Outcome == BattleOutcome.Won)
         {
             State.BattlesWon++;
-            State.Bag.Snares++;
-            if (State.BattlesWon % 3 == 0)
+            State.Money += battle.PrizeMoney;
+            if (pendingGymIndex >= 0)
             {
-                State.Bag.Tonics++;
+                State.EarnBadge(pendingGymIndex);
             }
         }
 
-        if (battle.Outcome == BattleOutcome.Whiteout)
+        pendingGymIndex = -1;
+
+        // A creature may have evolved mid-battle — make sure its new form is registered as seen.
+        foreach (var m in State.Party)
         {
-            foreach (var m in State.Party)
-            {
-                m.FullHeal();
-            }
+            State.Seen.Add(m.Species.Id);
         }
 
+        // A whiteout no longer auto-heals: the team stays fainted until revived at a town
+        // Marketboard's Pokécenter counter.
         State.InBattle = false;
         State.Save();
         battle = null;

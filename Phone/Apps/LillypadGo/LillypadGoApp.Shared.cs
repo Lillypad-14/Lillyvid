@@ -15,40 +15,48 @@ internal sealed partial class LillypadGoApp
 {
     private void DrawNavigation(Rect content, PhoneTheme theme, float scale)
     {
-        var labels = new[] { "Map", "Team", "Guide", "Bag", "Options" };
-        var views = new[] { View.Map, View.Team, View.Dex, View.Bag, View.Options };
+        var labels = new[] { "Map", "Team", "Dex", "Bag", "Arena" };
+        var views = new[] { View.Map, View.Team, View.Dex, View.Bag, View.Arena };
         var drawList = ImGui.GetWindowDrawList();
-        var dock = new Rect(new Vector2(content.Min.X + 8f * scale, content.Max.Y - 39f * scale),
-            new Vector2(content.Max.X - 8f * scale, content.Max.Y - 2f * scale));
         var dockRadius = 12f * scale;
+
+        // Options lives in a small gear button to the right, so the five main tabs stay legible.
+        var gearSize = 37f * scale;
+        var gearGap = 6f * scale;
+        var dockTop = content.Max.Y - 39f * scale;
+        var dockBottom = content.Max.Y - 2f * scale;
+        var dock = new Rect(new Vector2(content.Min.X + 8f * scale, dockTop),
+            new Vector2(content.Max.X - 8f * scale - gearSize - gearGap, dockBottom));
         Elevation.Draw(drawList, dock.Min, dock.Max, dockRadius, scale, 12f, -4f, 0.22f);
         Material.Frosted(drawList, dock.Min, dock.Max, dockRadius, scale);
 
         var inset = 3f * scale;
         var width = (dock.Width - inset * 2f) / labels.Length;
-        var selectedIndex = Array.IndexOf(views, view);
-        if (selectedIndex < 0)
+        // The Marketboard is a sub-screen of the Bag, so keep the Bag tab lit while it's open.
+        var selectedIndex = Array.IndexOf(views, view == View.Market ? View.Bag : view);
+        var showPill = selectedIndex >= 0;
+
+        if (showPill)
         {
-            selectedIndex = 0;
+            if (navIndicator < 0f)
+            {
+                navIndicator = selectedIndex;
+            }
+
+            var dt = MathF.Min(ImGui.GetIO().DeltaTime, 0.1f);
+            navIndicator += (selectedIndex - navIndicator) * MathF.Min(1f, dt * 16f);
+
+            // Sliding accent pill behind the active tab.
+            var pillMin = new Vector2(dock.Min.X + inset + navIndicator * width, dock.Min.Y + inset);
+            var pillMax = new Vector2(pillMin.X + width, dock.Max.Y - inset);
+            Elevation.Draw(drawList, pillMin, pillMax, 9f * scale, scale, 5f, 2f, 0.28f);
+            Squircle.FillVerticalGradient(drawList, pillMin, pillMax, 9f * scale,
+                ImGui.GetColorU32(GamePalette.Lighten(Accent, 0.16f)),
+                ImGui.GetColorU32(GamePalette.Darken(Accent, 0.08f)));
+            drawList.AddLine(new Vector2(pillMin.X + 9f * scale, pillMin.Y + 1f * scale),
+                new Vector2(pillMax.X - 9f * scale, pillMin.Y + 1f * scale),
+                ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.28f)), 1f * scale);
         }
-
-        if (navIndicator < 0f)
-        {
-            navIndicator = selectedIndex;
-        }
-
-        var dt = MathF.Min(ImGui.GetIO().DeltaTime, 0.1f);
-        navIndicator += (selectedIndex - navIndicator) * MathF.Min(1f, dt * 16f);
-
-        // Sliding accent pill behind the active tab.
-        var pillMin = new Vector2(dock.Min.X + inset + navIndicator * width, dock.Min.Y + inset);
-        var pillMax = new Vector2(pillMin.X + width, dock.Max.Y - inset);
-        Elevation.Draw(drawList, pillMin, pillMax, 9f * scale, scale, 5f, 2f, 0.28f);
-        Squircle.FillVerticalGradient(drawList, pillMin, pillMax, 9f * scale,
-            ImGui.GetColorU32(GamePalette.Lighten(Accent, 0.16f)), ImGui.GetColorU32(GamePalette.Darken(Accent, 0.08f)));
-        drawList.AddLine(new Vector2(pillMin.X + 9f * scale, pillMin.Y + 1f * scale),
-            new Vector2(pillMax.X - 9f * scale, pillMin.Y + 1f * scale),
-            ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.28f)), 1f * scale);
 
         for (var i = 0; i < labels.Length; i++)
         {
@@ -62,11 +70,13 @@ internal sealed partial class LillypadGoApp
                     ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.06f)));
             }
 
-            var proximity = Math.Clamp(1f - MathF.Abs(navIndicator - i), 0f, 1f);
+            var proximity = showPill ? Math.Clamp(1f - MathF.Abs(navIndicator - i), 0f, 1f) : 0f;
             var labelColor = selected ? GamePalette.InkOn(Accent)
                 : hovered ? theme.TextStrong
                 : Vector4.Lerp(theme.TextMuted, GamePalette.InkOn(Accent), proximity * 0.6f);
-            Typography.DrawCentered((min + max) * 0.5f, labels[i], labelColor, TextStyles.SubheadlineEmphasized);
+            Typography.DrawCentered((min + max) * 0.5f,
+                FitLabel(labels[i], width - 4f * scale, TextStyles.SubheadlineEmphasized), labelColor,
+                TextStyles.SubheadlineEmphasized);
             if (hovered)
             {
                 ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
@@ -77,9 +87,61 @@ internal sealed partial class LillypadGoApp
                 }
             }
         }
+
+        // Options gear button, styled like the phone's own small chrome controls.
+        var gearMin = new Vector2(content.Max.X - 8f * scale - gearSize, dockTop);
+        var gearMax = new Vector2(content.Max.X - 8f * scale, dockBottom);
+        var gearHovered = ImGui.IsMouseHoveringRect(gearMin, gearMax);
+        var gearSelected = view == View.Options;
+        Elevation.Draw(drawList, gearMin, gearMax, dockRadius, scale, 12f, -4f, 0.22f);
+        Material.Frosted(drawList, gearMin, gearMax, dockRadius, scale);
+        if (gearSelected)
+        {
+            Squircle.FillVerticalGradient(drawList, gearMin + new Vector2(inset, inset),
+                gearMax - new Vector2(inset, inset), 9f * scale,
+                ImGui.GetColorU32(GamePalette.Lighten(Accent, 0.16f)),
+                ImGui.GetColorU32(GamePalette.Darken(Accent, 0.08f)));
+        }
+        else if (gearHovered)
+        {
+            Squircle.Fill(drawList, gearMin + new Vector2(inset, inset), gearMax - new Vector2(inset, inset),
+                9f * scale, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.06f)));
+        }
+
+        var gearColor = gearSelected ? GamePalette.InkOn(Accent)
+            : gearHovered ? theme.TextStrong : theme.TextMuted;
+        ProgressRing.CenterIcon(drawList, (gearMin + gearMax) * 0.5f, FontAwesomeIcon.Cog, gearColor,
+            gearSize * 0.32f);
+        if (gearHovered)
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+            ImGui.SetTooltip("Options");
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+            {
+                view = View.Options;
+                menu = Menu.Root;
+            }
+        }
     }
 
     // ---- Shared widgets -------------------------------------------------------------
+
+    private static string EvolutionSummary(MonsterSpecies species)
+    {
+        if (Dex.EvolutionOf(species) is not { } evo)
+        {
+            return "Does not evolve.";
+        }
+
+        if (species.EvolveLevel > 0)
+        {
+            return $"Evolves into {evo.Name} at Lv {species.EvolveLevel}.";
+        }
+
+        return string.IsNullOrEmpty(species.EvolveMethod)
+            ? $"Evolves into {evo.Name}."
+            : $"Evolves into {evo.Name} via {species.EvolveMethod}.";
+    }
 
     private static string BuildSpeciesTooltip(MonsterSpecies species, string note)
     {
@@ -323,6 +385,54 @@ internal sealed partial class LillypadGoApp
     {
         var center = new Vector2(panel.Center.X, panel.Min.Y + yFraction * panel.Height);
         return new Rect(center - size * 0.5f, center + size * 0.5f);
+    }
+
+    // A clipped, wheel-scrollable vertical list of fixed-height rows. Rows are culled when off
+    // screen, and row interaction is suppressed while the cursor is outside the list so buttons
+    // never react through the clip edges. Returns the clamped scroll via the ref parameter.
+    private void DrawScrollList(Rect area, float rowHeight, float gap, int count, ref float scroll, float scale,
+        Action<int, Rect> drawRow)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var step = rowHeight + gap;
+        var contentHeight = count <= 0 ? 0f : count * step - gap;
+        var maxScroll = MathF.Max(0f, contentHeight - area.Height);
+        var mouseInArea = LgUi.Interactive && ImGui.IsMouseHoveringRect(area.Min, area.Max);
+        if (mouseInArea)
+        {
+            var wheel = ImGui.GetIO().MouseWheel;
+            if (wheel != 0f)
+            {
+                scroll -= wheel * step;
+            }
+        }
+
+        scroll = Math.Clamp(scroll, 0f, maxScroll);
+
+        var previousInteractive = LgUi.Interactive;
+        drawList.PushClipRect(area.Min, area.Max, true);
+        for (var i = 0; i < count; i++)
+        {
+            var top = area.Min.Y - scroll + i * step;
+            var bottom = top + rowHeight;
+            if (bottom < area.Min.Y - 2f || top > area.Max.Y + 2f)
+            {
+                continue;
+            }
+
+            LgUi.Interactive = previousInteractive && mouseInArea;
+            drawRow(i, new Rect(new Vector2(area.Min.X, top), new Vector2(area.Max.X, bottom)));
+        }
+
+        LgUi.Interactive = previousInteractive;
+        drawList.PopClipRect();
+
+        if (maxScroll > 0f)
+        {
+            var track = new Rect(new Vector2(area.Max.X - 4f * scale, area.Min.Y),
+                new Vector2(area.Max.X - 1f * scale, area.Max.Y));
+            LgUi.Scrollbar(track, scroll, maxScroll, area.Height / MathF.Max(contentHeight, 1f), Accent, scale);
+        }
     }
 
     private void BackButton(Rect panel, PhoneTheme theme, float scale)

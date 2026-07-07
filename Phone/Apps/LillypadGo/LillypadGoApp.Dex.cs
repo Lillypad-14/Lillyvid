@@ -211,6 +211,7 @@ internal sealed partial class LillypadGoApp
                         dexEntryTab = 0;
                         dexEntryTabIndicator = -1f;
                         dexEntryScroll = 0f;
+                        dexEntryReturnView = View.Dex;
                         view = View.DexEntry;
                     }
                 }

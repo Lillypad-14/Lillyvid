@@ -16,6 +16,10 @@ public sealed partial class MainWindow
 
     // Browser page state parsed from the OverlayPlayer status file.
     private string browserPageUrl = string.Empty;
+
+    // The joinable Watch2Gether room URL OverlayPlayer extracts from the current
+    // page (status field "w2gRoom"), distinct from the redirected location.href.
+    private string browserWatch2GetherRoomUrl = string.Empty;
     private int browserScrollX;
     private int browserScrollY;
     private int browserViewportWidth;
@@ -228,7 +232,7 @@ public sealed partial class MainWindow
     {
         var estimatedTime = this.GetEstimatedPlaybackTime();
         return new NetworkSync.PageState(
-            this.browserPageUrl,
+            this.ResolveBroadcastUrl(),
             this.browserScrollX,
             this.browserScrollY,
             this.browserViewportWidth,
@@ -275,9 +279,48 @@ public sealed partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// Chooses the URL to broadcast to the shell. For a Watch2Gether room, w2g.tv
+    /// redirects the shareable /rooms/{streamkey} link to a per-session player page
+    /// (/room/…?access_key=…) that only the host can open — broadcasting that raw
+    /// location.href makes every viewer's join fail with "invalid room/url". Prefer a
+    /// canonical, joinable room URL instead (the same one the manual join-code path uses).
+    /// </summary>
+    private string ResolveBroadcastUrl()
+    {
+        if (!LooksLikeWatch2GetherUrl(this.browserPageUrl))
+        {
+            return this.browserPageUrl;
+        }
+
+        // The room URL OverlayPlayer parsed off the live page, when it's a shareable form.
+        if (IsJoinableWatch2GetherRoomUrl(this.browserWatch2GetherRoomUrl))
+        {
+            return this.browserWatch2GetherRoomUrl;
+        }
+
+        // The canonical create/open URL we still hold from opening the room ourselves.
+        if (IsJoinableWatch2GetherRoomUrl(this.lastWatch2GetherRoomUrl))
+        {
+            return this.lastWatch2GetherRoomUrl;
+        }
+
+        return this.browserPageUrl;
+    }
+
     private static bool LooksLikeWatch2GetherUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
         uri.Host.Equals("w2g.tv", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True only for a shareable Watch2Gether room link (/rooms/{key} or ?r=…), not the
+    /// session-bound /room/…?access_key=… player page that can't be joined by others.
+    /// </summary>
+    private static bool IsJoinableWatch2GetherRoomUrl(string url) =>
+        LooksLikeWatch2GetherUrl(url) &&
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        (uri.AbsolutePath.StartsWith("/rooms/", StringComparison.OrdinalIgnoreCase) ||
+         uri.Query.Contains("r=", StringComparison.OrdinalIgnoreCase));
 
     private string GetLocalDisplayName()
     {
@@ -527,9 +570,9 @@ public sealed partial class MainWindow
         {
             this.ApplyRoomScreenLayout(layout);
         }
-        else if (this.worldScreenAnchor is null)
+        else if (!this.PlaceWorldScreenInFrontOfPlayer())
         {
-            this.PlaceWorldScreenInFrontOfPlayer();
+            return;
         }
 
         this.EnableNativeWorldScreen();

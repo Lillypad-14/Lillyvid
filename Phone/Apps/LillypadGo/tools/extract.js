@@ -79,8 +79,8 @@ function levelupMoves(id) {
 
 // --- Move effect mapping -> our MoveEffect enum ---
 const STATUS = { brn: 'Burn', frz: 'Freeze', par: 'Paralyze', psn: 'Poison', tox: 'Poison' };
-const BOOST_LOWER = { atk: 'LowerTargetAtk', def: 'LowerTargetDef', spa: 'LowerTargetSpAtk', spd: 'LowerTargetSpDef', spe: 'LowerTargetSpd' };
-const BOOST_RAISE = { atk: 'RaiseAtk', def: 'RaiseDef', spe: 'RaiseSpd' };
+const BOOST_LOWER = { atk: 'LowerTargetAtk', def: 'LowerTargetDef', spa: 'LowerTargetSpAtk', spd: 'LowerTargetSpDef', spe: 'LowerTargetSpd', accuracy: 'LowerTargetAccuracy' };
+const BOOST_RAISE = { atk: 'RaiseAtk', def: 'RaiseDef', spe: 'RaiseSpd', evasion: 'RaiseEvasion' };
 
 function firstBoost(boosts, table) {
   for (const [k, v] of Object.entries(boosts)) {
@@ -94,6 +94,8 @@ function mapEffect(mv) {
   const none = { effect: 'None', chance: 0, stage: 1 };
   // 1) primary status (status-only moves like Thunder Wave, Toxic, Will-O-Wisp)
   if (mv.status && STATUS[mv.status]) return { effect: STATUS[mv.status], chance: 100, stage: 1 };
+  // 1b) primary volatile status (Supersonic/Confuse Ray = confusion, etc.)
+  if (mv.volatileStatus === 'confusion') return { effect: 'Confuse', chance: 100, stage: 1 };
   // 2) secondaries
   const secs = mv.secondaries || (mv.secondary ? [mv.secondary] : []);
   for (const s of secs) {
@@ -156,6 +158,28 @@ for (const moveid of usedMoves) {
 }
 moves.sort((a, b) => a.name.localeCompare(b.name));
 
+// --- Evolution: resolve the first Gen-1 evolution target + how it evolves ---
+const toID = (s) => ('' + s).toLowerCase().replace(/[^a-z0-9]/g, '');
+function evoInfo(s) {
+  if (!s.evos || !s.evos.length) return null;
+  for (const name of s.evos) {
+    const toId = toID(name);
+    const e = Pokedex[toId];
+    if (!e || !e.num || e.num > 151) continue; // keep evolutions inside the Kanto roster
+    const level = e.evoLevel || 0;
+    let method = null;
+    if (!level) {
+      if (e.evoType === 'useItem') method = e.evoItem || 'a special stone';
+      else if (e.evoType === 'trade') method = 'Trade';
+      else if (e.evoType === 'levelFriendship') method = 'high friendship';
+      else if (e.evoType) method = e.evoCondition || e.evoType;
+      else method = e.evoCondition || 'a special condition';
+    }
+    return { toId, level, method };
+  }
+  return null;
+}
+
 // --- Emit intermediate JSON ---
 const outSpecies = species.map((s) => ({
   id: s.id,
@@ -166,6 +190,7 @@ const outSpecies = species.map((s) => ({
   color: s.color,
   prevo: s.prevo || null,
   evos: s.evos || null,
+  evo: evoInfo(s),
   bst: Object.values(s.baseStats).reduce((a, b) => a + b, 0),
   capture: meta[s.num]?.capture ?? 45,
   habitat: meta[s.num]?.habitat ?? 0,

@@ -65,7 +65,10 @@ internal sealed class EncounterService : IDisposable
             return; // idle, or a teleport / zone change
         }
 
-        if (state.Pending is not null || state.InBattle || !state.HasAnyMonster)
+        // No encounters while a wild is already pending, mid-battle, before getting a starter,
+        // after a whiteout (revive at a Marketboard first), or inside a safe town.
+        if (state.Pending is not null || state.InBattle || !state.HasAnyMonster ||
+            state.AllMonstersFainted || Towns.IsTown(state.Territory))
         {
             return;
         }

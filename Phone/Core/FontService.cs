@@ -32,6 +32,7 @@ internal sealed class FontService : IDisposable
         0x0020, 0x00FF, // Basic Latin and Latin-1 Supplement
         0x0100, 0x017F, // Latin Extended-A for European name accents and Turkish glyphs
         0x2000, 0x206F, // General Punctuation: ellipsis, em dash, curly quotes
+        0x20A0, 0x20CF, // Currency Symbols: the ₽ Poké Dollar sign
         0x2200, 0x22FF, // Mathematical Operators for the market alert glyphs
         0x25A0, 0x27BF, // Geometric Shapes, Misc Symbols, Dingbats for game and gender glyphs
     };

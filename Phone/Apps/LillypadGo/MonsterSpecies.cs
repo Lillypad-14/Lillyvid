@@ -50,7 +50,8 @@ internal sealed class MonsterSpecies
 {
     public MonsterSpecies(string id, string name, Element element, ArtSpec art, int baseHp, int baseAtk, int baseDef,
         int baseSpd, int catchRate, (int Level, MoveDef Move)[] learnset, Element? secondaryElement = null,
-        int? baseSpAtk = null, int? baseSpDef = null, int dexNumber = 0)
+        int? baseSpAtk = null, int? baseSpDef = null, int dexNumber = 0, string? evolvesToId = null,
+        int evolveLevel = 0, string? evolveMethod = null)
     {
         Id = id;
         Name = name;
@@ -66,6 +67,9 @@ internal sealed class MonsterSpecies
         Learnset = learnset;
         SecondaryElement = secondaryElement == element ? null : secondaryElement;
         DexNumber = dexNumber;
+        EvolvesToId = evolvesToId;
+        EvolveLevel = evolveLevel;
+        EvolveMethod = evolveMethod;
     }
 
     public string Id { get; }
@@ -82,6 +86,12 @@ internal sealed class MonsterSpecies
     public int BaseSpd { get; }
     public int CatchRate { get; }
     public (int Level, MoveDef Move)[] Learnset { get; }
+
+    // Evolution: the species id this evolves into (null if final), the level it evolves at
+    // (0 = not a level-up evolution), and, when not level-based, how it evolves (e.g. "Water Stone").
+    public string? EvolvesToId { get; }
+    public int EvolveLevel { get; }
+    public string? EvolveMethod { get; }
 
     public bool HasType(Element type) => Element == type || SecondaryElement == type;
 }
@@ -114,11 +124,15 @@ internal static partial class Dex
     }
 
     private static void Add(string id, string name, Element type, Element? type2, int hp, int atk, int def,
-        int spAtk, int spDef, int spd, int catchRate, int dexNumber, ArtSpec art, (int lvl, string id)[] learnset)
+        int spAtk, int spDef, int spd, int catchRate, int dexNumber, ArtSpec art, (int lvl, string id)[] learnset,
+        string? evolvesToId = null, int evolveLevel = 0, string? evolveMethod = null)
         => Register(new MonsterSpecies(id, name, type, art, hp, atk, def, spd, catchRate, LS(learnset), type2,
-            spAtk, spDef, dexNumber));
+            spAtk, spDef, dexNumber, evolvesToId, evolveLevel, evolveMethod));
 
     public static MonsterSpecies? Find(string id) => ById.TryGetValue(id, out var species) ? species : null;
+
+    public static MonsterSpecies? EvolutionOf(MonsterSpecies species) =>
+        species.EvolvesToId is { } id ? Find(id) : null;
 
     public static IReadOnlyCollection<MonsterSpecies> All => ById.Values;
 }

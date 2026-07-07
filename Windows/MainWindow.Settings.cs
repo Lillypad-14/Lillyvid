@@ -225,13 +225,14 @@ public sealed partial class MainWindow
         ImGui.TextWrapped(this.presentHookProbe.Status);
     }
 
-    private void PlaceWorldScreenInFrontOfPlayer()
+    private bool PlaceWorldScreenInFrontOfPlayer()
     {
         var player = Plugin.ObjectTable.LocalPlayer;
         if (player is null)
         {
+            this.worldScreenAnchor = null;
             this.status = "Could not place the world screen because no local player was found.";
-            return;
+            return false;
         }
 
         var rotation = player.Rotation;
@@ -241,6 +242,7 @@ public sealed partial class MainWindow
         this.worldScreenElevation = 0f;
         this.worldScreenPush = 0f;
         this.status = "Placed the world screen in front of your character.";
+        return true;
     }
 
     private void EnableNativeWorldScreen()

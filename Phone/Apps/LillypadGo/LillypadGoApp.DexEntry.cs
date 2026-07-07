@@ -14,7 +14,7 @@ internal sealed partial class LillypadGoApp
     {
         if (dexEntrySpecies is not { } species || !State.Seen.Contains(species.Id))
         {
-            view = View.Dex;
+            view = dexEntryReturnView;
             return;
         }
 
@@ -29,7 +29,7 @@ internal sealed partial class LillypadGoApp
             new Vector2(content.Min.X + 82f * scale, content.Min.Y + 96f * scale));
         if (LgUi.Button(back, "Back", GamePalette.Cell, theme, true))
         {
-            view = View.Dex;
+            view = dexEntryReturnView;
             return;
         }
 
@@ -101,19 +101,39 @@ internal sealed partial class LillypadGoApp
         }
 
         LgUi.Card(drawList, infoMin, infoMax, 12f * scale, scale);
-        Typography.Draw(new Vector2(infoMin.X + 14f * scale, infoMin.Y + 14f * scale), "Habitats",
+        var infoWidth = infoMax.X - infoMin.X - 28f * scale;
+
+        // Evolution row with a small sprite of the evolved form.
+        Typography.Draw(new Vector2(infoMin.X + 14f * scale, infoMin.Y + 14f * scale), "Evolution",
             theme.TextStrong, TextStyles.SubheadlineEmphasized);
-        var habitats = ArrZones.Habitats(species.Id);
-        var lines = WrapText(string.IsNullOrWhiteSpace(habitats) ? "No ARR habitat recorded." : habitats,
-            infoMax.X - infoMin.X - 28f * scale, TextStyles.Body);
-        for (var i = 0; i < lines.Count && i < 4; i++)
+        if (Dex.EvolutionOf(species) is { } evo)
         {
-            Typography.Draw(new Vector2(infoMin.X + 14f * scale, infoMin.Y + (42f + i * 20f) * scale), lines[i],
-                theme.TextMuted, TextStyles.Body);
+            var evoCenter = new Vector2(infoMax.X - 30f * scale, infoMin.Y + 30f * scale);
+            ProgressRing.Glow(evoCenter, 20f * scale, Elements.Color(evo.Element), 0.3f);
+            MonsterArt.Draw(drawList, evoCenter, 18f * scale, evo, 1f, MonsterPose.Idle(time + 1.3f));
+        }
+
+        Typography.Draw(new Vector2(infoMin.X + 14f * scale, infoMin.Y + 36f * scale),
+            FitLabel(EvolutionSummary(species), infoWidth - 46f * scale, TextStyles.Caption1),
+            theme.TextStrong with { W = 0.8f }, TextStyles.Caption1);
+
+        var habitatsY = infoMin.Y + 62f * scale;
+        if (habitatsY + 30f * scale < infoMax.Y - 44f * scale)
+        {
+            Typography.Draw(new Vector2(infoMin.X + 14f * scale, habitatsY), "Habitats",
+                theme.TextStrong, TextStyles.SubheadlineEmphasized);
+            var habitats = ArrZones.Habitats(species.Id);
+            var lines = WrapText(string.IsNullOrWhiteSpace(habitats) ? "No ARR habitat recorded." : habitats,
+                infoWidth, TextStyles.Body);
+            for (var i = 0; i < lines.Count && i < 2; i++)
+            {
+                Typography.Draw(new Vector2(infoMin.X + 14f * scale, habitatsY + (22f + i * 19f) * scale), lines[i],
+                    theme.TextStrong with { W = 0.75f }, TextStyles.Body);
+            }
         }
 
         Typography.Draw(new Vector2(infoMin.X + 14f * scale, infoMax.Y - 42f * scale),
-            $"{species.Learnset.Length} level-up moves", theme.TextMuted, TextStyles.Caption1);
+            $"{species.Learnset.Length} level-up moves", theme.TextStrong with { W = 0.75f }, TextStyles.Caption1);
         Typography.Draw(new Vector2(infoMin.X + 14f * scale, infoMax.Y - 22f * scale),
             "Open Learnset for level and move details.", Accent, TextStyles.Caption2);
     }

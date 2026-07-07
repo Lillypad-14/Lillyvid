@@ -32,26 +32,52 @@ internal sealed partial class LillypadGoApp
             return;
         }
 
-        var favorite = CenteredAt(new Vector2(content.Max.X - 54f * scale, content.Min.Y + 20f * scale),
+        var learnset = CenteredAt(new Vector2(content.Max.X - 54f * scale, content.Min.Y + 20f * scale),
             new Vector2(92f * scale, 26f * scale));
-        if (LgUi.Button(favorite, monster.IsFavorite ? "Favorited" : "Favorite",
-                monster.IsFavorite ? Accent : GamePalette.Cell, theme, true))
+        if (LgUi.Button(learnset, "Learnset", Accent, theme, true))
         {
-            monster.ToggleFavorite();
-            State.Save();
+            dexEntrySpecies = monster.Species;
+            dexEntryTab = 1;
+            dexEntryTabIndicator = -1f;
+            dexEntryScroll = 0f;
+            dexEntryReturnView = View.Detail;
+            view = View.DexEntry;
+            return;
         }
 
-        var portrait = new Vector2(content.Center.X, content.Min.Y + 88f * scale);
+        if (ImGui.IsMouseHoveringRect(learnset.Min, learnset.Max))
+        {
+            ImGui.SetTooltip($"View every move {monster.Species.Name} learns and at what level.");
+        }
+
+        var portrait = new Vector2(content.Center.X - (Dex.EvolutionOf(monster.Species) is not null ? 30f * scale : 0f),
+            content.Min.Y + 88f * scale);
         ProgressRing.Glow(portrait, 54f * scale, Elements.Color(monster.Element), 0.45f);
         MonsterArt.Draw(drawList, portrait, 48f * scale, monster.Species, 1f,
             MonsterPose.Idle(time));
+
+        // Next evolution preview: arrow + a small sprite of the evolved form, with the trigger.
+        if (Dex.EvolutionOf(monster.Species) is { } evo)
+        {
+            var evoCenter = new Vector2(content.Center.X + 74f * scale, content.Min.Y + 84f * scale);
+            Typography.DrawCentered(new Vector2(content.Center.X + 30f * scale, portrait.Y), ">",
+                theme.TextStrong with { W = 0.7f }, TextStyles.Title2);
+            ProgressRing.Glow(evoCenter, 28f * scale, Elements.Color(evo.Element), 0.32f);
+            MonsterArt.Draw(drawList, evoCenter, 24f * scale, evo, 1f, MonsterPose.Idle(time + 1.3f));
+            var trigger = monster.Species.EvolveLevel > 0
+                ? $"Lv {monster.Species.EvolveLevel}"
+                : monster.Species.EvolveMethod ?? evo.Name;
+            Typography.DrawCentered(new Vector2(evoCenter.X, evoCenter.Y + 34f * scale),
+                FitLabel(trigger, 92f * scale, TextStyles.Caption2), theme.TextStrong with { W = 0.82f },
+                TextStyles.Caption2);
+        }
         var nameText = FitLabel(monster.Name, content.Width - 24f * scale, TextStyles.Title2);
         Typography.DrawCentered(new Vector2(content.Center.X, content.Min.Y + 148f * scale), nameText,
             theme.TextStrong, TextStyles.Title2);
         var subtitleText = FitLabel($"{monster.Species.Name}  |  {Elements.Format(monster.Element, monster.SecondaryElement)}  |  Lv {monster.Level}",
             content.Width - 24f * scale, TextStyles.Caption1);
         Typography.DrawCentered(new Vector2(content.Center.X, content.Min.Y + 170f * scale), subtitleText,
-            theme.TextMuted, TextStyles.Caption1);
+            theme.TextStrong with { W = 0.85f }, TextStyles.Caption1);
 
         Typography.Draw(new Vector2(content.Min.X + 16f * scale, content.Min.Y + 188f * scale), "Nickname",
             theme.TextMuted, TextStyles.Caption2);
@@ -85,25 +111,25 @@ internal sealed partial class LillypadGoApp
             var x = statsMin.X + (i + 0.5f) * (statsMax.X - statsMin.X) / stats.Length;
             Typography.DrawCentered(new Vector2(x, statsMin.Y + 20f * scale), stats[i].Item2, theme.TextStrong,
                 TextStyles.Headline);
-            Typography.DrawCentered(new Vector2(x, statsMin.Y + 40f * scale), stats[i].Item1, theme.TextMuted,
-                TextStyles.Caption2);
+            Typography.DrawCentered(new Vector2(x, statsMin.Y + 40f * scale), stats[i].Item1,
+                theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
         }
 
         var xpLabel = monster.Level >= 100 ? "Maximum level" : $"XP {monster.Xp}/{monster.XpToNext}";
         Typography.Draw(new Vector2(content.Min.X + 16f * scale, content.Min.Y + 314f * scale), xpLabel,
-            theme.TextMuted, TextStyles.Caption2);
+            theme.TextStrong with { W = 0.8f }, TextStyles.Caption2);
         LgUi.Meter(drawList, new Vector2(content.Min.X + 16f * scale, content.Min.Y + 330f * scale),
             new Vector2(content.Max.X - 16f * scale, content.Min.Y + 337f * scale), monster.XpFraction, Accent);
 
         var winRate = monster.Battles == 0 ? "--" : $"{monster.Victories * 100 / monster.Battles}%";
         Typography.DrawCentered(new Vector2(content.Center.X, content.Min.Y + 354f * scale),
             $"{monster.Battles} battles  |  {monster.Victories} victories  |  {winRate} win rate",
-            theme.TextMuted, TextStyles.Caption2);
+            theme.TextStrong with { W = 0.82f }, TextStyles.Caption2);
         Typography.DrawCentered(new Vector2(content.Center.X, content.Min.Y + 371f * scale),
-            $"{monster.DamageDealt} total damage", theme.TextMuted, TextStyles.Caption2);
+            $"{monster.DamageDealt} total damage", theme.TextStrong with { W = 0.82f }, TextStyles.Caption2);
         Typography.DrawCentered(new Vector2(content.Center.X, content.Min.Y + 388f * scale),
             FitLabel($"Habitats: {ArrZones.Habitats(monster.Species.Id)}", content.Width - 28f * scale,
-                TextStyles.Caption2), theme.TextMuted, TextStyles.Caption2);
+                TextStyles.Caption2), theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
         Typography.Draw(new Vector2(content.Min.X + 14f * scale, content.Min.Y + 405f * scale), "Moves",
             theme.TextStrong, TextStyles.SubheadlineEmphasized);
 

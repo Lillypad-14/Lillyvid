@@ -25,29 +25,44 @@ internal sealed partial class LillypadGoApp
         LgUi.Header(content, theme, Accent, "Lillypad Go",
             FitLabel(location, content.Width - 24f * scale, TextStyles.Caption1), scale);
 
-        // Radar: progress toward the next encounter roll.
+        // Radar: progress toward the next encounter roll. Scanning is paused when the team is
+        // wiped or while resting in a town, so the radar goes quiet in those states.
+        var wiped = State.AllMonstersFainted;
+        var scanning = !wiped && !State.InTown;
         var radar = new Vector2(content.Center.X, content.Min.Y + 128f * scale);
         var radius = 54f * scale;
-        var frac = Math.Clamp(State.StepProgress / EncounterService.StepDistance, 0f, 1f);
+        var frac = scanning ? Math.Clamp(State.StepProgress / EncounterService.StepDistance, 0f, 1f) : 0f;
         ProgressRing.Track(radar, radius, 6f * scale, new Vector4(1f, 1f, 1f, 0.10f));
-        ProgressRing.Fill(radar, radius, 6f * scale, frac, Accent);
-        for (var i = 0; i < 3; i++)
+        ProgressRing.Fill(radar, radius, 6f * scale, frac, wiped ? theme.Danger : Accent);
+        if (scanning)
         {
-            var pulse = (time * 0.5f + i / 3f) % 1f;
-            drawList.AddCircle(radar, radius * (0.3f + pulse * 0.7f),
-                ImGui.GetColorU32(Accent with { W = 0.25f * (1f - pulse) }), 48, 2f * scale);
+            for (var i = 0; i < 3; i++)
+            {
+                var pulse = (time * 0.5f + i / 3f) % 1f;
+                drawList.AddCircle(radar, radius * (0.3f + pulse * 0.7f),
+                    ImGui.GetColorU32(Accent with { W = 0.25f * (1f - pulse) }), 48, 2f * scale);
+            }
         }
 
-        ProgressRing.CenterIcon(radar, FontAwesomeIcon.Walking, theme.TextStrong, radius * 0.5f);
+        ProgressRing.CenterIcon(radar, wiped ? FontAwesomeIcon.HeartBroken : FontAwesomeIcon.Walking,
+            wiped ? theme.Danger : theme.TextStrong with { W = scanning ? 1f : 0.5f }, radius * 0.5f);
 
-        if (State.Pending is { } wild)
+        if (State.AllMonstersFainted)
+        {
+            DrawWipedBanner(content, theme, scale);
+        }
+        else if (State.Pending is { } wild)
         {
             DrawEncounterCard(content, theme, wild, scale);
         }
         else
         {
+            var gymHere = Gyms.ForTerritory(State.Territory);
+            var townNote = gymHere is not null
+                ? $"{gymHere.Leader}'s gym is in this city — open Arena"
+                : State.InTown ? "Safe in town — no wild Pokémon here" : null;
             var remaining = Math.Max(0, (int)MathF.Ceiling(EncounterService.StepDistance - State.StepProgress));
-            var scanText = $"Next trail scan in about {remaining} yalms";
+            var scanText = townNote ?? $"Next trail scan in about {remaining} yalms";
             var scanPos = new Vector2(content.Center.X, radar.Y + radius + 20f * scale);
             var textSize = Typography.Measure(scanText, TextStyles.Footnote);
             var pillMin = scanPos - new Vector2(textSize.X * 0.5f + 7f * scale, 3f * scale);
@@ -101,18 +116,89 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    private void DrawWipedBanner(Rect content, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var danger = theme.Danger;
+        var min = new Vector2(content.Min.X + 16f * scale, content.Min.Y + 196f * scale);
+        var max = new Vector2(content.Max.X - 16f * scale, content.Min.Y + 292f * scale);
+        LgUi.Card(drawList, min, max, 16f * scale, scale);
+        Squircle.Stroke(drawList, min, max, 16f * scale, ImGui.GetColorU32(danger with { W = 0.7f }), 1.4f * scale);
+
+        var iconCenter = new Vector2(min.X + 40f * scale, min.Y + 30f * scale);
+        ProgressRing.CenterIcon(drawList, iconCenter, FontAwesomeIcon.HeartBroken, danger, 20f * scale);
+        Typography.Draw(new Vector2(min.X + 72f * scale, min.Y + 14f * scale), "Your team has fainted",
+            theme.TextStrong, TextStyles.Headline);
+        Typography.Draw(new Vector2(min.X + 72f * scale, min.Y + 35f * scale), "No scans or battles until revived",
+            danger with { W = 0.9f }, TextStyles.Caption1);
+
+        var body = "Head to any town and open the Marketboard to revive your team at the Pokécenter — it's free.";
+        var lines = WrapText(body, max.X - min.X - 28f * scale, TextStyles.Caption1);
+        for (var i = 0; i < lines.Count; i++)
+        {
+            Typography.Draw(new Vector2(min.X + 14f * scale, min.Y + 56f * scale + i * 17f * scale), lines[i],
+                theme.TextMuted, TextStyles.Caption1);
+        }
+    }
+
     private void Engage(MonsterInstance wild)
+    {
+        if (State.AllMonstersFainted)
+        {
+            return;
+        }
+
+        PrepPartyForBattle();
+        battle = new Battle(State.Party, wild, State.Bag, rng);
+        State.Pending = null;
+        pendingGymIndex = -1;
+        EnterBattle();
+    }
+
+    // Starts a randomized Training battle at the given tier.
+    private void StartTraining(Training.Tier tier)
+    {
+        if (State.AllMonstersFainted)
+        {
+            return;
+        }
+
+        PrepPartyForBattle();
+        battle = Training.Build(State.Party, tier, State.Bag, rng);
+        State.Pending = null;
+        pendingGymIndex = -1;
+        EnterBattle();
+    }
+
+    // Starts a gym-leader battle. Winning awards the gym's badge (handled in FinishBattle).
+    private void StartGym(GymDef gym)
+    {
+        if (State.AllMonstersFainted || Array.IndexOf(gym.Territories, State.Territory) < 0)
+        {
+            return;
+        }
+
+        PrepPartyForBattle();
+        battle = Gyms.Build(gym, State.Party, State.Bag, rng);
+        State.Pending = null;
+        pendingGymIndex = gym.Index;
+        EnterBattle();
+    }
+
+    private void PrepPartyForBattle()
     {
         foreach (var m in State.Party)
         {
             m.ResetBattleState();
         }
+    }
 
-        battle = new Battle(State.Party, wild, State.Bag, rng);
-        displayedPlayer = battle.Active;
+    // Shared setup once `battle` has been created (wild, training or gym).
+    private void EnterBattle()
+    {
+        displayedPlayer = battle!.Active;
         SetDisplayedPlayer(BattleSnapshot.Capture(battle.Active));
         SetDisplayedWild(BattleSnapshot.Capture(battle.Wild));
-        State.Pending = null;
         State.InBattle = true;
         playerAnim.Reset();
         wildAnim.Reset();
@@ -121,6 +207,7 @@ internal sealed partial class LillypadGoApp
         battleText.Clear();
         awaitingResult = false;
         battlePopups.Clear();
+        battleItemScroll = 0f;
         moveFx = null;
         menu = Menu.Root;
         view = View.Battle;

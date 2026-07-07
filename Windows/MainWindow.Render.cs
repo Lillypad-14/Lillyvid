@@ -88,6 +88,14 @@ public sealed partial class MainWindow
                 this.browserPageUrl = urlElement.GetString() ?? string.Empty;
             }
 
+            // The joinable room URL OverlayPlayer parsed off the page (may be absent when
+            // not on a Watch2Gether room, or null when it couldn't find a shareable link).
+            this.browserWatch2GetherRoomUrl =
+                document.RootElement.TryGetProperty("w2gRoom", out var roomElement) &&
+                roomElement.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? roomElement.GetString() ?? string.Empty
+                    : string.Empty;
+
             if (document.RootElement.TryGetProperty("sx", out var sxElement) &&
                 sxElement.ValueKind == System.Text.Json.JsonValueKind.Number)
             {

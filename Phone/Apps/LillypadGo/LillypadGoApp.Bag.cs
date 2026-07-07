@@ -13,71 +13,172 @@ namespace VideoSyncPrototype.Phone.Apps.LillypadGo;
 
 internal sealed partial class LillypadGoApp
 {
+    // Shared transient status line for the Bag/Market screens (e.g. "Bought 1 Potion.").
+    private string bagStatus = string.Empty;
+    private float bagScroll;
+
     private void DrawBag(Rect content, PhoneTheme theme)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
         BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
         LgUi.Header(content, theme, Accent, "Bag", null, scale);
-        var items = new[]
+        DrawMoneyPill(content, theme, scale);
+
+        var owned = State.Bag.Contents().ToList();
+        var listTop = content.Min.Y + 62f * scale;
+        var listBottom = content.Max.Y - 104f * scale;
+        var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, listTop),
+            new Vector2(content.Max.X - 12f * scale, listBottom));
+
+        if (owned.Count == 0)
         {
-            ("Aether Snare", "Catches wild monsters.", State.Bag.Snares, FontAwesomeIcon.Bullseye),
-            ("Tonic", $"Restores {Bag.TonicHeal} HP.", State.Bag.Tonics, FontAwesomeIcon.Flask),
-        };
-        var top = content.Min.Y + 54f * scale;
-        for (var i = 0; i < items.Length; i++)
+            LgUi.EmptyState(listArea.Center, FontAwesomeIcon.SuitcaseRolling,
+                "Your bag is empty. Buy supplies at a town Marketboard.", theme, scale);
+        }
+        else
         {
-            var (name, desc, count, icon) = items[i];
-            var min = new Vector2(content.Min.X + 14f * scale, top + i * 60f * scale);
-            var max = new Vector2(content.Max.X - 14f * scale, top + i * 60f * scale + 52f * scale);
-            var hovered = ImGui.IsMouseHoveringRect(min, max);
-            LgUi.Card(drawList, min, max, 12f * scale, scale, hovered);
-            var iconCenter = new Vector2(min.X + 32f * scale, (min.Y + max.Y) * 0.5f);
-            drawList.AddCircleFilled(iconCenter, 18f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
-            drawList.AddCircle(iconCenter, 18f * scale, ImGui.GetColorU32(Accent with { W = 0.4f }), 24, 1f * scale);
-            ProgressRing.CenterIcon(drawList, iconCenter, icon, Accent, 17f * scale);
-            Typography.Draw(new Vector2(min.X + 62f * scale, min.Y + 10f * scale), name, theme.TextStrong,
-                TextStyles.Headline);
-            Typography.Draw(new Vector2(min.X + 62f * scale, min.Y + 30f * scale), desc, theme.TextMuted,
-                TextStyles.Caption1);
-            Typography.DrawCentered(new Vector2(max.X - 26f * scale, (min.Y + max.Y) * 0.5f), "x" + count, Accent,
-                TextStyles.Title3);
-            if (hovered)
-            {
-                ImGui.SetTooltip(i == 0
-                    ? "Use during a wild battle. Lower HP and status effects improve capture odds."
-                    : $"Use in battle or from this bag to restore up to {Bag.TonicHeal} HP. It can revive a fainted creature.");
-            }
+            DrawScrollList(listArea, 50f * scale, 8f * scale, owned.Count, ref bagScroll, scale,
+                (i, rowRect) => DrawBagItemRow(owned[i].Def, owned[i].Count, rowRect, theme, scale));
         }
 
-        var hurt = State.Party.Where(monster => monster.CurrentHp < monster.MaxHp)
-            .OrderBy(monster => monster.HpFraction).FirstOrDefault();
-        var tonicRect = CenteredAt(new Vector2(content.Center.X, top + 138f * scale),
-            new Vector2(210f * scale, 34f * scale));
-        var canUseTonic = hurt is not null && State.Bag.Tonics > 0;
-        var tonicLabel = hurt is null ? "Team is fully restored" : $"Use Tonic on {hurt.Name}";
-        if (LgUi.Button(tonicRect, tonicLabel, canUseTonic ? theme.Accent : GamePalette.CellSunken, theme,
-                canUseTonic))
+        var inTown = State.InTown;
+        var marketRect = CenteredAt(new Vector2(content.Center.X, listBottom + 20f * scale),
+            new Vector2(224f * scale, 32f * scale));
+        if (LgUi.Button(marketRect, "Open Marketboard", inTown ? theme.Accent : GamePalette.CellSunken, theme, inTown))
         {
-            State.Bag.Tonics--;
-            hurt!.Heal(Bag.TonicHeal);
-            State.Save();
+            bagStatus = string.Empty;
+            marketScroll = 0f;
+            view = View.Market;
         }
 
-        if (ImGui.IsMouseHoveringRect(tonicRect.Min, tonicRect.Max))
+        if (ImGui.IsMouseHoveringRect(marketRect.Min, marketRect.Max))
         {
-            var hint = hurt is null ? "Every team creature is already at full HP." :
-                State.Bag.Tonics <= 0 ? "No Tonics remain." :
-                $"Restore {Math.Min(Bag.TonicHeal, hurt.MaxHp - hurt.CurrentHp)} HP to {hurt.Name}.";
-            ImGui.SetTooltip(hint);
+            ImGui.SetTooltip(inTown
+                ? "Shop for items and heal your team at the Pokécenter counter."
+                : "Travel to a town (any aetheryte city) to reach a Marketboard.");
         }
 
-        Typography.DrawCentered(new Vector2(content.Center.X, top + 178f * scale),
-            "Win battles to recover trail supplies.", theme.TextMuted, TextStyles.Caption1);
-        Typography.DrawCentered(new Vector2(content.Center.X, top + 198f * scale),
-            $"{State.BattlesWon} wins  |  {State.Captures} captures", theme.TextMuted, TextStyles.Caption1);
+        var status = bagStatus.Length > 0
+            ? bagStatus
+            : $"{State.BattlesWon} wins  ·  {State.Captures} captures";
+        Typography.DrawCentered(new Vector2(content.Center.X, listBottom + 44f * scale),
+            FitLabel(status, content.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted, TextStyles.Caption1);
 
         DrawNavigation(content, theme, scale);
     }
 
+    // The Poké Dollar balance, drawn as a pill just under the header on the Bag/Market screens.
+    private void DrawMoneyPill(Rect content, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var text = LgUi.Money(State.Money);
+        var textSize = Typography.Measure(text, TextStyles.Caption1);
+        var innerWidth = 18f * scale + textSize.X;
+        var padX = 10f * scale;
+        var max = new Vector2(content.Max.X - 14f * scale, content.Min.Y + 50f * scale);
+        var min = new Vector2(max.X - innerWidth - padX * 2f, max.Y - 21f * scale);
+        var radius = (max.Y - min.Y) * 0.5f;
+        Squircle.Fill(drawList, min, max, radius, ImGui.GetColorU32(new Vector4(0.02f, 0.025f, 0.035f, 0.55f)));
+        Squircle.Stroke(drawList, min, max, radius, ImGui.GetColorU32(Accent with { W = 0.5f }), 1f * scale);
+        ProgressRing.CenterIcon(drawList, new Vector2(min.X + padX + 5f * scale, (min.Y + max.Y) * 0.5f),
+            FontAwesomeIcon.Coins, Accent, 10f * scale);
+        Typography.Draw(new Vector2(min.X + padX + 16f * scale, (min.Y + max.Y) * 0.5f - 8f * scale), text,
+            theme.TextStrong, TextStyles.Caption1);
+    }
+
+    private void DrawBagItemRow(ItemDef item, int count, Rect rect, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var target = OverworldTarget(item);
+        var usable = target is not null && State.Bag.Has(item.Id);
+        var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
+        var tint = LgUi.ItemTint(item.Category);
+        LgUi.Card(drawList, rect.Min, rect.Max, 11f * scale, scale, hovered && usable);
+        drawList.AddRectFilled(rect.Min, new Vector2(rect.Min.X + 4f * scale, rect.Max.Y),
+            ImGui.GetColorU32(tint with { W = 0.8f }), 3f * scale);
+
+        var iconCenter = new Vector2(rect.Min.X + 30f * scale, rect.Center.Y);
+        drawList.AddCircleFilled(iconCenter, 17f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
+        drawList.AddCircle(iconCenter, 17f * scale, ImGui.GetColorU32(tint with { W = 0.5f }), 24, 1f * scale);
+        LgUi.ItemIcon(drawList, iconCenter, 28f * scale, item);
+
+        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 8f * scale), item.Name, theme.TextStrong,
+            TextStyles.Headline);
+        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 29f * scale),
+            FitLabel(item.Blurb, rect.Width - 108f * scale, TextStyles.Caption2),
+            theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
+        Typography.DrawCentered(new Vector2(rect.Max.X - 24f * scale, rect.Center.Y), "x" + count, tint,
+            TextStyles.Title3);
+
+        if (hovered)
+        {
+            ImGui.SetMouseCursor(usable ? ImGuiMouseCursor.Hand : ImGuiMouseCursor.Arrow);
+            ImGui.SetTooltip(BuildItemUseTooltip(item, target));
+            if (usable && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+            {
+                UseItemOverworld(item);
+            }
+        }
+    }
+
+    private string BuildItemUseTooltip(ItemDef item, MonsterInstance? target)
+    {
+        var action = item.Category switch
+        {
+            ItemCategory.Ball => "Poké Balls can only be thrown during a wild battle.",
+            ItemCategory.Potion => target is null
+                ? "No creature needs healing right now."
+                : $"Tap to restore {(item.RestoresFullHp ? "full" : item.HealAmount + " ")}HP to {target.Name}.",
+            ItemCategory.Revive => target is null
+                ? "No creature has fainted."
+                : $"Tap to revive {target.Name}.",
+            ItemCategory.StatusHeal => target is null
+                ? "No creature has a matching condition."
+                : $"Tap to cure {target.Name}.",
+            _ => string.Empty,
+        };
+        return $"{item.Name}\n{item.Description}\n\n{action}";
+    }
+
+    // The creature an out-of-battle item would act on, or null if none is a valid target.
+    private MonsterInstance? OverworldTarget(ItemDef item) => item.Category switch
+    {
+        ItemCategory.Potion => State.Party
+            .Where(m => !m.Fainted && m.CurrentHp < m.MaxHp)
+            .OrderBy(m => m.HpFraction)
+            .FirstOrDefault(),
+        ItemCategory.Revive => State.Party.Concat(State.Box).FirstOrDefault(m => m.Fainted),
+        ItemCategory.StatusHeal => State.Party.FirstOrDefault(m =>
+            item.CuresAllStatus ? m.Status != Status.None : m.Status == item.CuresStatus),
+        _ => null,
+    };
+
+    private void UseItemOverworld(ItemDef item)
+    {
+        var target = OverworldTarget(item);
+        if (target is null || !State.Bag.Consume(item.Id))
+        {
+            return;
+        }
+
+        switch (item.Category)
+        {
+            case ItemCategory.Potion:
+                var before = target.CurrentHp;
+                target.Heal(item.RestoresFullHp ? target.MaxHp : item.HealAmount);
+                bagStatus = $"{item.Name} restored {target.CurrentHp - before} HP to {target.Name}.";
+                break;
+            case ItemCategory.Revive:
+                target.Revive(item.RevivesToFull);
+                bagStatus = $"{target.Name} was revived!";
+                break;
+            case ItemCategory.StatusHeal:
+                target.CureStatus();
+                bagStatus = $"{item.Name} cured {target.Name}.";
+                break;
+        }
+
+        State.Save();
+    }
 }

@@ -20,7 +20,9 @@ internal sealed class LillypadGoState
     public List<MonsterInstance> Party { get; } = new();
     public List<MonsterInstance> Box { get; } = new();
     public HashSet<string> Seen { get; } = new();
+    public HashSet<int> Badges { get; } = new();
     public bool StarterChosen { get; set; }
+    public int Money { get; set; }
     public int TotalSteps { get; set; }
     public int BattlesWon { get; set; }
     public int Captures { get; set; }
@@ -35,6 +37,41 @@ internal sealed class LillypadGoState
     public float StepProgress { get; set; }
 
     public bool HasAnyMonster => Party.Count > 0 || Box.Count > 0;
+
+    // True once every owned creature has fainted — the trainer is "whited out" and must revive
+    // at a town Marketboard before scanning or battling again.
+    public bool AllMonstersFainted =>
+        HasAnyMonster && Party.All(monster => monster.Fainted) && Box.All(monster => monster.Fainted);
+
+    public bool InTown => Towns.IsTown(Territory);
+
+    public int BadgeCount => Badges.Count;
+
+    public bool HasBadge(int gymIndex) => Badges.Contains(gymIndex);
+
+    public void EarnBadge(int gymIndex)
+    {
+        if (Badges.Add(gymIndex))
+        {
+            Save();
+        }
+    }
+
+    // The Pokécenter service: fully restores HP, PP and status for the whole roster (party + box).
+    public void HealAllMonsters()
+    {
+        foreach (var monster in Party)
+        {
+            monster.FullHeal();
+        }
+
+        foreach (var monster in Box)
+        {
+            monster.FullHeal();
+        }
+
+        Save();
+    }
 
     public void AddCaught(MonsterInstance monster)
     {
@@ -64,6 +101,10 @@ internal sealed class LillypadGoState
                     state.Apply(dto);
                 }
             }
+            else
+            {
+                state.SeedNewGame();
+            }
         }
         catch (Exception ex)
         {
@@ -73,14 +114,22 @@ internal sealed class LillypadGoState
         return state;
     }
 
+    // Starting purse and supplies for a brand-new trainer (no save file yet).
+    private void SeedNewGame()
+    {
+        Money = 500;
+        Bag.Add(Items.PokeBall.Id, 5);
+        Bag.Add(Items.Potion.Id, 3);
+    }
+
     public void Save()
     {
         try
         {
             var dto = new SaveDto
             {
-                Snares = Bag.Snares,
-                Tonics = Bag.Tonics,
+                Items = Bag.Counts.ToDictionary(entry => entry.Key, entry => entry.Value),
+                Money = Money,
                 StarterChosen = StarterChosen,
                 TotalSteps = TotalSteps,
                 BattlesWon = BattlesWon,
@@ -88,6 +137,7 @@ internal sealed class LillypadGoState
                 BattleEffectScale = BattleEffectScale,
                 BackgroundTrackingEnabled = BackgroundTrackingEnabled,
                 Seen = Seen.ToArray(),
+                Badges = Badges.ToArray(),
                 Party = Party.Select(ToDto).ToArray(),
                 Box = Box.Select(ToDto).ToArray(),
             };
@@ -110,8 +160,20 @@ internal sealed class LillypadGoState
 
     private void Apply(SaveDto dto)
     {
-        Bag.Snares = Math.Max(0, dto.Snares);
-        Bag.Tonics = Math.Max(0, dto.Tonics);
+        Money = Math.Max(0, dto.Money);
+        if (dto.Items is { Count: > 0 })
+        {
+            Bag.Load(dto.Items);
+        }
+        else
+        {
+            // Migrate a pre-item-system save: the old "Aether Snare"/"Tonic" ints become
+            // Poké Balls and Potions.
+            Bag.Clear();
+            Bag.Add(Items.PokeBall.Id, Math.Max(0, dto.Snares));
+            Bag.Add(Items.Potion.Id, Math.Max(0, dto.Tonics));
+        }
+
         StarterChosen = dto.StarterChosen;
         TotalSteps = dto.TotalSteps;
         BattlesWon = dto.BattlesWon;
@@ -123,6 +185,15 @@ internal sealed class LillypadGoState
             foreach (var id in dto.Seen)
             {
                 Seen.Add(id);
+            }
+        }
+
+        Badges.Clear();
+        if (dto.Badges is not null)
+        {
+            foreach (var badge in dto.Badges)
+            {
+                Badges.Add(badge);
             }
         }
 
@@ -197,8 +268,11 @@ internal sealed class LillypadGoState
 
     private sealed class SaveDto
     {
+        // Legacy fields, still read to migrate old saves; no longer written.
         public int Snares { get; set; }
         public int Tonics { get; set; }
+        public Dictionary<string, int>? Items { get; set; }
+        public int Money { get; set; }
         public bool StarterChosen { get; set; }
         public int TotalSteps { get; set; }
         public int BattlesWon { get; set; }
@@ -206,6 +280,7 @@ internal sealed class LillypadGoState
         public float BattleEffectScale { get; set; }
         public bool? BackgroundTrackingEnabled { get; set; }
         public string[]? Seen { get; set; }
+        public int[]? Badges { get; set; }
         public MonsterDto[]? Party { get; set; }
         public MonsterDto[]? Box { get; set; }
     }

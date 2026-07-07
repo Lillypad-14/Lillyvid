@@ -647,9 +647,9 @@ public sealed partial class MainWindow
             this.ApplyRoomScreenLayout(layout);
             matchedHostLayout = true;
         }
-        else if (this.worldScreenAnchor is null)
+        else if (!this.PlaceWorldScreenInFrontOfPlayer())
         {
-            this.PlaceWorldScreenInFrontOfPlayer();
+            return;
         }
 
         this.EnableNativeWorldScreen();
@@ -1213,9 +1213,9 @@ public sealed partial class MainWindow
         }
 
         this.playingWatch2GetherRoom = false;
-        if (this.worldScreenAnchor is null)
+        if (!this.PlaceWorldScreenInFrontOfPlayer())
         {
-            this.PlaceWorldScreenInFrontOfPlayer();
+            return;
         }
 
         this.EnableNativeWorldScreen();
@@ -1238,9 +1238,9 @@ public sealed partial class MainWindow
 
         this.currentVideoId = string.Empty;
         this.playingWatch2GetherRoom = false;
-        if (this.worldScreenAnchor is null)
+        if (!this.PlaceWorldScreenInFrontOfPlayer())
         {
-            this.PlaceWorldScreenInFrontOfPlayer();
+            return;
         }
 
         this.EnableNativeWorldScreen();
@@ -1272,9 +1272,9 @@ public sealed partial class MainWindow
         }
 
         this.currentVideoId = payload.VideoId;
-        if (this.worldScreenAnchor is null)
+        if (!this.PlaceWorldScreenInFrontOfPlayer())
         {
-            this.PlaceWorldScreenInFrontOfPlayer();
+            return;
         }
 
         this.EnableNativeWorldScreen();

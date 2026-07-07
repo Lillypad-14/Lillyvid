@@ -7,8 +7,13 @@ generated files — change the generator and re-run.
 
 ## Generated outputs (committed)
 
-- `../MovesData.g.cs` — the `Moves` registry (ids match Showdown move ids).
-- `../PokedexData.g.cs` — `Dex.Populate()` with all 151 species + level-up learnsets.
+- `../MovesData.g.cs` — the `Moves` registry (ids match Showdown move ids). Effects now include
+  accuracy-down (Sand Attack/Smokescreen), evasion-up (Double Team), and top-level confusion
+  (Supersonic/Confuse Ray) in addition to the earlier stat/status/heal/recoil mappings.
+- `../PokedexData.g.cs` — `Dex.Populate()` with all 151 species + level-up learnsets + the first
+  Kanto evolution (`evolvesToId`, `evolveLevel`, `evolveMethod`); level-based ones auto-evolve.
+- Item icons (`../../../../Assets/pokemon/items/*.png`) come from PokeAPI/sprites; gym badge
+  emblems (`../../../../Assets/pokemon/badges/*.png`) are Showdown client type icons.
 - `../Biome.cs`, `../ZoneCatalog.cs` — Kanto encounter tables (rendered from `tpl/*.tpl`).
 - `../../../../Assets/pokemon/{front,back}/<id>.png` + `manifest.json` — animated spritesheets
   (one horizontal PNG strip per creature; `manifest.json` holds frame count + per-frame delays).
@@ -27,8 +32,12 @@ curl -sSL https://raw.githubusercontent.com/smogon/pokemon-showdown/master/data/
 curl -sSL https://raw.githubusercontent.com/smogon/pokemon-showdown/master/data/learnsets.ts  -o data/learnsets.ts
 curl -sSL https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv/pokemon_species.csv -o data/species.csv
 
-node extract.js             # -> gen1.json (species + moves, effect-mapped) + ids.txt
-node emit.js                # -> out/*.cs (copy into the LillypadGo folder)
+node extract.js             # -> gen1.json (species + moves, effect-mapped) + evolution info
+node emit.js                # -> out/*.cs
+
+# copy ONLY these two back — leave Biome.cs/ZoneCatalog.cs alone to keep the tuned
+# encounter tables (out/ is excluded from the build via the csproj Compile Remove):
+cp out/MovesData.g.cs out/PokedexData.g.cs ..
 
 # sprites: download gen5ani front+back gifs into raw/{front,back}/<id>.gif, then:
 python build_sheets.py      # -> sheets/{front,back}/<id>.png + sheets/manifest.json

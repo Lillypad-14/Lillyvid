@@ -95,9 +95,12 @@ function emitDex() {
     const type2 = s.types[1] ? `Element.${s.types[1]}` : 'null';
     const st = s.stats;
     const ls = s.learnset.map((e) => `(${e.level}, ${csStr(e.moveid)})`).join(', ');
+    const evoTo = s.evo ? csStr(s.evo.toId) : 'null';
+    const evoLevel = s.evo ? (s.evo.level || 0) : 0;
+    const evoMethod = s.evo && s.evo.method ? csStr(s.evo.method) : 'null';
     L.push(`        Add(${csStr(s.id)}, ${csStr(s.name)}, Element.${s.types[0]}, ${type2}, ${st.hp}, ${st.atk}, ${st.def}, ${st.spa}, ${st.spd}, ${st.spe}, ${s.capture}, ${s.num},`);
     L.push(`            ${artSpec(s)},`);
-    L.push(`            new (int, string)[] { ${ls} });`);
+    L.push(`            new (int, string)[] { ${ls} }, ${evoTo}, ${evoLevel}, ${evoMethod});`);
   }
   L.push('    }');
   L.push('}');

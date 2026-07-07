@@ -25,6 +25,39 @@ internal static class LgUi
     // When false, Button/Segmented ignore hover and clicks. Used to disable input mid-transition.
     public static bool Interactive = true;
 
+    // Formats a Poké Dollar amount, e.g. "₽1,240". The ₽ glyph is loaded via FontService's
+    // Currency Symbols range.
+    public static string Money(int amount) =>
+        "₽" + amount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+
+    // Draws a bundled item sprite centred at `center`, falling back to the FontAwesome glyph until
+    // the texture streams in (or if it is missing).
+    public static void ItemIcon(ImDrawListPtr dl, Vector2 center, float size, ItemDef item)
+    {
+        if (AssetTextures.TryGet($"items/{item.Id}.png", out var handle, out var aspect))
+        {
+            var w = aspect >= 1f ? size : size * aspect;
+            var h = aspect >= 1f ? size / aspect : size;
+            var half = new Vector2(w * 0.5f, h * 0.5f);
+            dl.AddImage(handle, center - half, center + half, Vector2.Zero, Vector2.One,
+                ImGui.GetColorU32(Vector4.One));
+        }
+        else
+        {
+            ProgressRing.CenterIcon(dl, center, item.Icon, ItemTint(item.Category), size * 0.9f);
+        }
+    }
+
+    // The accent colour used for an item's card/button, by category.
+    public static Vector4 ItemTint(ItemCategory category) => category switch
+    {
+        ItemCategory.Ball => new Vector4(0.90f, 0.36f, 0.34f, 1f),      // Poké Ball red
+        ItemCategory.Potion => new Vector4(0.38f, 0.74f, 0.52f, 1f),    // restorative green
+        ItemCategory.Revive => new Vector4(0.96f, 0.79f, 0.36f, 1f),    // revival gold
+        ItemCategory.StatusHeal => new Vector4(0.46f, 0.68f, 0.92f, 1f),// remedy blue
+        _ => new Vector4(0.7f, 0.7f, 0.7f, 1f),
+    };
+
     // ---- Surfaces -------------------------------------------------------------------------------
 
     // The standard elevated surface: soft drop shadow, vertical gradient fill, hairline edge and a

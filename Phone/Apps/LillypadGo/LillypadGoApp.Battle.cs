@@ -65,7 +65,8 @@ internal sealed partial class LillypadGoApp
             displayedWildSpdStage, displayedWildLevel, 0f, false, theme, scale);
         if (wildPanel.Contains(ImGui.GetMousePos()))
         {
-            ImGui.SetTooltip(BuildMonsterTooltip(battle.Wild, "Wild opponent.", displayedWildHp));
+            ImGui.SetTooltip(BuildMonsterTooltip(battle.Wild,
+                battle.IsTrainerBattle ? $"{battle.TrainerName}'s Pokémon." : "Wild opponent.", displayedWildHp));
         }
 
         // Player active (bottom).
@@ -164,6 +165,13 @@ internal sealed partial class LillypadGoApp
             return;
         }
 
+        // A trainer's Pokémon fainted and the faint has finished animating: send out the next.
+        if (battle.RequiresEnemySend)
+        {
+            battle.SendNextEnemy();
+            return;
+        }
+
         if (battle.RequiresSwitch)
         {
             menu = Menu.Switch;
@@ -250,8 +258,25 @@ internal sealed partial class LillypadGoApp
                     Color = Accent,
                 });
                 break;
+            case BattleCue.Evolve:
+                // The active creature's Species has already changed, so the sprite swaps on its own;
+                // celebrate with a popup and a fresh entrance animation.
+                battlePopups.Add(new BattlePopup
+                {
+                    OnWild = false,
+                    Value = "EVOLVED!",
+                    Label = displayedPlayer?.Species.Name ?? string.Empty,
+                    Color = Accent,
+                });
+                playerAnim.Reset();
+                break;
             case BattleCue.WildFaint:
                 wildAnim.AlphaTarget = 0.35f;
+                break;
+            case BattleCue.EnemySwitch:
+                // A trainer sent out their next Pokémon: the generic StateAfter block above already
+                // refreshed the panel; reset the entrance animation so it appears at full opacity.
+                wildAnim.Reset();
                 break;
             case BattleCue.Captured:
                 wildAnim.AlphaTarget = 0f;
