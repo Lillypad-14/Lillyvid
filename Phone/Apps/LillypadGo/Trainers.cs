@@ -28,15 +28,17 @@ internal static class Training
 
     public static bool IsUnlocked(Tier tier, int badgeCount) => badgeCount >= RequiredBadges(tier);
 
-    public static Battle Build(List<MonsterInstance> party, Tier tier, Bag bag, Random rng)
+    public static Battle Build(List<MonsterInstance> party, Tier tier, int minLevel, int maxLevel, Bag bag, Random rng)
     {
+        minLevel = Math.Clamp(minLevel, tier.MinLevel, tier.MaxLevel);
+        maxLevel = Math.Clamp(Math.Max(minLevel, maxLevel), tier.MinLevel, tier.MaxLevel);
         var species = Dex.All.ToList();
         var size = rng.Next(1, tier.MaxTeam + 1);
         var team = new List<MonsterInstance>(size);
         for (var i = 0; i < size; i++)
         {
             var pick = species[rng.Next(species.Count)];
-            var level = rng.Next(tier.MinLevel, tier.MaxLevel + 1);
+            var level = rng.Next(minLevel, maxLevel + 1);
             team.Add(new MonsterInstance(pick, level));
         }
 

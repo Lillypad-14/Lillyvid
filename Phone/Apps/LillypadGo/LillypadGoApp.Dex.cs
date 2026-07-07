@@ -208,6 +208,8 @@ internal sealed partial class LillypadGoApp
                     if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                     {
                         dexEntrySpecies = species;
+                        learnsetMonster = null;
+                        teachPendingMove = null;
                         dexEntryTab = 0;
                         dexEntryTabIndicator = -1f;
                         dexEntryScroll = 0f;

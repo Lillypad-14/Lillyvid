@@ -172,6 +172,37 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    // Confusion: little stars orbiting an ellipse above the head (Showdown's "confused" cue).
+    private static void DrawConfusionFx(ImDrawListPtr drawList, Vector2 center, float clock, float scale)
+    {
+        var pivot = center - new Vector2(0f, 36f * scale);
+        var gold = new Vector4(1f, 0.86f, 0.32f, 1f);
+        for (var i = 0; i < 3; i++)
+        {
+            var angle = clock * 3.4f + i * MathF.PI * 2f / 3f;
+            var position = pivot + new Vector2(MathF.Cos(angle) * 19f * scale, MathF.Sin(angle) * 7.5f * scale);
+            var depth = 0.55f + 0.45f * (0.5f + 0.5f * MathF.Sin(angle)); // dim on the far side
+            DrawStar(drawList, position, 4.4f * scale, gold with { W = depth });
+        }
+    }
+
+    private static void DrawStar(ImDrawListPtr drawList, Vector2 center, float radius, Vector4 color)
+    {
+        Span<Vector2> points = stackalloc Vector2[10];
+        for (var i = 0; i < 10; i++)
+        {
+            var r = (i % 2 == 0) ? radius : radius * 0.44f;
+            var angle = -MathF.PI / 2f + i * MathF.PI / 5f;
+            points[i] = center + new Vector2(MathF.Cos(angle) * r, MathF.Sin(angle) * r);
+        }
+
+        var packed = ImGui.GetColorU32(color);
+        for (var i = 0; i < 10; i++)
+        {
+            drawList.AddTriangleFilled(center, points[i], points[(i + 1) % 10], packed);
+        }
+    }
+
     private static void DrawGroundShadow(ImDrawListPtr drawList, Vector2 center, float width)
     {
         var height = width * 0.22f;

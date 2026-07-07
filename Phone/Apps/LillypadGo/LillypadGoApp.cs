@@ -97,6 +97,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private Menu menu = Menu.Root;
     private Battle? battle;
     private int pendingGymIndex = -1;
+    private bool confirmingRun;
     private MonsterInstance? displayedPlayer;
     private int displayedPlayerHp;
     private int displayedWildHp;
@@ -115,6 +116,10 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private int displayedPlayerLevel;
     private int displayedWildLevel;
     private float displayedPlayerXpFraction;
+    // Smoothly-eased mirrors of the displayed HP/XP so the bars glide instead of snapping.
+    private float animatedPlayerHp;
+    private float animatedWildHp;
+    private float animatedPlayerXp;
     private MonsterSpecies? starterCandidate;
     private readonly List<BattlePopup> battlePopups = new();
     private MoveFx? moveFx;
@@ -141,6 +146,8 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private float dexMaxScroll;
     private bool dexInitialized;
     private MonsterSpecies? dexEntrySpecies;
+    private MonsterInstance? learnsetMonster; // when set, the Learnset tab lets you teach/replace moves
+    private MoveDef? teachPendingMove; // a move awaiting a slot choice when the moveset is full
     private View dexEntryReturnView = View.Dex;
     private int dexEntryTab;
     private float dexEntryTabIndicator = -1f;

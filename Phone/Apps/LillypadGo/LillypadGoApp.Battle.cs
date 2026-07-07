@@ -33,6 +33,20 @@ internal sealed partial class LillypadGoApp
         UpdateBattlePopups(dt);
         UpdateMoveFx(dt);
 
+        // Ease the HP/XP bars toward their target values so damage/heals/xp glide.
+        var barLerp = 1f - MathF.Exp(-dt * 10f);
+        animatedWildHp += (displayedWildHp - animatedWildHp) * barLerp;
+        animatedPlayerHp += (displayedPlayerHp - animatedPlayerHp) * barLerp;
+        if (displayedPlayerXpFraction < animatedPlayerXp - 0.25f)
+        {
+            // A level-up reset the fraction; snap rather than sweeping the bar backwards.
+            animatedPlayerXp = displayedPlayerXpFraction;
+        }
+        else
+        {
+            animatedPlayerXp += (displayedPlayerXpFraction - animatedPlayerXp) * barLerp;
+        }
+
         // Positions share the same normalized arena used by BiomeBackdrop, keeping creatures on
         // the imported Showdown scene instead of drifting as the phone size changes.
         MoveAnims.Preload();
@@ -57,10 +71,15 @@ internal sealed partial class LillypadGoApp
             new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt, wildAnim.Alpha * wildAnimPose.Alpha,
                 displayedWildHp <= 0));
         DrawStatusFx(drawList, wildPos, displayedWildStatus, time, scale);
+        if (battle.Wild.ConfusionTurns > 0 && displayedWildHp > 0)
+        {
+            DrawConfusionFx(drawList, wildPos, time, scale);
+        }
+
         DrawImpactFx(drawList, wildPos, wildAnim.Hurt, Elements.Color(battle.Wild.Element), scale);
         var wildPanel = new Rect(new Vector2(content.Min.X + 8f * scale, content.Min.Y + 18f * scale),
             new Vector2(content.Min.X + 188f * scale, content.Min.Y + 78f * scale));
-        DrawStatusPanel(drawList, wildPanel.Min, wildPanel.Max, battle.Wild, displayedWildHp, displayedWildStatus,
+        DrawStatusPanel(drawList, wildPanel.Min, wildPanel.Max, battle.Wild, animatedWildHp, displayedWildStatus,
             displayedWildAtkStage, displayedWildDefStage, displayedWildSpAtkStage, displayedWildSpDefStage,
             displayedWildSpdStage, displayedWildLevel, 0f, false, theme, scale);
         if (wildPanel.Contains(ImGui.GetMousePos()))
@@ -78,13 +97,18 @@ internal sealed partial class LillypadGoApp
                 displayedPlayerHp <= 0),
             back: true);
         DrawStatusFx(drawList, playerPos, displayedPlayerStatus, time + 0.8f, scale);
+        if (player.ConfusionTurns > 0 && displayedPlayerHp > 0)
+        {
+            DrawConfusionFx(drawList, playerPos, time + 0.4f, scale);
+        }
+
         DrawImpactFx(drawList, playerPos, playerAnim.Hurt, Elements.Color(player.Element), scale);
         var playerPanel = new Rect(
             new Vector2(content.Max.X - 194f * scale, content.Min.Y + content.Height * 0.5f),
             new Vector2(content.Max.X - 8f * scale, content.Min.Y + content.Height * 0.5f + 68f * scale));
-        DrawStatusPanel(drawList, playerPanel.Min, playerPanel.Max, player, displayedPlayerHp, displayedPlayerStatus,
+        DrawStatusPanel(drawList, playerPanel.Min, playerPanel.Max, player, animatedPlayerHp, displayedPlayerStatus,
             displayedPlayerAtkStage, displayedPlayerDefStage, displayedPlayerSpAtkStage, displayedPlayerSpDefStage,
-            displayedPlayerSpdStage, displayedPlayerLevel, displayedPlayerXpFraction, true, theme, scale);
+            displayedPlayerSpdStage, displayedPlayerLevel, animatedPlayerXp, true, theme, scale);
         if (playerPanel.Contains(ImGui.GetMousePos()))
         {
             ImGui.SetTooltip(BuildMonsterTooltip(player, "Your active creature.", displayedPlayerHp));
@@ -247,6 +271,8 @@ internal sealed partial class LillypadGoApp
                 {
                     displayedPlayerHp = battleMessage.HpAfter ?? displayedPlayer?.CurrentHp ?? 0;
                 }
+                animatedPlayerHp = displayedPlayerHp;
+                animatedPlayerXp = displayedPlayerXpFraction;
                 playerAnim.Reset();
                 break;
             case BattleCue.XpGain when displayedPlayerLevel > previousPlayerLevel:
@@ -259,16 +285,20 @@ internal sealed partial class LillypadGoApp
                 });
                 break;
             case BattleCue.Evolve:
-                // The active creature's Species has already changed, so the sprite swaps on its own;
-                // celebrate with a popup and a fresh entrance animation.
-                battlePopups.Add(new BattlePopup
+                // Only the on-screen active creature gets the popup + entrance; a benched XP-Share
+                // evolution just shows its text line.
+                if (ReferenceEquals(battleMessage.Subject, displayedPlayer))
                 {
-                    OnWild = false,
-                    Value = "EVOLVED!",
-                    Label = displayedPlayer?.Species.Name ?? string.Empty,
-                    Color = Accent,
-                });
-                playerAnim.Reset();
+                    battlePopups.Add(new BattlePopup
+                    {
+                        OnWild = false,
+                        Value = "EVOLVED!",
+                        Label = displayedPlayer?.Species.Name ?? string.Empty,
+                        Color = Accent,
+                    });
+                    playerAnim.Reset();
+                }
+
                 break;
             case BattleCue.WildFaint:
                 wildAnim.AlphaTarget = 0.35f;
@@ -276,6 +306,7 @@ internal sealed partial class LillypadGoApp
             case BattleCue.EnemySwitch:
                 // A trainer sent out their next Pokémon: the generic StateAfter block above already
                 // refreshed the panel; reset the entrance animation so it appears at full opacity.
+                animatedWildHp = displayedWildHp;
                 wildAnim.Reset();
                 break;
             case BattleCue.Captured:

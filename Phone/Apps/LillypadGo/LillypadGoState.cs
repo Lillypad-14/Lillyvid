@@ -49,6 +49,46 @@ internal sealed class LillypadGoState
 
     public bool HasBadge(int gymIndex) => Badges.Contains(gymIndex);
 
+    // Per-tier chosen training level range (a sub-band the player picks inside the tier's bounds).
+    private int[]? trainingMin;
+    private int[]? trainingMax;
+
+    private void EnsureTrainingRanges()
+    {
+        if (trainingMin is { } lo && lo.Length == Training.Tiers.Count && trainingMax is { Length: > 0 })
+        {
+            return;
+        }
+
+        trainingMin = new int[Training.Tiers.Count];
+        trainingMax = new int[Training.Tiers.Count];
+        for (var i = 0; i < Training.Tiers.Count; i++)
+        {
+            trainingMin[i] = Training.Tiers[i].MinLevel;
+            trainingMax[i] = Training.Tiers[i].MaxLevel;
+        }
+    }
+
+    public (int Min, int Max) TrainingRange(Training.Tier tier)
+    {
+        EnsureTrainingRanges();
+        var i = tier.Index - 1;
+        var min = Math.Clamp(trainingMin![i], tier.MinLevel, tier.MaxLevel);
+        var max = Math.Clamp(trainingMax![i], tier.MinLevel, tier.MaxLevel);
+        return (min, Math.Max(min, max));
+    }
+
+    public void SetTrainingRange(Training.Tier tier, int min, int max)
+    {
+        EnsureTrainingRanges();
+        var i = tier.Index - 1;
+        min = Math.Clamp(min, tier.MinLevel, tier.MaxLevel);
+        max = Math.Clamp(Math.Max(min, max), tier.MinLevel, tier.MaxLevel);
+        trainingMin![i] = min;
+        trainingMax![i] = max;
+        Save();
+    }
+
     public void EarnBadge(int gymIndex)
     {
         if (Badges.Add(gymIndex))
@@ -138,6 +178,8 @@ internal sealed class LillypadGoState
                 BackgroundTrackingEnabled = BackgroundTrackingEnabled,
                 Seen = Seen.ToArray(),
                 Badges = Badges.ToArray(),
+                TrainingMin = trainingMin,
+                TrainingMax = trainingMax,
                 Party = Party.Select(ToDto).ToArray(),
                 Box = Box.Select(ToDto).ToArray(),
             };
@@ -195,6 +237,13 @@ internal sealed class LillypadGoState
             {
                 Badges.Add(badge);
             }
+        }
+
+        if (dto.TrainingMin is { Length: > 0 } tmin && dto.TrainingMax is { Length: > 0 } tmax &&
+            tmin.Length == Training.Tiers.Count && tmax.Length == Training.Tiers.Count)
+        {
+            trainingMin = tmin;
+            trainingMax = tmax;
         }
 
         Party.Clear();
@@ -281,6 +330,8 @@ internal sealed class LillypadGoState
         public bool? BackgroundTrackingEnabled { get; set; }
         public string[]? Seen { get; set; }
         public int[]? Badges { get; set; }
+        public int[]? TrainingMin { get; set; }
+        public int[]? TrainingMax { get; set; }
         public MonsterDto[]? Party { get; set; }
         public MonsterDto[]? Box { get; set; }
     }

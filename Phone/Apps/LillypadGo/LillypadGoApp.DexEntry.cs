@@ -176,6 +176,17 @@ internal sealed partial class LillypadGoApp
             dexEntryScroll = Math.Clamp(dexEntryScroll - ImGui.GetIO().MouseWheel * 48f * scale, 0f, maxScroll);
         }
 
+        // When opened for one of the player's creatures (via Team → Moves), this tab becomes a move
+        // relearner: teach any learnset move at or below the creature's level, replacing one if full.
+        var editMon = learnsetMonster is { } lm && lm.Species.Id == species.Id ? learnsetMonster : null;
+
+        // Freeze the list's own buttons while the replace overlay is up so clicks can't fall through.
+        var prevInteractive = LgUi.Interactive;
+        if (teachPendingMove is not null)
+        {
+            LgUi.Interactive = false;
+        }
+
         var y = list.Min.Y - dexEntryScroll;
         drawList.PushClipRect(list.Min, list.Max, true);
         foreach (var entry in moves)
@@ -184,12 +195,19 @@ internal sealed partial class LillypadGoApp
                 new Vector2(list.Max.X - 4f * scale, y + rowHeight));
             if (RowVisible(row, list))
             {
+                var known = editMon is not null && editMon.Knows(entry.Move);
                 var hovered = list.Contains(ImGui.GetMousePos()) && row.Contains(ImGui.GetMousePos());
                 LgUi.Card(drawList, row.Min, row.Max, 8f * scale, scale, hovered);
+                if (known)
+                {
+                    drawList.AddRectFilled(row.Min, new Vector2(row.Min.X + 4f * scale, row.Max.Y),
+                        ImGui.GetColorU32(Accent with { W = 0.85f }), 3f * scale);
+                }
+
                 Typography.DrawCentered(new Vector2(row.Min.X + 28f * scale, row.Center.Y),
                     $"Lv {entry.Level}", theme.TextStrong, TextStyles.Caption1);
                 var moveX = row.Min.X + 58f * scale;
-                var rightReserve = 50f * scale;
+                var rightReserve = editMon is not null ? 74f * scale : 50f * scale;
                 Typography.Draw(new Vector2(moveX, row.Min.Y + 7f * scale),
                     FitLabel(entry.Move.Name, row.Max.X - moveX - rightReserve, TextStyles.SubheadlineEmphasized),
                     theme.TextStrong, TextStyles.SubheadlineEmphasized);
@@ -197,9 +215,36 @@ internal sealed partial class LillypadGoApp
                 Typography.Draw(new Vector2(moveX, row.Min.Y + 27f * scale),
                     FitLabel(detail, row.Max.X - moveX - rightReserve, TextStyles.Caption2), theme.TextMuted,
                     TextStyles.Caption2);
-                var power = entry.Move.IsStatus ? "--" : entry.Move.Power.ToString();
-                Typography.DrawCentered(new Vector2(row.Max.X - 26f * scale, row.Center.Y), power,
-                    Elements.Color(entry.Move.Element), TextStyles.Headline);
+
+                if (editMon is not null)
+                {
+                    var pill = CenteredAt(new Vector2(row.Max.X - 38f * scale, row.Center.Y),
+                        new Vector2(64f * scale, 26f * scale));
+                    if (known)
+                    {
+                        Typography.DrawCentered(pill.Center, "Known", Accent, TextStyles.Caption1);
+                    }
+                    else if (entry.Level > editMon.Level)
+                    {
+                        Typography.DrawCentered(pill.Center, "Locked", theme.TextMuted, TextStyles.Caption1);
+                    }
+                    else if (LgUi.Button(pill, "Teach", theme.Accent, theme, true))
+                    {
+                        if (!editMon.AddMove(entry.Move))
+                        {
+                            teachPendingMove = entry.Move; // full moveset: choose which to replace
+                        }
+
+                        State.Save();
+                    }
+                }
+                else
+                {
+                    var power = entry.Move.IsStatus ? "--" : entry.Move.Power.ToString();
+                    Typography.DrawCentered(new Vector2(row.Max.X - 26f * scale, row.Center.Y), power,
+                        Elements.Color(entry.Move.Element), TextStyles.Headline);
+                }
+
                 if (hovered)
                 {
                     ImGui.SetTooltip(BuildProfileMoveTooltip(entry.Move, entry.Move.Pp));
@@ -213,5 +258,56 @@ internal sealed partial class LillypadGoApp
         LgUi.Scrollbar(new Rect(new Vector2(content.Max.X - 6f * scale, list.Min.Y),
                 new Vector2(content.Max.X - 3f * scale, list.Max.Y)), dexEntryScroll, maxScroll,
             list.Height / MathF.Max(list.Height, contentHeight), Accent, scale);
+
+        LgUi.Interactive = prevInteractive;
+
+        if (editMon is not null && teachPendingMove is not null)
+        {
+            DrawTeachReplace(content, theme, editMon, scale);
+        }
+    }
+
+    // Overlay shown when teaching a move to a full (4-move) creature: pick which move to forget.
+    private void DrawTeachReplace(Rect content, PhoneTheme theme, MonsterInstance mon, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.66f)));
+        var panelMin = new Vector2(content.Min.X + 20f * scale, content.Center.Y - 120f * scale);
+        var panelMax = new Vector2(content.Max.X - 20f * scale, content.Center.Y + 120f * scale);
+        LgUi.Card(drawList, panelMin, panelMax, 14f * scale, scale);
+        Squircle.Stroke(drawList, panelMin, panelMax, 14f * scale, ImGui.GetColorU32(Accent with { W = 0.5f }),
+            1.2f * scale);
+        var panel = new Rect(panelMin, panelMax);
+
+        Typography.DrawCentered(new Vector2(panel.Center.X, panelMin.Y + 18f * scale),
+            $"Teach {teachPendingMove!.Name}", theme.TextStrong, TextStyles.Headline);
+        Typography.DrawCentered(new Vector2(panel.Center.X, panelMin.Y + 40f * scale),
+            $"Choose a move for {mon.Name} to forget", theme.TextStrong with { W = 0.78f }, TextStyles.Caption1);
+
+        for (var i = 0; i < mon.Moves.Count; i++)
+        {
+            var move = mon.Moves[i];
+            var column = i % 2;
+            var rowIdx = i / 2;
+            var size = new Vector2(panel.Width * 0.42f, 40f * scale);
+            var center = new Vector2(panel.Center.X + (column == 0 ? -1f : 1f) * panel.Width * 0.235f,
+                panelMin.Y + (72f + rowIdx * 50f) * scale);
+            var rect = new Rect(center - size * 0.5f, center + size * 0.5f);
+            if (LgUi.Button(rect, FitLabel(move.Name, size.X - 12f * scale, TextStyles.Subheadline),
+                    Elements.Color(move.Element), theme, true, $"{Elements.Name(move.Element)}  {move.Pp} PP"))
+            {
+                mon.ReplaceMove(i, teachPendingMove);
+                teachPendingMove = null;
+                State.Save();
+                return;
+            }
+        }
+
+        var cancel = CenteredAt(new Vector2(panel.Center.X, panelMax.Y - 22f * scale),
+            new Vector2(panel.Width * 0.5f, 30f * scale));
+        if (LgUi.Button(cancel, "Keep current moves", GamePalette.Cell, theme, true))
+        {
+            teachPendingMove = null;
+        }
     }
 }

@@ -35,16 +35,16 @@ internal static class ArrZones
     // Auto-generated Kanto encounter tables mapped onto ARR zone progression.
     public static readonly IReadOnlyList<ZoneDefinition> All = new[]
     {
-        new ZoneDefinition(134, "La Noscea", 0, "Middle La Noscea", Biome.Coast, 0, 2, 8, "magikarp",
-            new SpawnEntry("pidgey", 34, 2, 8), new SpawnEntry("zubat", 28, 2, 8), new SpawnEntry("spearow", 22, 2, 8), new SpawnEntry("horsea", 16, 2, 8), new SpawnEntry("magikarp", 22, 2, 8)),
-        new ZoneDefinition(148, "The Black Shroud", 1, "Central Shroud", Biome.Forest, 1, 2, 8, "meowth",
-            new SpawnEntry("jigglypuff", 34, 2, 8), new SpawnEntry("spearow", 28, 2, 8), new SpawnEntry("paras", 22, 2, 8), new SpawnEntry("ditto", 16, 2, 8), new SpawnEntry("meowth", 22, 2, 8)),
-        new ZoneDefinition(141, "Thanalan", 2, "Central Thanalan", Biome.Desert, 2, 2, 8, "cubone",
-            new SpawnEntry("vulpix", 34, 2, 8), new SpawnEntry("sandshrew", 28, 2, 8), new SpawnEntry("geodude", 22, 2, 8), new SpawnEntry("charmander", 16, 2, 8), new SpawnEntry("cubone", 22, 2, 8)),
+        new ZoneDefinition(134, "La Noscea", 0, "Middle La Noscea", Biome.Coast, 0, 4, 7, "magikarp",
+            new SpawnEntry("rattata", 34, 4, 7), new SpawnEntry("pidgey", 30, 4, 7), new SpawnEntry("spearow", 20, 4, 7), new SpawnEntry("magikarp", 24, 4, 7)),
+        new ZoneDefinition(148, "The Black Shroud", 1, "Central Shroud", Biome.Forest, 1, 4, 7, "metapod",
+            new SpawnEntry("caterpie", 34, 4, 7), new SpawnEntry("weedle", 30, 4, 7), new SpawnEntry("pidgey", 22, 4, 7), new SpawnEntry("metapod", 18, 4, 7)),
+        new ZoneDefinition(141, "Thanalan", 2, "Central Thanalan", Biome.Desert, 2, 4, 7, "sandshrew",
+            new SpawnEntry("rattata", 34, 4, 7), new SpawnEntry("spearow", 28, 4, 7), new SpawnEntry("sandshrew", 22, 4, 7), new SpawnEntry("geodude", 16, 4, 7)),
         new ZoneDefinition(135, "La Noscea", 0, "Lower La Noscea", Biome.Coast, 3, 5, 12, "goldeen",
             new SpawnEntry("slowpoke", 34, 5, 12), new SpawnEntry("squirtle", 28, 5, 12), new SpawnEntry("pikachu", 22, 5, 12), new SpawnEntry("psyduck", 16, 5, 12), new SpawnEntry("goldeen", 22, 5, 12)),
         new ZoneDefinition(140, "Thanalan", 2, "Western Thanalan", Biome.Desert, 4, 6, 14, "cubone",
-            new SpawnEntry("rhyhorn", 34, 6, 14), new SpawnEntry("growlithe", 28, 6, 14), new SpawnEntry("omanyte", 22, 6, 14), new SpawnEntry("kabuto", 16, 6, 14), new SpawnEntry("cubone", 22, 6, 14)),
+            new SpawnEntry("rhyhorn", 34, 6, 14), new SpawnEntry("growlithe", 28, 6, 14), new SpawnEntry("zubat", 24, 6, 14), new SpawnEntry("omanyte", 20, 6, 14), new SpawnEntry("kabuto", 14, 6, 14), new SpawnEntry("cubone", 22, 6, 14)),
         new ZoneDefinition(152, "The Black Shroud", 1, "East Shroud", Biome.Forest, 5, 8, 16, "exeggcute",
             new SpawnEntry("pidgeotto", 34, 8, 16), new SpawnEntry("farfetchd", 28, 8, 16), new SpawnEntry("lickitung", 22, 8, 16), new SpawnEntry("weepinbell", 16, 8, 16), new SpawnEntry("exeggcute", 22, 8, 16)),
         new ZoneDefinition(138, "La Noscea", 0, "Western La Noscea", Biome.Coast, 6, 10, 18, "omanyte",

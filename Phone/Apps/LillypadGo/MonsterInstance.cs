@@ -244,6 +244,22 @@ internal sealed class MonsterInstance
         Pp[index] = move.Pp;
     }
 
+    // Adds a move into a free slot (used by the out-of-battle move relearner). Returns false if the
+    // move is already known or all four slots are full.
+    public bool AddMove(MoveDef move)
+    {
+        if (Moves.Contains(move) || Moves.Count >= MaxMoves)
+        {
+            return false;
+        }
+
+        Moves.Add(move);
+        Pp.Add(move.Pp);
+        return true;
+    }
+
+    public bool Knows(MoveDef move) => Moves.Contains(move);
+
     private bool TryLearn(MoveDef move)
     {
         if (Moves.Contains(move))

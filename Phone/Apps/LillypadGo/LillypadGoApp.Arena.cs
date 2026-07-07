@@ -59,7 +59,7 @@ internal sealed partial class LillypadGoApp
 
         if (arenaTab == 0)
         {
-            DrawScrollList(listArea, 66f * scale, 8f * scale, Training.Tiers.Count, ref arenaScroll, scale,
+            DrawScrollList(listArea, 96f * scale, 8f * scale, Training.Tiers.Count, ref arenaScroll, scale,
                 (i, rowRect) => DrawTierRow(Training.Tiers[i], rowRect, theme, scale, !wiped));
         }
         else
@@ -95,24 +95,62 @@ internal sealed partial class LillypadGoApp
             FitLabel($"Prep for {gym.Leader}'s {Elements.Name(gym.Type)} gym", textWidth, TextStyles.Caption2),
             theme.TextStrong with { W = unlocked ? 0.72f : 0.45f }, TextStyles.Caption2);
 
-        var buttonRect = CenteredAt(new Vector2(rect.Max.X - 52f * scale, rect.Center.Y),
-            new Vector2(90f * scale, 32f * scale));
+        var buttonRect = CenteredAt(new Vector2(rect.Max.X - 52f * scale, rect.Min.Y + 24f * scale),
+            new Vector2(90f * scale, 30f * scale));
         if (unlocked)
         {
             if (LgUi.Button(buttonRect, "Train", theme.Accent, theme, canBattle))
             {
                 StartTraining(tier);
             }
+
+            // Level-range picker: choose the sub-band of trainer levels to fight within this tier.
+            var (curMin, curMax) = State.TrainingRange(tier);
+            var editY = rect.Min.Y + 70f * scale;
+            Typography.Draw(new Vector2(rect.Min.X + 16f * scale, editY - 8f * scale), "Battle Lv",
+                theme.TextStrong with { W = 0.72f }, TextStyles.Caption2);
+            var newMin = DrawStepper(drawList, new Vector2(rect.Min.X + 78f * scale, editY), curMin,
+                tier.MinLevel, curMax, theme, scale);
+            Typography.DrawCentered(new Vector2(rect.Min.X + 172f * scale, editY), "to",
+                theme.TextStrong with { W = 0.6f }, TextStyles.Caption1);
+            var newMax = DrawStepper(drawList, new Vector2(rect.Min.X + 190f * scale, editY), curMax,
+                curMin, tier.MaxLevel, theme, scale);
+            if (newMin != curMin || newMax != curMax)
+            {
+                State.SetTrainingRange(tier, newMin, newMax);
+            }
         }
         else
         {
             var need = Training.RequiredBadges(tier);
             LgUi.Button(buttonRect, "Locked", GamePalette.CellSunken, theme, false);
-            if (hovered)
-            {
-                ImGui.SetTooltip($"Earn {need} badge{(need == 1 ? "" : "s")} to unlock ({badges}/{need}).");
-            }
+            Typography.Draw(new Vector2(rect.Min.X + 16f * scale, rect.Min.Y + 66f * scale),
+                $"Earn {need} badge{(need == 1 ? "" : "s")} to unlock  ({badges}/{need})",
+                theme.TextStrong with { W = 0.6f }, TextStyles.Caption2);
         }
+    }
+
+    // A compact [-] value [+] stepper; returns the adjusted value.
+    private int DrawStepper(ImDrawListPtr drawList, Vector2 leftCenter, int value, int lo, int hi, PhoneTheme theme,
+        float scale)
+    {
+        var size = new Vector2(20f * scale, 20f * scale);
+        var decRect = CenteredAt(new Vector2(leftCenter.X + 10f * scale, leftCenter.Y), size);
+        if (LgUi.Button(decRect, "-", GamePalette.Cell, theme, value > lo))
+        {
+            value = Math.Max(lo, value - 1);
+        }
+
+        Typography.DrawCentered(new Vector2(leftCenter.X + 40f * scale, leftCenter.Y), value.ToString(),
+            theme.TextStrong, TextStyles.Headline);
+
+        var incRect = CenteredAt(new Vector2(leftCenter.X + 70f * scale, leftCenter.Y), size);
+        if (LgUi.Button(incRect, "+", GamePalette.Cell, theme, value < hi))
+        {
+            value = Math.Min(hi, value + 1);
+        }
+
+        return value;
     }
 
     private void DrawGymRow(GymDef gym, Rect rect, PhoneTheme theme, float scale, bool canBattle)

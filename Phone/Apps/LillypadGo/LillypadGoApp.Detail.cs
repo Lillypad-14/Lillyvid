@@ -34,9 +34,11 @@ internal sealed partial class LillypadGoApp
 
         var learnset = CenteredAt(new Vector2(content.Max.X - 54f * scale, content.Min.Y + 20f * scale),
             new Vector2(92f * scale, 26f * scale));
-        if (LgUi.Button(learnset, "Learnset", Accent, theme, true))
+        if (LgUi.Button(learnset, "Moves", Accent, theme, true))
         {
             dexEntrySpecies = monster.Species;
+            learnsetMonster = monster;
+            teachPendingMove = null;
             dexEntryTab = 1;
             dexEntryTabIndicator = -1f;
             dexEntryScroll = 0f;
@@ -47,7 +49,7 @@ internal sealed partial class LillypadGoApp
 
         if (ImGui.IsMouseHoveringRect(learnset.Min, learnset.Max))
         {
-            ImGui.SetTooltip($"View every move {monster.Species.Name} learns and at what level.");
+            ImGui.SetTooltip($"View {monster.Species.Name}'s learnset and customise its moves.");
         }
 
         var portrait = new Vector2(content.Center.X - (Dex.EvolutionOf(monster.Species) is not null ? 30f * scale : 0f),

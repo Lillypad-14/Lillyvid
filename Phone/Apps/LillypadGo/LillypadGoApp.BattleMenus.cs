@@ -207,6 +207,12 @@ internal sealed partial class LillypadGoApp
             return;
         }
 
+        if (confirmingRun)
+        {
+            DrawRunConfirm(panel, theme, scale);
+            return;
+        }
+
         switch (menu)
         {
             case Menu.Root:
@@ -271,8 +277,35 @@ internal sealed partial class LillypadGoApp
                 menu = Menu.Switch;
                 break;
             case 3:
-                battle!.Run();
+                confirmingRun = true;
                 break;
+        }
+    }
+
+    private void DrawRunConfirm(Rect panel, PhoneTheme theme, float scale)
+    {
+        var trainer = battle!.IsTrainerBattle;
+        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.26f),
+            trainer ? "Forfeit this battle?" : "Run away?", theme.TextStrong, TextStyles.Headline);
+        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.46f),
+            FitLabel(trainer ? "It counts as a loss — no badge, money or spoils." : "Give up on this wild encounter.",
+                panel.Width - 24f * scale, TextStyles.Caption1), theme.TextStrong with { W = 0.8f },
+            TextStyles.Caption1);
+
+        var yes = CenteredAt(new Vector2(panel.Center.X - panel.Width * 0.22f, panel.Min.Y + panel.Height * 0.76f),
+            new Vector2(panel.Width * 0.38f, panel.Height * 0.32f));
+        if (LgUi.Button(yes, trainer ? "Forfeit" : "Run", theme.Danger, theme, true))
+        {
+            confirmingRun = false;
+            battle.Run();
+            menu = Menu.Root;
+        }
+
+        var no = CenteredAt(new Vector2(panel.Center.X + panel.Width * 0.22f, panel.Min.Y + panel.Height * 0.76f),
+            new Vector2(panel.Width * 0.38f, panel.Height * 0.32f));
+        if (LgUi.Button(no, "Stay", theme.Accent, theme, true))
+        {
+            confirmingRun = false;
         }
     }
 

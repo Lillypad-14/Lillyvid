@@ -164,7 +164,8 @@ internal sealed partial class LillypadGoApp
         }
 
         PrepPartyForBattle();
-        battle = Training.Build(State.Party, tier, State.Bag, rng);
+        var (min, max) = State.TrainingRange(tier);
+        battle = Training.Build(State.Party, tier, min, max, State.Bag, rng);
         State.Pending = null;
         pendingGymIndex = -1;
         EnterBattle();
@@ -199,6 +200,9 @@ internal sealed partial class LillypadGoApp
         displayedPlayer = battle!.Active;
         SetDisplayedPlayer(BattleSnapshot.Capture(battle.Active));
         SetDisplayedWild(BattleSnapshot.Capture(battle.Wild));
+        animatedPlayerHp = displayedPlayerHp;
+        animatedWildHp = displayedWildHp;
+        animatedPlayerXp = displayedPlayerXpFraction;
         State.InBattle = true;
         playerAnim.Reset();
         wildAnim.Reset();
@@ -208,6 +212,7 @@ internal sealed partial class LillypadGoApp
         awaitingResult = false;
         battlePopups.Clear();
         battleItemScroll = 0f;
+        confirmingRun = false;
         moveFx = null;
         menu = Menu.Root;
         view = View.Battle;

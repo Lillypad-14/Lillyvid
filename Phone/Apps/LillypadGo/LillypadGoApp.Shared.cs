@@ -254,7 +254,7 @@ internal sealed partial class LillypadGoApp
         return suffix;
     }
 
-    private void DrawStatusPanel(ImDrawListPtr drawList, Vector2 min, Vector2 max, MonsterInstance m, int displayedHp,
+    private void DrawStatusPanel(ImDrawListPtr drawList, Vector2 min, Vector2 max, MonsterInstance m, float displayedHp,
         Status displayedStatus, int atkStage, int defStage, int spAtkStage, int spDefStage, int spdStage,
         int displayedLevel, float displayedXpFraction, bool showXp, PhoneTheme theme, float scale)
     {
@@ -284,12 +284,33 @@ internal sealed partial class LillypadGoApp
         var innerMaxX = max.X - (mirrored ? 10f : 18f) * scale;
         var levelText = "Lv" + displayedLevel;
         var levelWidth = Typography.Measure(levelText, TextStyles.Caption1).X;
-        var nameMaxWidth = MathF.Max(20f * scale, innerMaxX - innerMinX - levelWidth - 10f * scale);
+
+        // The status condition is a coloured tag on the name row (next to the level), so it never
+        // collides with the HP readout on the row below.
+        var hasStatus = displayedStatus != Status.None;
+        var (statusElement, statusLabel) = displayedStatus switch
+        {
+            Status.Freeze => (Element.Ice, "FRZ"),
+            Status.Paralysis => (Element.Electric, "PAR"),
+            Status.Poison => (Element.Poison, "PSN"),
+            _ => (Element.Fire, "BRN"),
+        };
+        var statusChipWidth = hasStatus
+            ? Typography.Measure(statusLabel, TextStyles.Caption2).X + 14f * scale
+            : 0f;
+
+        var rightReserve = levelWidth + (hasStatus ? statusChipWidth + 7f * scale : 0f);
+        var nameMaxWidth = MathF.Max(20f * scale, innerMaxX - innerMinX - rightReserve - 8f * scale);
         var statusName = FitLabel(m.Name, nameMaxWidth, TextStyles.Subheadline);
         Typography.Draw(new Vector2(innerMinX, min.Y + 6f * scale), statusName, theme.TextStrong,
             TextStyles.Subheadline);
         Typography.Draw(new Vector2(innerMaxX - levelWidth, min.Y + 6f * scale), levelText, theme.TextMuted,
             TextStyles.Caption1);
+        if (hasStatus)
+        {
+            LgUi.Chip(drawList, new Vector2(innerMaxX - levelWidth - 7f * scale - statusChipWidth, min.Y + 5f * scale),
+                statusElement, scale, statusLabel);
+        }
 
         var hpFraction = m.MaxHp <= 0 ? 0f : Math.Clamp(displayedHp / (float)m.MaxHp, 0f, 1f);
         var hpLabelX = innerMinX + 2f * scale;
@@ -299,31 +320,18 @@ internal sealed partial class LillypadGoApp
         var barMin = new Vector2(innerMinX + 26f * scale, hpTop);
         var barMax = new Vector2(innerMaxX, hpTop + 8f * scale);
         LgUi.HpBar(drawList, barMin, barMax, hpFraction);
-        var hpText = $"{displayedHp}/{m.MaxHp}";
+        var hpText = $"{(int)MathF.Round(displayedHp)}/{m.MaxHp}";
         var hpTextSize = Typography.Measure(hpText, TextStyles.Caption2);
         Typography.Draw(new Vector2(innerMaxX - hpTextSize.X, hpTop + 10f * scale), hpText, theme.TextMuted,
             TextStyles.Caption2);
 
-        var hasStatus = displayedStatus != Status.None;
         var stages = StageSummary(atkStage, defStage, spAtkStage, spDefStage, spdStage);
         if (stages.Length > 0)
         {
-            var stageRight = hasStatus ? innerMaxX - 38f * scale : innerMaxX - hpTextSize.X - 8f * scale;
+            var stageRight = innerMaxX - hpTextSize.X - 8f * scale;
             var stagesText = FitLabel(stages, MathF.Max(0f, stageRight - innerMinX), TextStyles.Caption2);
             Typography.Draw(new Vector2(innerMinX, hpTop + 10f * scale), stagesText, theme.TextMuted,
                 TextStyles.Caption2);
-        }
-
-        if (hasStatus)
-        {
-            var (element, label) = displayedStatus switch
-            {
-                Status.Freeze => (Element.Ice, "FRZ"),
-                Status.Paralysis => (Element.Electric, "PAR"),
-                Status.Poison => (Element.Poison, "PSN"),
-                _ => (Element.Fire, "BRN"),
-            };
-            LgUi.Chip(drawList, new Vector2(innerMaxX - 34f * scale, hpTop + 9f * scale), element, scale, label);
         }
 
         if (showXp)

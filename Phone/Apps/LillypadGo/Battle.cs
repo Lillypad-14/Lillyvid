@@ -845,27 +845,58 @@ internal sealed class Battle
 
     private void AwardXp()
     {
-        var gain = 8 + Wild.Level * 6;
-        var learned = Active.GainXp(gain, out var pendingMoves, out var evolutions);
-        Log.Enqueue(new BattleMessage($"{Active.Name} gained {gain} XP.", BattleCue.XpGain, Active,
-            stateAfter: BattleSnapshot.Capture(Active)));
-        foreach (var announcement in evolutions)
+        // XP Share: the active battler earns full XP, and every other healthy party member earns a
+        // share. Only the active creature's XP line is shown (with its bar); the rest gain quietly
+        // but still announce level-ups, new moves and evolutions.
+        foreach (var m in party)
         {
-            Log.Enqueue(new BattleMessage(announcement, BattleCue.Evolve, Active, Active.CurrentHp,
-                stateAfter: BattleSnapshot.Capture(Active)));
-        }
+            if (m.Fainted)
+            {
+                continue;
+            }
 
-        foreach (var move in learned)
-        {
-            Log.Enqueue(new BattleMessage($"{Active.Name} learned {move.Name}!", BattleCue.LevelUp));
-        }
+            var active = ReferenceEquals(m, Active);
+            var gain = XpAward(Wild.Level, m.Level, active);
+            if (gain <= 0)
+            {
+                continue;
+            }
 
-        foreach (var move in pendingMoves)
-        {
-            pendingMoveChoices.Enqueue(new MoveLearnChoice(Active, move));
-            Log.Enqueue(new BattleMessage($"{Active.Name} wants to learn {move.Name}.", BattleCue.LevelUp, Active,
-                move: move));
+            var learned = m.GainXp(gain, out var pendingMoves, out var evolutions);
+            if (active)
+            {
+                Log.Enqueue(new BattleMessage($"{m.Name} gained {gain} XP.", BattleCue.XpGain, m,
+                    stateAfter: BattleSnapshot.Capture(m)));
+            }
+
+            foreach (var announcement in evolutions)
+            {
+                Log.Enqueue(new BattleMessage(announcement, BattleCue.Evolve, m, m.CurrentHp,
+                    stateAfter: BattleSnapshot.Capture(m)));
+            }
+
+            foreach (var move in learned)
+            {
+                Log.Enqueue(new BattleMessage($"{m.Name} learned {move.Name}!", BattleCue.LevelUp, m));
+            }
+
+            foreach (var move in pendingMoves)
+            {
+                pendingMoveChoices.Enqueue(new MoveLearnChoice(m, move));
+                Log.Enqueue(new BattleMessage($"{m.Name} wants to learn {move.Name}.", BattleCue.LevelUp, m,
+                    move: move));
+            }
         }
+    }
+
+    // Onboarding-friendly XP: a solid base scaled by the opponent's level, multiplied hard at low
+    // levels so early creatures shoot up toward the first training tiers.
+    private static int XpAward(int wildLevel, int monLevel, bool active)
+    {
+        var baseGain = 16 + wildLevel * 8;
+        var levelFactor = monLevel <= 8 ? 3.0f : monLevel <= 15 ? 1.7f : 1.0f;
+        var shareFactor = active ? 1.0f : 0.5f;
+        return Math.Max(1, (int)(baseGain * levelFactor * shareFactor));
     }
 
     private void EndOfTurn()
