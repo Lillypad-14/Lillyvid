@@ -52,7 +52,7 @@ internal static class MoveFxSprites
     {
         try
         {
-            var path = Path.Combine(BaseDir, name + ".png");
+            var path = Path.Combine(BaseDir, name.Contains('.') ? name : name + ".png");
             var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
             var wrap = await Plugin.TextureProvider.CreateFromImageAsync(bytes, path).ConfigureAwait(false);
             var aspect = wrap.Height > 0 ? wrap.Width / (float)wrap.Height : 1f;

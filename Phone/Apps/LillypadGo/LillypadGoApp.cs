@@ -85,6 +85,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         public bool FromPlayer;
         public float Age;
         public float Duration = 0.9f;
+        public MoveAnimPlayback? Playback; // traced Showdown choreography, when available
     }
 
     private static readonly string[] StarterIds = { "bulbasaur", "charmander", "squirtle" };

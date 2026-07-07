@@ -20,6 +20,11 @@ emergency-backups/
 *.7z
 *.zip
 
+# Relay server local install + animation generator caches (regenerate: npm install / curl)
+server/node_modules/
+Phone/Apps/LillypadGo/tools/anim/
+Phone/Apps/LillypadGo/tools/moveanims.json
+
 # OS/editor noise
 Thumbs.db
 desktop.ini

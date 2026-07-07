@@ -337,16 +337,20 @@ internal sealed partial class LillypadGoApp
         }
         else
         {
-            if (hovered)
+            // Same hover language as LgUi.Button: a contained lift + brighter edge, no glow blob.
+            if (hovered && !pressed)
             {
-                ProgressRing.Glow(rect.Center, MathF.Max(rect.Width, rect.Height) * 0.42f, fill, 0.32f);
+                Elevation.Draw(drawList, rect.Min, rect.Max, radius, scale, 9f, 3f, 0.22f);
             }
 
             Squircle.FillVerticalGradient(drawList, rect.Min, rect.Max, radius,
-                ImGui.GetColorU32(GamePalette.Lighten(fill, pressed ? 0.03f : hovered ? 0.20f : 0.12f)),
-                ImGui.GetColorU32(GamePalette.Darken(fill, pressed ? 0.24f : hovered ? 0.06f : 0.14f)));
+                ImGui.GetColorU32(GamePalette.Lighten(fill, pressed ? 0.03f : hovered ? 0.15f : 0.12f)),
+                ImGui.GetColorU32(GamePalette.Darken(fill, pressed ? 0.24f : hovered ? 0.10f : 0.14f)));
             Squircle.Stroke(drawList, rect.Min, rect.Max, radius,
-                ImGui.GetColorU32(GamePalette.Lighten(fill, 0.38f) with { W = 0.55f }), 1f * scale);
+                ImGui.GetColorU32(GamePalette.Lighten(fill, 0.38f) with { W = hovered ? 0.85f : 0.55f }), 1f * scale);
+            drawList.AddLine(new Vector2(rect.Min.X + radius, rect.Min.Y + 1f * scale),
+                new Vector2(rect.Max.X - radius, rect.Min.Y + 1f * scale),
+                ImGui.GetColorU32(new Vector4(1f, 1f, 1f, hovered ? 0.32f : 0.22f)), 1f * scale);
         }
 
         var ink = enabled ? GamePalette.InkOn(fill) : theme.TextMuted;

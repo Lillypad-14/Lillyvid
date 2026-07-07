@@ -98,6 +98,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         this.windowSystem.Draw();
         this.mainWindow.DrawWorldSurfaceOverlay();
+        this.mainWindow.TickNetworkSync();
         this.mapMarkerService.Draw(Config);
     }
 

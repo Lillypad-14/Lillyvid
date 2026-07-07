@@ -41,6 +41,11 @@ internal sealed class EncounterService : IDisposable
 
         state.Territory = clientState.TerritoryType;
         state.CurrentBiome = ArrZones.Find(state.Territory)?.Biome ?? Biomes.ForTerritory(state.Territory);
+        if (!state.BackgroundTrackingEnabled)
+        {
+            hasLast = false;
+            return;
+        }
 
         var pos = player.Position;
         if (!hasLast)

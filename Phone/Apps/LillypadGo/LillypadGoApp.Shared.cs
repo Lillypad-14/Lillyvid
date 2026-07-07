@@ -43,7 +43,7 @@ internal sealed partial class LillypadGoApp
         // Sliding accent pill behind the active tab.
         var pillMin = new Vector2(dock.Min.X + inset + navIndicator * width, dock.Min.Y + inset);
         var pillMax = new Vector2(pillMin.X + width, dock.Max.Y - inset);
-        ProgressRing.Glow((pillMin + pillMax) * 0.5f, (pillMax.Y - pillMin.Y) * 0.7f, Accent, 0.4f);
+        Elevation.Draw(drawList, pillMin, pillMax, 9f * scale, scale, 5f, 2f, 0.28f);
         Squircle.FillVerticalGradient(drawList, pillMin, pillMax, 9f * scale,
             ImGui.GetColorU32(GamePalette.Lighten(Accent, 0.16f)), ImGui.GetColorU32(GamePalette.Darken(Accent, 0.08f)));
         drawList.AddLine(new Vector2(pillMin.X + 9f * scale, pillMin.Y + 1f * scale),

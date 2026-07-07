@@ -78,6 +78,14 @@ public sealed partial class MainWindow
         ImGui.Separator();
         ImGui.Spacing();
 
+        if (UiTheme.BeginCollapsibleSection("Nearby Sync relay"))
+        {
+            ImGui.TextWrapped("Nearby Sync works out of the box through Lillypad's public relay. Change this only if you host your own relay.");
+            ImGui.Spacing();
+            this.DrawNetworkSyncRelaySettings();
+            ImGui.TreePop();
+        }
+
         // Everything below is niche, so it stays collapsed by default and out of the way.
         if (UiTheme.BeginCollapsibleSection("Legacy party sync (chat channel)"))
         {
@@ -92,6 +100,31 @@ public sealed partial class MainWindow
             ImGui.Spacing();
             this.DrawDiagnostics();
             ImGui.TreePop();
+        }
+    }
+
+    private void DrawNetworkSyncRelaySettings()
+    {
+        var relayUrl = this.GetNetworkSyncRelayUrl();
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.InputTextWithHint("##nearby-sync-relay", Configuration.DefaultNetworkSyncRelayUrl, ref relayUrl, 256))
+        {
+            this.config.NetworkSyncRelayUrl = relayUrl.Trim();
+            this.config.Save();
+        }
+
+        ImGui.TextDisabled("Default: " + Configuration.DefaultNetworkSyncRelayUrl);
+        if (ImGui.Button("Reset to default"))
+        {
+            this.config.NetworkSyncRelayUrl = Configuration.DefaultNetworkSyncRelayUrl;
+            this.config.Save();
+            this.status = "Nearby Sync relay reset to the Lillypad default.";
+        }
+
+        if (this.networkSync.State != NetworkSync.SyncState.Disabled)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("Disable and re-enable Nearby Sync to use a changed relay.");
         }
     }
 

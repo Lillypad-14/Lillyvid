@@ -231,6 +231,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
     public void Dispose()
     {
+        this.DisposeNetworkSync();
         this.presentHookProbe.Dispose();
         this.inventoryTab.Dispose();
         this.phoneScreen?.Dispose();
@@ -368,6 +369,12 @@ public sealed partial class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem("Watch"))
             {
                 this.DrawWatchTab(running);
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Nearby Sync"))
+            {
+                this.DrawNearbySyncTab(running);
                 ImGui.EndTabItem();
             }
 
@@ -561,6 +568,17 @@ public sealed partial class MainWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
         {
             ImGui.SetTooltip("Play this link on your screen only, without creating a shared room.");
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Open browser"))
+        {
+            this.OpenFreshBrowserOnScreen(this.youtubeUrl);
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Open a normal browser page on the in-world TV. If you are hosting a Nearby Sync shell, friends will follow its navigation.");
         }
 
         ImGui.SameLine();

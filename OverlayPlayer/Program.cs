@@ -1875,6 +1875,31 @@ internal sealed class PlayerForm : Form
                         {
                             this.Navigate(urlElement.GetString() ?? string.Empty);
                         }
+                        else if (command == "scrollto" &&
+                            document.RootElement.TryGetProperty("x", out var xElement) &&
+                            document.RootElement.TryGetProperty("y", out var yElement))
+                        {
+                            await this.ScrollToAsync(xElement.GetDouble(), yElement.GetDouble());
+                        }
+                        else if (command == "syncmedia")
+                        {
+                            var time = document.RootElement.TryGetProperty("time", out var timeElement)
+                                ? timeElement.GetDouble()
+                                : 0;
+                            var paused = document.RootElement.TryGetProperty("paused", out var pausedElement) &&
+                                         pausedElement.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+                                         pausedElement.GetBoolean();
+                            var rate = document.RootElement.TryGetProperty("rate", out var rateElement)
+                                ? rateElement.GetDouble()
+                                : 1;
+                            var muted = document.RootElement.TryGetProperty("muted", out var mutedElement) &&
+                                        mutedElement.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+                                        mutedElement.GetBoolean();
+                            var fullscreen = document.RootElement.TryGetProperty("fullscreen", out var fullscreenElement) &&
+                                             fullscreenElement.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+                                             fullscreenElement.GetBoolean();
+                            await this.ApplyMediaStateAsync(time, paused, rate, muted, fullscreen);
+                        }
                         else
                         {
                             var value = document.RootElement.TryGetProperty("value", out var valueElement)
@@ -1905,6 +1930,33 @@ internal sealed class PlayerForm : Form
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException)
         {
             // A half-written file; retry on the next tick.
+        }
+    }
+
+    private async Task ApplyMediaStateAsync(double time, bool paused, double rate, bool muted, bool fullscreen)
+    {
+        var timeText = Math.Max(0, time).ToString(CultureInfo.InvariantCulture);
+        var rateText = Math.Clamp(rate, 0.25, 4).ToString(CultureInfo.InvariantCulture);
+        var mutedText = muted ? "true" : "false";
+        var pausedText = paused ? "true" : "false";
+        var fullscreenText = fullscreen ? "true" : "false";
+        await this.webView.CoreWebView2.ExecuteScriptAsync(
+            "(function(){" +
+            $"var target={timeText},rate={rateText},muted={mutedText},paused={pausedText},fullscreen={fullscreenText};" +
+            "var v=document.querySelector('video');if(!v)return;" +
+            "if(Number.isFinite(target)&&Math.abs((v.currentTime||0)-target)>0.35)v.currentTime=target;" +
+            "if(Number.isFinite(rate))v.playbackRate=Math.max(0.25,Math.min(4,rate));" +
+            "v.muted=!!muted;" +
+            "if(paused){if(!v.paused)v.pause();}else{if(v.paused)v.play().catch(function(){});}" +
+            "window.__videoSyncDesiredVideoFullscreen=!!fullscreen;" +
+            "if(window.__videoSyncApplyVideoFill)window.__videoSyncApplyVideoFill();" +
+            "})()");
+
+        if (fullscreen != this.videoFullscreenMode)
+        {
+            var result = await this.webView.CoreWebView2.ExecuteScriptAsync(VideoFullscreenScript);
+            this.videoFullscreenMode = result.Contains("on", StringComparison.OrdinalIgnoreCase);
+            await this.ApplyCaptureInteractionAsync(this.captureFramePath is not null && !this.browserWindowShown);
         }
     }
 
@@ -2136,6 +2188,28 @@ internal sealed class PlayerForm : Form
     }
 
     /// <summary>
+    /// Scrolls the page to an absolute position. Close targets animate smoothly so followers
+    /// see the host's reading motion; far jumps snap instantly instead of animating for ages.
+    /// Interrupted smooth scrolls are fine — the next sync update re-targets.
+    /// </summary>
+    private async Task ScrollToAsync(double x, double y)
+    {
+        if (this.webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        var xText = Math.Max(0, x).ToString(CultureInfo.InvariantCulture);
+        var yText = Math.Max(0, y).ToString(CultureInfo.InvariantCulture);
+        await this.webView.CoreWebView2.ExecuteScriptAsync(
+            $"(function(){{var tx={xText},ty={yText};" +
+            "var dx=Math.abs((window.scrollX||0)-tx),dy=Math.abs((window.scrollY||0)-ty);" +
+            "if(dx<1&&dy<1)return;" +
+            "var smooth=(dx+dy)<2500;" +
+            "window.scrollTo({left:tx,top:ty,behavior:smooth?'smooth':'auto'});})()");
+    }
+
+    /// <summary>
     /// Publishes current browser URL and playback state for the plugin UI.
     /// </summary>
     private async Task PublishStatusAsync()
@@ -2160,7 +2234,7 @@ internal sealed class PlayerForm : Form
                 "if(invite){room=invite;}" +
                 "else if(location.hostname==='w2g.tv'&&path.indexOf('/rooms/')===0){var parts=path.split('/').filter(Boolean);if(parts.length>=2)room=location.origin+'/'+parts[0]+'/'+parts[1];}" +
                 "else if(location.hostname==='w2g.tv'&&(path.indexOf('/room/')>=0||location.search.indexOf('access_key=')>=0)){room=location.href;}" +
-                $"return {{url:location.href,w2gRoom:room,w2gShareAttempted:{(this.watch2GetherShareAttempted ? "true" : "false")},w2gShareSubmitted:{(this.watch2GetherShareSubmitted ? "true" : "false")},webViewMuted:{(this.webView.CoreWebView2.IsMuted ? "true" : "false")},webViewAudio:{(this.webView.CoreWebView2.IsDocumentPlayingAudio ? "true" : "false")},volSlider:(vs?vs.value:-1),mediaN:media.length,iframeN:frames.length,ytFrame:ytn,vVol:(v?v.volume:-1),vMuted:(v?!!v.muted:false),vRS:(v?v.readyState:-1),t:v?(v.currentTime||0):0,d:(v&&isFinite(v.duration)?v.duration:0),p:v?!!v.paused:true}};}})()");
+                $"return {{url:location.href,title:(document.title||'').slice(0,120),sx:Math.max(0,Math.round(window.scrollX||window.pageXOffset||0)),sy:Math.max(0,Math.round(window.scrollY||window.pageYOffset||0)),vw:Math.max(0,Math.round(window.innerWidth||document.documentElement.clientWidth||0)),vh:Math.max(0,Math.round(window.innerHeight||document.documentElement.clientHeight||0)),dw:Math.max(0,Math.round(Math.max(document.documentElement.scrollWidth||0,document.body?document.body.scrollWidth||0:0))),dh:Math.max(0,Math.round(Math.max(document.documentElement.scrollHeight||0,document.body?document.body.scrollHeight||0:0))),z:(window.visualViewport&&window.visualViewport.scale)||1,fs:!!(document.fullscreenElement||window.__videoSyncCssFullscreen),w2gRoom:room,w2gShareAttempted:{(this.watch2GetherShareAttempted ? "true" : "false")},w2gShareSubmitted:{(this.watch2GetherShareSubmitted ? "true" : "false")},webViewMuted:{(this.webView.CoreWebView2.IsMuted ? "true" : "false")},webViewAudio:{(this.webView.CoreWebView2.IsDocumentPlayingAudio ? "true" : "false")},volSlider:(vs?vs.value:-1),mediaN:media.length,iframeN:frames.length,ytFrame:ytn,vVol:(v?v.volume:-1),vMuted:(v?!!v.muted:false),vRS:(v?v.readyState:-1),rate:(v?(v.playbackRate||1):1),t:v?(v.currentTime||0):0,d:(v&&isFinite(v.duration)?v.duration:0),p:v?!!v.paused:true}};}})()");
             if (!string.IsNullOrEmpty(result) && result.StartsWith('{'))
             {
                 var tempPath = this.statusPath + ".tmp";

@@ -11,6 +11,8 @@ namespace VideoSyncPrototype;
 /// </summary>
 public sealed class Configuration : IPluginConfiguration
 {
+    public const string DefaultNetworkSyncRelayUrl = "wss://web-socket--lillypadd.replit.app/ws";
+
     public int Version { get; set; } = 1;
 
     /// <summary>
@@ -21,6 +23,12 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>Block YouTube ads in the in-world player.</summary>
     public bool AdBlockEnabled { get; set; } = true;
+
+    /// <summary>
+    /// WebSocket URL of the Nearby Broadcast relay. Defaults to Lillypad's public
+    /// relay, but users can override it if they host their own.
+    /// </summary>
+    public string NetworkSyncRelayUrl { get; set; } = DefaultNetworkSyncRelayUrl;
 
     /// <summary>
     /// Video upscaling preset: 0 Off (bilinear, the original look), 1 Fast,

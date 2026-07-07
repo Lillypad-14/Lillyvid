@@ -1,0 +1,13 @@
+{
+  "name": "lillypad-nearby-broadcast-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay for Lillypad Toolkit Nearby Broadcast Shells (page-state watch rooms).",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test_protocol.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

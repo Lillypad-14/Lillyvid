@@ -81,6 +81,73 @@ public sealed partial class MainWindow
                 this.playbackPaused = document.RootElement.GetProperty("p").GetBoolean();
             }
 
+            // Page state for Nearby Broadcast sync (older OverlayPlayer builds omit these).
+            if (document.RootElement.TryGetProperty("url", out var urlElement) &&
+                urlElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                this.browserPageUrl = urlElement.GetString() ?? string.Empty;
+            }
+
+            if (document.RootElement.TryGetProperty("sx", out var sxElement) &&
+                sxElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserScrollX = (int)sxElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("sy", out var syElement) &&
+                syElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserScrollY = (int)syElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("vw", out var vwElement) &&
+                vwElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserViewportWidth = (int)vwElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("vh", out var vhElement) &&
+                vhElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserViewportHeight = (int)vhElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("dw", out var dwElement) &&
+                dwElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserDocumentWidth = (int)dwElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("dh", out var dhElement) &&
+                dhElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserDocumentHeight = (int)dhElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("z", out var zoomElement) &&
+                zoomElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserZoom = zoomElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("rate", out var rateElement) &&
+                rateElement.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                this.browserMediaRate = rateElement.GetDouble();
+            }
+
+            if (document.RootElement.TryGetProperty("vMuted", out var mediaMutedElement) &&
+                mediaMutedElement.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
+            {
+                this.browserMediaMuted = mediaMutedElement.GetBoolean();
+            }
+
+            if (document.RootElement.TryGetProperty("fs", out var fullscreenElement) &&
+                fullscreenElement.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
+            {
+                this.browserMediaFullscreen = fullscreenElement.GetBoolean();
+            }
+
             this.lastStatusReadUtc = writeTime;
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or KeyNotFoundException)

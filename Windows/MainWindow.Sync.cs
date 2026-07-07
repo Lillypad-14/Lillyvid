@@ -1222,6 +1222,35 @@ public sealed partial class MainWindow
         this.status = "Playing on the in-world screen. Use the playback controls on the Screen tab.";
     }
 
+    private void OpenFreshBrowserOnScreen(string? input = null)
+    {
+        var candidate = string.IsNullOrWhiteSpace(input)
+            ? "https://www.google.com/"
+            : input.Trim();
+        var url = Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+            ? uri.ToString()
+            : "https://www.google.com/";
+
+        if (!this.StartRendererBridge(url))
+        {
+            return;
+        }
+
+        this.currentVideoId = string.Empty;
+        this.playingWatch2GetherRoom = false;
+        if (this.worldScreenAnchor is null)
+        {
+            this.PlaceWorldScreenInFrontOfPlayer();
+        }
+
+        this.EnableNativeWorldScreen();
+        this.AllowRendererForeground();
+        this.SendPlaybackCommand("show");
+        this.status = this.networkSync.State == NetworkSync.SyncState.Hosting
+            ? "Opened a fresh browser on the TV. Your shell will sync navigation and page position."
+            : "Opened a fresh browser on the in-world TV.";
+    }
+
     private void StopPlayback()
     {
         this.StopInWindowPreview();

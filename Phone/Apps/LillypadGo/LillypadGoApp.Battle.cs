@@ -35,10 +35,27 @@ internal sealed partial class LillypadGoApp
 
         // Positions share the same normalized arena used by BiomeBackdrop, keeping creatures on
         // the imported Showdown scene instead of drifting as the phone size changes.
-        var wildPos = BiomeBackdrop.BattlePoint(content, 0.76f, 0.34f);
-        DrawGroundShadow(drawList, wildPos + new Vector2(0f, 32f * scale), 40f * scale);
-        MonsterArt.Draw(drawList, wildPos, 42f * scale, battle.Wild.Species, -1f,
-            new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt, wildAnim.Alpha, displayedWildHp <= 0));
+        MoveAnims.Preload();
+        var wildBase = BiomeBackdrop.BattlePoint(content, 0.76f, 0.34f);
+        var playerBase = BiomeBackdrop.BattlePoint(content, 0.24f, 0.76f);
+        var sceneMap = new SceneMap(playerBase, wildBase);
+        var shakeY = MoveFxShakeY(sceneMap);
+        if (shakeY != 0f)
+        {
+            wildBase.Y += shakeY;
+            playerBase.Y += shakeY;
+            sceneMap = new SceneMap(playerBase, wildBase);
+        }
+
+        // Background flashes (behind the creatures, like Showdown's $bgEffect layer).
+        DrawMoveBgFx(drawList, content);
+
+        var wildAnimPose = MonAnimPose(false, sceneMap);
+        var wildPos = wildBase + wildAnimPose.Offset;
+        DrawGroundShadow(drawList, wildBase + new Vector2(wildAnimPose.Offset.X, 32f * scale), 40f * scale);
+        MonsterArt.Draw(drawList, wildPos, 42f * scale * wildAnimPose.ScaleMul, battle.Wild.Species, -1f,
+            new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt, wildAnim.Alpha * wildAnimPose.Alpha,
+                displayedWildHp <= 0));
         DrawStatusFx(drawList, wildPos, displayedWildStatus, time, scale);
         DrawImpactFx(drawList, wildPos, wildAnim.Hurt, Elements.Color(battle.Wild.Element), scale);
         var wildPanel = new Rect(new Vector2(content.Min.X + 8f * scale, content.Min.Y + 18f * scale),
@@ -52,10 +69,12 @@ internal sealed partial class LillypadGoApp
         }
 
         // Player active (bottom).
-        var playerPos = BiomeBackdrop.BattlePoint(content, 0.24f, 0.76f);
-        DrawGroundShadow(drawList, playerPos + new Vector2(0f, 36f * scale), 44f * scale);
-        MonsterArt.Draw(drawList, playerPos, 46f * scale, player.Species, 1f,
-            new MonsterPose(time, playerAnim.Lunge, playerAnim.Hurt, playerAnim.Alpha, displayedPlayerHp <= 0),
+        var playerAnimPose = MonAnimPose(true, sceneMap);
+        var playerPos = playerBase + playerAnimPose.Offset;
+        DrawGroundShadow(drawList, playerBase + new Vector2(playerAnimPose.Offset.X, 36f * scale), 44f * scale);
+        MonsterArt.Draw(drawList, playerPos, 46f * scale * playerAnimPose.ScaleMul, player.Species, 1f,
+            new MonsterPose(time, playerAnim.Lunge, playerAnim.Hurt, playerAnim.Alpha * playerAnimPose.Alpha,
+                displayedPlayerHp <= 0),
             back: true);
         DrawStatusFx(drawList, playerPos, displayedPlayerStatus, time + 0.8f, scale);
         DrawImpactFx(drawList, playerPos, playerAnim.Hurt, Elements.Color(player.Element), scale);
@@ -70,7 +89,7 @@ internal sealed partial class LillypadGoApp
             ImGui.SetTooltip(BuildMonsterTooltip(player, "Your active creature.", displayedPlayerHp));
         }
 
-        DrawMoveFx(drawList, content, playerPos, wildPos, scale);
+        DrawMoveFx(drawList, content, playerBase, wildBase, sceneMap, scale);
         DrawBattlePopups(wildPos, playerPos, theme, scale);
 
         // Bottom panel: message, action menu, or result.
@@ -82,10 +101,10 @@ internal sealed partial class LillypadGoApp
             ImGui.GetColorU32(GamePalette.Lighten(GamePalette.Board, 0.05f) with { W = 0.94f }),
             ImGui.GetColorU32(GamePalette.Darken(GamePalette.Board, 0.16f) with { W = 0.94f }));
         Squircle.Stroke(drawList, panelMin, panelMax, 14f * scale,
-            ImGui.GetColorU32(Accent with { W = 0.34f }), 1.2f * scale);
+            ImGui.GetColorU32(Accent with { W = 0.24f }), 1.2f * scale);
         drawList.AddLine(new Vector2(panelMin.X + 16f * scale, panelMin.Y + 1f * scale),
             new Vector2(panelMax.X - 16f * scale, panelMin.Y + 1f * scale),
-            ImGui.GetColorU32(Accent with { W = 0.58f }), 2f * scale);
+            ImGui.GetColorU32(Accent with { W = 0.4f }), 1.5f * scale);
         var panel = new Rect(panelMin, panelMax);
 
         if (message is not null)
@@ -186,20 +205,26 @@ internal sealed partial class LillypadGoApp
         switch (cue)
         {
             case BattleCue.PlayerAttack:
-                playerAnim.Lunge = 1f;
-                BeginMoveFx(battleMessage, true);
+                // The traced Showdown anim includes the attacker's own movement; only fall
+                // back to the procedural lunge when no anim drives the move.
+                if (!BeginMoveFx(battleMessage, true))
+                {
+                    playerAnim.Lunge = 1f;
+                }
+
                 break;
             case BattleCue.WildAttack:
-                wildAnim.Lunge = 1f;
-                BeginMoveFx(battleMessage, false);
+                if (!BeginMoveFx(battleMessage, false))
+                {
+                    wildAnim.Lunge = 1f;
+                }
+
                 break;
             case BattleCue.PlayerHurt:
                 playerAnim.Hurt = 1f;
-                moveFx = null;
                 break;
             case BattleCue.WildHurt:
                 wildAnim.Hurt = 1f;
-                moveFx = null;
                 break;
             case BattleCue.PlayerFaint:
                 playerAnim.AlphaTarget = 0.35f;

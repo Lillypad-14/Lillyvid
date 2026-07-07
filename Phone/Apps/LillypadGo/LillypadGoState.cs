@@ -25,6 +25,7 @@ internal sealed class LillypadGoState
     public int BattlesWon { get; set; }
     public int Captures { get; set; }
     public float BattleEffectScale { get; set; } = 1.25f;
+    public bool BackgroundTrackingEnabled { get; set; } = true;
 
     // Transient (not serialized).
     public MonsterInstance? Pending { get; set; }
@@ -85,6 +86,7 @@ internal sealed class LillypadGoState
                 BattlesWon = BattlesWon,
                 Captures = Captures,
                 BattleEffectScale = BattleEffectScale,
+                BackgroundTrackingEnabled = BackgroundTrackingEnabled,
                 Seen = Seen.ToArray(),
                 Party = Party.Select(ToDto).ToArray(),
                 Box = Box.Select(ToDto).ToArray(),
@@ -115,6 +117,7 @@ internal sealed class LillypadGoState
         BattlesWon = dto.BattlesWon;
         Captures = dto.Captures;
         BattleEffectScale = dto.BattleEffectScale <= 0f ? 1.25f : Math.Clamp(dto.BattleEffectScale, 0.75f, 2f);
+        BackgroundTrackingEnabled = dto.BackgroundTrackingEnabled ?? true;
         if (dto.Seen is not null)
         {
             foreach (var id in dto.Seen)
@@ -201,6 +204,7 @@ internal sealed class LillypadGoState
         public int BattlesWon { get; set; }
         public int Captures { get; set; }
         public float BattleEffectScale { get; set; }
+        public bool? BackgroundTrackingEnabled { get; set; }
         public string[]? Seen { get; set; }
         public MonsterDto[]? Party { get; set; }
         public MonsterDto[]? Box { get; set; }

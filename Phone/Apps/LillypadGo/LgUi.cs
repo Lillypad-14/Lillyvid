@@ -135,16 +135,18 @@ internal static class LgUi
         }
         else
         {
-            if (hovered)
+            // Hover reads as a lift: a soft contained shadow plus a brighter edge, instead of a
+            // colored glow blob spilling past the corners. Press cancels the lift and darkens.
+            if (hovered && !pressed)
             {
-                ProgressRing.Glow(center, MathF.Max(half.X, half.Y) * 1.15f, fill, 0.45f);
+                Elevation.Draw(drawList, min, max, radius, scale, 9f, 3f, 0.22f);
             }
 
-            var fillTop = ImGui.GetColorU32(GamePalette.Lighten(fill, pressed ? 0.04f : hovered ? 0.22f : 0.12f));
-            var fillBottom = ImGui.GetColorU32(GamePalette.Darken(fill, pressed ? 0.20f : hovered ? 0.04f : 0.12f));
+            var fillTop = ImGui.GetColorU32(GamePalette.Lighten(fill, pressed ? 0.04f : hovered ? 0.15f : 0.12f));
+            var fillBottom = ImGui.GetColorU32(GamePalette.Darken(fill, pressed ? 0.20f : hovered ? 0.08f : 0.12f));
             Squircle.FillVerticalGradient(drawList, min, max, radius, fillTop, fillBottom);
             Squircle.Stroke(drawList, min, max, radius,
-                ImGui.GetColorU32(GamePalette.Lighten(fill, 0.35f) with { W = 0.5f }), 1f * scale);
+                ImGui.GetColorU32(GamePalette.Lighten(fill, 0.35f) with { W = hovered ? 0.85f : 0.5f }), 1f * scale);
             drawList.AddLine(new Vector2(min.X + radius, min.Y + 1f * scale),
                 new Vector2(max.X - radius, min.Y + 1f * scale),
                 ImGui.GetColorU32(new Vector4(1f, 1f, 1f, hovered ? 0.34f : 0.24f)), 1f * scale);
@@ -194,7 +196,7 @@ internal static class LgUi
         var pillMin = new Vector2(bounds.Min.X + inset + indicator * segWidth, bounds.Min.Y + inset);
         var pillMax = new Vector2(pillMin.X + segWidth, bounds.Max.Y - inset);
         var pillRadius = MathF.Min(9f * scale, (pillMax.Y - pillMin.Y) * 0.5f);
-        ProgressRing.Glow((pillMin + pillMax) * 0.5f, (pillMax.Y - pillMin.Y) * 0.7f, accent, 0.35f);
+        Elevation.Draw(drawList, pillMin, pillMax, pillRadius, scale, 5f, 2f, 0.28f);
         Squircle.FillVerticalGradient(drawList, pillMin, pillMax, pillRadius,
             ImGui.GetColorU32(GamePalette.Lighten(accent, 0.16f)), ImGui.GetColorU32(GamePalette.Darken(accent, 0.08f)));
         drawList.AddLine(new Vector2(pillMin.X + pillRadius, pillMin.Y + 1f * scale),

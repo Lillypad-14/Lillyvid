@@ -180,16 +180,84 @@ internal sealed partial class LillypadGoApp
             ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.34f)));
     }
 
-    private void BeginMoveFx(BattleMessage battleMessage, bool fromPlayer)
+    // Starts a move's visual effect. Returns true when a traced Showdown animation drives it
+    // (including the attacker's own lunge/movement), so the caller should skip the procedural
+    // lunge pose; false means the legacy pattern fallback plays instead.
+    private bool BeginMoveFx(BattleMessage battleMessage, bool fromPlayer)
     {
         if (battleMessage.Move is not { } move)
         {
-            return;
+            return false;
         }
 
-        var anim = MoveAnims.For(move.Name);
-        var duration = anim is not null ? Math.Clamp(anim.DurationMs / 1000f, 0.4f, 1.3f) : 0.9f;
-        moveFx = new MoveFx { Move = move, FromPlayer = fromPlayer, Duration = duration };
+        if (MoveAnims.TryGet(move.Name, fromPlayer, out var playback))
+        {
+            moveFx = new MoveFx
+            {
+                Move = move,
+                FromPlayer = fromPlayer,
+                Playback = playback,
+                Duration = Math.Clamp(playback.DurationMs / 1000f + 0.15f, 0.4f, 3f),
+            };
+            return true;
+        }
+
+        moveFx = new MoveFx { Move = move, FromPlayer = fromPlayer, Duration = 0.9f };
+        return false;
+    }
+
+    // Background flashes (Night Shade's darkness, Solar Beam's sun, …) sit behind the
+    // creatures, matching Showdown's $bgEffect layer.
+    private void DrawMoveBgFx(ImDrawListPtr drawList, Rect arena)
+    {
+        if (moveFx is { Playback: { } playback } fx)
+        {
+            MoveAnims.DrawBackground(drawList, playback, fx.Age * 1000f, arena);
+        }
+    }
+
+    // Screen-shake offset (Earthquake and friends) in screen pixels for this frame.
+    private float MoveFxShakeY(in SceneMap map)
+    {
+        if (moveFx is { Playback: { } playback } fx)
+        {
+            return MoveAnims.ShakeY(playback, fx.Age * 1000f) * map.Sy;
+        }
+
+        return 0f;
+    }
+
+    // Where the anim currently wants a creature: `nearMon` selects the player's battler.
+    private MoveAnims.MonPoseState MonAnimPose(bool nearMon, in SceneMap map)
+    {
+        if (moveFx is { Playback: { } playback } fx)
+        {
+            var attackerRole = nearMon == fx.FromPlayer;
+            return MoveAnims.MonPose(playback, fx.Age * 1000f, attackerRole, map);
+        }
+
+        return new MoveAnims.MonPoseState(Vector2.Zero, 1f, 1f);
+    }
+
+    // Resolves the '$attacker'/'$defender' pseudo sprites (Double Team clones, …) to the
+    // creatures' current spritesheet frames.
+    private bool ResolveMonFrame(bool attackerSprite, out ImTextureID tex, out Vector2 uv0, out Vector2 uv1)
+    {
+        tex = default;
+        uv0 = Vector2.Zero;
+        uv1 = Vector2.One;
+        var fromPlayer = moveFx?.FromPlayer ?? true;
+        var isPlayerMon = attackerSprite == fromPlayer;
+        var mon = isPlayerMon ? displayedPlayer ?? battle?.Active : battle?.Wild;
+        if (mon is null || !PokemonSprites.TryGetFrame(mon.Species.Id, isPlayerMon, time, out var frame))
+        {
+            return false;
+        }
+
+        tex = frame.Handle;
+        uv0 = frame.Uv0;
+        uv1 = frame.Uv1;
+        return true;
     }
 
     private void UpdateMoveFx(float dt)
@@ -206,24 +274,27 @@ internal sealed partial class LillypadGoApp
         }
     }
 
-    // Plays a move's animation. Every move has a keyframe port of Showdown's animation (exact for
-    // ~290 moves, a synthesized default for the rest); the pattern system below is a safety net.
-    private void DrawMoveFx(ImDrawListPtr drawList, Rect content, Vector2 playerPos, Vector2 wildPos, float scale)
+    // Plays a move's animation: every move gets the traced Showdown choreography (exact
+    // keyframes executed from Showdown's own animation code); the pattern system below is a
+    // safety net for when the data asset is missing.
+    private void DrawMoveFx(ImDrawListPtr drawList, Rect content, Vector2 playerPos, Vector2 wildPos,
+        in SceneMap sceneMap, float scale)
     {
         if (moveFx is not { } fx)
         {
             return;
         }
 
-        var from = fx.FromPlayer ? playerPos : wildPos;
-        var to = fx.FromPlayer ? wildPos : playerPos;
         var battleEffectScale = Math.Clamp(State.BattleEffectScale, MinBattleEffectScale, MaxBattleEffectScale);
-        if (MoveAnims.For(fx.Move.Name) is { } anim)
+        if (fx.Playback is { } playback)
         {
-            MoveAnims.Play(drawList, anim, from, to, content, fx.Age * 1000f, scale, battleEffectScale);
+            MoveAnims.DrawEffects(drawList, playback, fx.Age * 1000f, sceneMap, battleEffectScale,
+                ResolveMonFrame);
             return;
         }
 
+        var from = fx.FromPlayer ? playerPos : wildPos;
+        var to = fx.FromPlayer ? wildPos : playerPos;
         var visual = MoveVisuals.For(fx.Move.Name);
         var hasSprite = MoveFxSprites.TryGet(visual.Sprite, out var tex, out var aspect);
         var progress = Math.Clamp(fx.Age / 0.9f, 0f, 1f);
