@@ -249,6 +249,21 @@ internal sealed partial class LillypadGoApp
                     break;
                 }
 
+                if (battle.Active.LockedMove is { } rampage)
+                {
+                    Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 16f * scale),
+                        $"{battle.Active.Name} is locked into {rampage.Name}!", theme.TextStrong, TextStyles.Headline);
+                    var cont = CenteredAt(new Vector2(panel.Center.X, panel.Center.Y + 14f * scale),
+                        new Vector2(panel.Width * 0.62f, panel.Height * 0.34f));
+                    if (LgUi.Button(cont, rampage.Name, Accent, theme, true))
+                    {
+                        battle.UseMove(0);
+                        menu = Menu.Root;
+                    }
+
+                    break;
+                }
+
                 var quad = new[] { "Fight", "Bag", "Team", "Run" };
                 var hints = new[]
                 {

@@ -125,6 +125,11 @@ internal sealed class MonsterInstance
     public MoveDef? ChargingMove { get; set; } // a two-turn move (Dig/Fly/Solar Beam) mid-charge
     public bool SemiInvulnerable { get; set; } // underground/in the air during a Dig/Fly-type charge
     public bool MustRecharge { get; set; } // spends the next turn recharging (Hyper Beam etc.)
+    public MoveDef? LastMove { get; set; }  // the last move this creature used (Mirror Move, etc.)
+    public int LastPhysicalDamage { get; set; } // physical damage taken this turn (Counter)
+    public int LastSpecialDamage { get; set; }  // special damage taken this turn (Mirror Coat)
+    public MoveDef? LockedMove { get; set; } // a rampage move (Outrage/Thrash) the user is locked into
+    public int LockedTurns { get; set; }     // remaining forced turns of the locked-in move
 
     public bool Fainted => CurrentHp <= 0;
     public string Name => string.IsNullOrWhiteSpace(Nickname) ? Species.Name : Nickname;
@@ -193,6 +198,11 @@ internal sealed class MonsterInstance
         ChargingMove = null;
         SemiInvulnerable = false;
         MustRecharge = false;
+        LastMove = null;
+        LastPhysicalDamage = 0;
+        LastSpecialDamage = 0;
+        LockedMove = null;
+        LockedTurns = 0;
         RevertTransform(); // a copy from Transform is lost on switch/at battle start
     }
 

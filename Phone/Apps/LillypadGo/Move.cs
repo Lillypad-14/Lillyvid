@@ -64,6 +64,19 @@ internal enum MoveEffect : byte
     RaiseAtkDef,      // raises the user's Attack and Defense (Bulk Up)
     RaiseSpAtkSpDef,  // raises the user's Sp. Atk and Sp. Def (Calm Mind)
     RaiseAtkSpd,      // raises the user's Attack and Speed (Dragon Dance)
+    MirrorMove,       // uses the target's last move
+    Copycat,          // uses the last move used in the battle
+    Metronome,        // uses a random move
+    SleepTalk,        // while asleep, uses one of the user's own moves at random
+    Counter,          // returns double the physical damage taken this turn
+    MirrorCoat,       // returns double the special damage taken this turn
+    MetalBurst,       // returns 1.5x the damage taken this turn
+    Endeavor,         // brings the target down to the user's current HP
+    FinalGambit,      // deals damage equal to the user's HP, then the user faints
+    PainSplit,        // averages the user's and target's current HP
+    Rest,             // the user falls asleep and fully heals
+    TrickRoom,        // reverses turn order (slower moves first) for five turns
+    LockInMove,       // locks the user into a rampage for 2-3 turns, then confuses it (Outrage)
 }
 
 internal enum MoveCategory : byte

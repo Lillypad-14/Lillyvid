@@ -120,6 +120,9 @@ internal sealed class Battle
     private bool statsFinalized;
     private int weatherTurns;
     private int terrainTurns;
+    private int trickRoomTurns; // >0 while Trick Room reverses the turn order
+    private int callDepth;      // recursion guard for move-calling moves (Metronome, Copycat, …)
+    private MoveDef? lastMoveUsedInBattle; // most recent move used by anyone (Copycat)
     private int playerReflectTurns;
     private int wildReflectTurns;
     private int playerLightScreenTurns;
@@ -268,11 +271,21 @@ internal sealed class Battle
         Wild.Protecting = false;
         Active.Enduring = false;
         Wild.Enduring = false;
-        var playerMove = Active.ChargingMove ?? (struggling ? Moves.Struggle : Active.Moves[moveIndex]);
-        var wildMove = Wild.ChargingMove ?? ChooseWildMove();
+        // Reset per-turn damage tallies so Counter / Mirror Coat only see this turn's hits.
+        Active.LastPhysicalDamage = Active.LastSpecialDamage = 0;
+        Wild.LastPhysicalDamage = Wild.LastSpecialDamage = 0;
+        var playerMove = Active.LockedMove ?? Active.ChargingMove ?? (struggling ? Moves.Struggle : Active.Moves[moveIndex]);
+        var wildMove = Wild.LockedMove ?? Wild.ChargingMove ?? ChooseWildMove();
+        // Trick Room reverses the speed comparison for the turn order.
+        var faster = EffectiveSpeed(Active) > EffectiveSpeed(Wild);
+        var sameSpeed = EffectiveSpeed(Active) == EffectiveSpeed(Wild);
+        if (trickRoomTurns > 0)
+        {
+            faster = EffectiveSpeed(Active) < EffectiveSpeed(Wild);
+        }
+
         var playerFirst = playerMove.Priority > wildMove.Priority ||
-            playerMove.Priority == wildMove.Priority && (EffectiveSpeed(Active) > EffectiveSpeed(Wild) ||
-                EffectiveSpeed(Active) == EffectiveSpeed(Wild) && rng.Next(2) == 0);
+            playerMove.Priority == wildMove.Priority && (faster || sameSpeed && rng.Next(2) == 0);
         if (playerFirst)
         {
             PlayerMove(moveIndex);
@@ -547,9 +560,11 @@ internal sealed class Battle
     {
         if (!TryAct(Active))
         {
-            // A charge that fizzles (paralysis, sleep, ...) is cancelled rather than left stuck.
+            // A charge/rampage that fizzles (paralysis, sleep, ...) is cancelled rather than stuck.
             Active.ChargingMove = null;
             Active.SemiInvulnerable = false;
+            Active.LockedMove = null;
+            Active.LockedTurns = 0;
             return;
         }
 
@@ -566,6 +581,13 @@ internal sealed class Battle
         if (Active.ChargingMove is { } releasing)
         {
             Execute(Active, Wild, releasing, BattleCue.PlayerAttack, BattleCue.WildHurt);
+            return;
+        }
+
+        // Locked into a rampage (Outrage/Thrash): keep firing it (PP paid on the first turn).
+        if (Active.LockedMove is { } locked)
+        {
+            Execute(Active, Wild, locked, BattleCue.PlayerAttack, BattleCue.WildHurt);
             return;
         }
 
@@ -595,6 +617,8 @@ internal sealed class Battle
         {
             Wild.ChargingMove = null;
             Wild.SemiInvulnerable = false;
+            Wild.LockedMove = null;
+            Wild.LockedTurns = 0;
             return;
         }
 
@@ -609,6 +633,13 @@ internal sealed class Battle
         if (Wild.ChargingMove is { } releasing)
         {
             Execute(Wild, Active, releasing, BattleCue.WildAttack, BattleCue.PlayerHurt);
+            return;
+        }
+
+        // Keep firing a locked-in rampage (Outrage/Thrash).
+        if (Wild.LockedMove is { } locked)
+        {
+            Execute(Wild, Active, locked, BattleCue.WildAttack, BattleCue.PlayerHurt);
             return;
         }
 
@@ -961,6 +992,40 @@ internal sealed class Battle
         "Meteor Beam" or "Electro Shot" => $"{user.Name} is gathering energy!",
         _ => $"{user.Name} is charging up!",
     };
+
+    private static bool IsCallMoveEffect(MoveEffect e) =>
+        e is MoveEffect.MirrorMove or MoveEffect.Copycat or MoveEffect.Metronome or MoveEffect.SleepTalk;
+
+    // Resolves which move a move-calling move (Mirror Move / Copycat / Metronome / Sleep Talk) should
+    // actually run this turn, or null if it fails.
+    private MoveDef? ResolveCalledMove(MonsterInstance attacker, MonsterInstance defender, MoveDef move)
+    {
+        bool Copyable(MoveDef? m) =>
+            m is not null && !IsCallMoveEffect(m.Effect) && !ReferenceEquals(m, Moves.Struggle);
+
+        switch (move.Effect)
+        {
+            case MoveEffect.MirrorMove:
+                return Copyable(defender.LastMove) && !defender.LastMove!.IsStatus ? defender.LastMove : null;
+            case MoveEffect.Copycat:
+                return Copyable(lastMoveUsedInBattle) ? lastMoveUsedInBattle : null;
+            case MoveEffect.Metronome:
+                var pool = Moves.All.Where(m => !IsCallMoveEffect(m.Effect) && !ReferenceEquals(m, Moves.Struggle))
+                    .ToList();
+                return pool.Count > 0 ? pool[rng.Next(pool.Count)] : null;
+            case MoveEffect.SleepTalk:
+                if (attacker.Status != Status.Sleep)
+                {
+                    return null;
+                }
+
+                var known = attacker.Moves
+                    .Where(m => m.Effect is not MoveEffect.SleepTalk && !IsChargeMove(m)).ToList();
+                return known.Count > 0 ? known[rng.Next(known.Count)] : null;
+            default:
+                return null;
+        }
+    }
 
     private void SetTerrain(BattleTerrain terrain, string message)
     {
@@ -1475,6 +1540,25 @@ internal sealed class Battle
         BattleCue hurtCue)
     {
         Log.Enqueue(new BattleMessage($"{attacker.Name} used {move.Name}!", attackCue, attacker, move: move));
+        attacker.LastMove = move;
+        lastMoveUsedInBattle = move;
+
+        // Move-calling moves run another move instead of themselves.
+        if (move.Effect is MoveEffect.MirrorMove or MoveEffect.Copycat or MoveEffect.Metronome
+            or MoveEffect.SleepTalk)
+        {
+            var called = ResolveCalledMove(attacker, defender, move);
+            if (called is null || callDepth >= 3)
+            {
+                Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                return;
+            }
+
+            callDepth++;
+            Execute(attacker, defender, called, attackCue, hurtCue);
+            callDepth--;
+            return;
+        }
 
         // Two-turn moves (Dig/Fly/Solar Beam …): the first use only charges (and, for Dig/Fly-type
         // moves, hides the user); the release happens next turn. Solar Beam skips the charge in sun.
@@ -1569,6 +1653,17 @@ internal sealed class Battle
                 return;
             }
 
+            // Counter / Mirror Coat / Metal Burst / Endeavor fail when there's nothing to work from.
+            if ((move.Effect == MoveEffect.Counter && attacker.LastPhysicalDamage <= 0) ||
+                (move.Effect == MoveEffect.MirrorCoat && attacker.LastSpecialDamage <= 0) ||
+                (move.Effect == MoveEffect.MetalBurst &&
+                 attacker.LastPhysicalDamage + attacker.LastSpecialDamage <= 0) ||
+                (move.Effect == MoveEffect.Endeavor && defender.CurrentHp <= attacker.CurrentHp))
+            {
+                Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                return;
+            }
+
             // Crit: blocked by Battle/Shell Armor, boosted by Super Luck (rate) and Sniper (damage).
             // High-crit moves (Slash, Razor Leaf, ...) roll a much smaller denominator.
             var noCrit = defAb is "Battle Armor" or "Shell Armor";
@@ -1659,6 +1754,13 @@ internal sealed class Battle
                 case MoveEffect.FixedDamage40: damage = 40; break;
                 case MoveEffect.FixedDamage20: damage = 20; break;
                 case MoveEffect.HalveTargetHp: damage = Math.Max(1, defender.CurrentHp / 2); break;
+                case MoveEffect.Counter: damage = attacker.LastPhysicalDamage * 2; break;
+                case MoveEffect.MirrorCoat: damage = attacker.LastSpecialDamage * 2; break;
+                case MoveEffect.MetalBurst:
+                    damage = (attacker.LastPhysicalDamage + attacker.LastSpecialDamage) * 3 / 2;
+                    break;
+                case MoveEffect.Endeavor: damage = Math.Max(1, defender.CurrentHp - attacker.CurrentHp); break;
+                case MoveEffect.FinalGambit: damage = Math.Max(1, attacker.CurrentHp); break;
             }
 
             // One-hit KO moves ignore the damage roll; multi-hit moves strike several times.
@@ -1692,6 +1794,16 @@ internal sealed class Battle
             }
 
             defender.CurrentHp -= appliedDamage;
+            // Remember damage taken this turn by category so Counter / Mirror Coat can retaliate.
+            if (move.Category == MoveCategory.Physical)
+            {
+                defender.LastPhysicalDamage += appliedDamage;
+            }
+            else if (move.Category == MoveCategory.Special)
+            {
+                defender.LastSpecialDamage += appliedDamage;
+            }
+
             if (!ReferenceEquals(attacker, Wild))
             {
                 attacker.RecordDamage(appliedDamage);
@@ -2146,6 +2258,62 @@ internal sealed class Battle
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s Attack and Speed rose!", BattleCue.Buff,
                     attacker, stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
+            case MoveEffect.FinalGambit:
+                if (!attacker.Fainted)
+                {
+                    var isPlayer = ReferenceEquals(attacker, Active);
+                    attacker.CurrentHp = 0;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} gave it everything!",
+                        isPlayer ? BattleCue.PlayerHurt : BattleCue.WildHurt, attacker, 0,
+                        stateAfter: BattleSnapshot.Capture(attacker)));
+                }
+
+                break;
+            case MoveEffect.PainSplit:
+                if (!defender.Fainted)
+                {
+                    var avg = (attacker.CurrentHp + defender.CurrentHp) / 2;
+                    attacker.CurrentHp = Math.Min(attacker.MaxHp, avg);
+                    defender.CurrentHp = Math.Min(defender.MaxHp, avg);
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} shared its pain with {defender.Name}!",
+                        BattleCue.Buff, defender, defender.CurrentHp, stateAfter: BattleSnapshot.Capture(defender)));
+                    Log.Enqueue(new BattleMessage(string.Empty, BattleCue.Info, attacker, attacker.CurrentHp,
+                        stateAfter: BattleSnapshot.Capture(attacker)));
+                }
+
+                break;
+            case MoveEffect.Rest:
+                attacker.CurrentHp = attacker.MaxHp;
+                attacker.Status = Status.Sleep;
+                attacker.SleepTurns = 2;
+                Log.Enqueue(new BattleMessage($"{attacker.Name} slept and became healthy!", BattleCue.Heal,
+                    attacker, attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.TrickRoom:
+                trickRoomTurns = trickRoomTurns > 0 ? 0 : 5;
+                Log.Enqueue(new BattleMessage(trickRoomTurns > 0
+                    ? $"{attacker.Name} twisted the dimensions!"
+                    : "The twisted dimensions returned to normal!", BattleCue.Buff, attacker));
+                break;
+            case MoveEffect.LockInMove:
+                if (attacker.LockedMove is null)
+                {
+                    // Begin the rampage: 1-2 more forced turns after this one.
+                    attacker.LockedMove = move;
+                    attacker.LockedTurns = rng.Next(1, 3);
+                }
+                else if (--attacker.LockedTurns <= 0)
+                {
+                    attacker.LockedMove = null;
+                    if (attacker.ConfusionTurns <= 0 && attacker.Ability is not "Own Tempo" && !attacker.Fainted)
+                    {
+                        attacker.ConfusionTurns = rng.Next(2, 5);
+                        Log.Enqueue(new BattleMessage($"{attacker.Name} became confused due to fatigue!",
+                            BattleCue.Info, attacker));
+                    }
+                }
+
+                break;
         }
     }
 
@@ -2489,6 +2657,15 @@ internal sealed class Battle
             {
                 Log.Enqueue(new BattleMessage("The terrain returned to normal.", BattleCue.Info));
                 Terrain = BattleTerrain.None;
+            }
+        }
+
+        if (trickRoomTurns > 0)
+        {
+            trickRoomTurns--;
+            if (trickRoomTurns == 0)
+            {
+                Log.Enqueue(new BattleMessage("The twisted dimensions returned to normal!", BattleCue.Info));
             }
         }
 
