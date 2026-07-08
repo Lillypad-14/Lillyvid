@@ -49,7 +49,7 @@ internal sealed partial class LillypadGoApp
 
         if (ImGui.IsMouseHoveringRect(learnset.Min, learnset.Max))
         {
-            ImGui.SetTooltip($"View {monster.Species.Name}'s learnset and customise its moves.");
+            ShowTooltip($"View {monster.Species.Name}'s learnset and customise its moves.");
         }
 
         var releaseRect = CenteredAt(new Vector2(content.Max.X - 45f * scale, content.Min.Y + 20f * scale),
@@ -61,7 +61,7 @@ internal sealed partial class LillypadGoApp
 
         if (ImGui.IsMouseHoveringRect(releaseRect.Min, releaseRect.Max))
         {
-            ImGui.SetTooltip($"Release {monster.Name} for {LgUi.Money(ReleaseValue(monster))}.");
+            ShowTooltip($"Release {monster.Name} for {LgUi.Money(ReleaseValue(monster))}.");
         }
 
         var portrait = new Vector2(content.Center.X - (Dex.EvolutionOf(monster.Species) is not null ? 30f * scale : 0f),
@@ -118,7 +118,7 @@ internal sealed partial class LillypadGoApp
         LgUi.Card(drawList, statsMin, statsMax, 12f * scale, scale);
         if (ImGui.IsMouseHoveringRect(statsMin, statsMax))
         {
-            ImGui.SetTooltip(BuildRecordTooltip(monster));
+            ShowTooltip(BuildRecordTooltip(monster));
         }
 
         var ivBlue = new Vector4(0.44f, 0.72f, 1f, 0.92f);
@@ -129,11 +129,16 @@ internal sealed partial class LillypadGoApp
             ("DEF", monster.Def.ToString(), 2), ("SP.A", monster.SpAtk.ToString(), 3),
             ("SP.D", monster.SpDef.ToString(), 4), ("SPD", monster.Spd.ToString(), 5),
         };
+        var colWidth = (statsMax.X - statsMin.X) / stats.Length;
         for (var i = 0; i < stats.Length; i++)
         {
-            var x = statsMin.X + (i + 0.5f) * (statsMax.X - statsMin.X) / stats.Length;
+            var x = statsMin.X + (i + 0.5f) * colWidth;
+            // Drop to a smaller style when a value (e.g. a big "234/234" HP) would overrun its column.
+            var valueStyle = Typography.Measure(stats[i].Value, TextStyles.Headline).X > colWidth - 3f * scale
+                ? TextStyles.Caption1
+                : TextStyles.Headline;
             Typography.DrawCentered(new Vector2(x, statsMin.Y + 16f * scale), stats[i].Value, theme.TextStrong,
-                TextStyles.Headline);
+                valueStyle);
             Typography.DrawCentered(new Vector2(x, statsMin.Y + 34f * scale), stats[i].Label,
                 theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
             Typography.DrawCentered(new Vector2(x, statsMin.Y + 56f * scale), $"IV {monster.Ivs[stats[i].Slot]}",
@@ -142,35 +147,35 @@ internal sealed partial class LillypadGoApp
                 evGreen, TextStyles.Caption2);
         }
 
-        // Ability card: name + full description.
+        // Ability card: name on the header row, description wrapped to fit the card below it.
         var abilMin = new Vector2(content.Min.X + 12f * scale, content.Min.Y + 332f * scale);
-        var abilMax = new Vector2(content.Max.X - 12f * scale, content.Min.Y + 384f * scale);
+        var abilMax = new Vector2(content.Max.X - 12f * scale, content.Min.Y + 392f * scale);
         LgUi.Card(drawList, abilMin, abilMax, 12f * scale, scale);
-        Typography.Draw(new Vector2(abilMin.X + 12f * scale, abilMin.Y + 8f * scale), "ABILITY",
+        Typography.Draw(new Vector2(abilMin.X + 12f * scale, abilMin.Y + 9f * scale), "ABILITY",
             Accent with { W = 0.9f }, TextStyles.Caption2);
-        Typography.Draw(new Vector2(abilMin.X + 62f * scale, abilMin.Y + 7f * scale),
-            FitLabel(monster.Ability, abilMax.X - abilMin.X - 74f * scale, TextStyles.SubheadlineEmphasized),
+        Typography.Draw(new Vector2(abilMin.X + 64f * scale, abilMin.Y + 8f * scale),
+            FitLabel(monster.Ability, abilMax.X - abilMin.X - 76f * scale, TextStyles.SubheadlineEmphasized),
             theme.TextStrong, TextStyles.SubheadlineEmphasized);
-        var abilLines = WrapText(AbilityInfo.Describe(monster.Ability), abilMax.X - abilMin.X - 24f * scale,
+        var abilLines = WrapText(AbilityInfo.Describe(monster.Ability), abilMax.X - abilMin.X - 26f * scale,
             TextStyles.Caption2);
         for (var i = 0; i < abilLines.Count && i < 2; i++)
         {
-            Typography.Draw(new Vector2(abilMin.X + 12f * scale, abilMin.Y + (26f + i * 14f) * scale), abilLines[i],
-                theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
+            Typography.Draw(new Vector2(abilMin.X + 13f * scale, abilMin.Y + (29f + i * 14f) * scale), abilLines[i],
+                theme.TextStrong with { W = 0.92f }, TextStyles.Caption2);
         }
 
         var xpLabel = monster.Level >= 100 ? "Maximum level" : $"XP {monster.Xp}/{monster.XpToNext}";
-        Typography.Draw(new Vector2(content.Min.X + 16f * scale, content.Min.Y + 392f * scale), xpLabel,
+        Typography.Draw(new Vector2(content.Min.X + 16f * scale, content.Min.Y + 400f * scale), xpLabel,
             theme.TextStrong with { W = 0.8f }, TextStyles.Caption2);
-        LgUi.Meter(drawList, new Vector2(content.Min.X + 16f * scale, content.Min.Y + 406f * scale),
-            new Vector2(content.Max.X - 16f * scale, content.Min.Y + 412f * scale), monster.XpFraction, Accent);
+        LgUi.Meter(drawList, new Vector2(content.Min.X + 16f * scale, content.Min.Y + 414f * scale),
+            new Vector2(content.Max.X - 16f * scale, content.Min.Y + 420f * scale), monster.XpFraction, Accent);
 
-        Typography.Draw(new Vector2(content.Min.X + 14f * scale, content.Min.Y + 422f * scale), "Moves",
+        Typography.Draw(new Vector2(content.Min.X + 14f * scale, content.Min.Y + 430f * scale), "Moves",
             theme.TextStrong, TextStyles.SubheadlineEmphasized);
-        Typography.Draw(new Vector2(content.Min.X + 66f * scale, content.Min.Y + 424f * scale),
+        Typography.Draw(new Vector2(content.Min.X + 66f * scale, content.Min.Y + 432f * scale),
             "— drag to reorder", theme.TextStrong with { W = 0.55f }, TextStyles.Caption2);
 
-        var movesTop = content.Min.Y + 440f * scale;
+        var movesTop = content.Min.Y + 448f * scale;
         var movesBottom = content.Max.Y - 8f * scale;
         if (movesBottom - movesTop < 24f * scale)
         {
@@ -230,7 +235,7 @@ internal sealed partial class LillypadGoApp
             DrawMoveCard(drawList, rects[i], monster, i, theme, scale, isDropTarget);
             if (!dragging && ImGui.IsMouseHoveringRect(rects[i].Min, rects[i].Max))
             {
-                ImGui.SetTooltip(BuildProfileMoveTooltip(monster.Moves[i], monster.Pp[i]));
+                ShowTooltip(BuildProfileMoveTooltip(monster.Moves[i], monster.Pp[i]));
             }
         }
 
@@ -353,7 +358,7 @@ internal sealed partial class LillypadGoApp
 
         if (isLast && ImGui.IsMouseHoveringRect(yes.Min, yes.Max))
         {
-            ImGui.SetTooltip("You can't release your last Pokémon.");
+            ShowTooltip("You can't release your last Pokémon.");
         }
 
         var no = CenteredAt(new Vector2(panel.Center.X + panel.Width * 0.24f, max.Y - 30f * scale),

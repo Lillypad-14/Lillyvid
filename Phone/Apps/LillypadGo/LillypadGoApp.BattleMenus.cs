@@ -217,6 +217,38 @@ internal sealed partial class LillypadGoApp
         {
             case Menu.Root:
             {
+                // Mid-charge on a two-turn move, or recharging after a Hyper Beam-type move: the
+                // creature is committed, so lock the menu to continuing (no switching/items).
+                if (battle.Active.ChargingMove is { } charging)
+                {
+                    Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 16f * scale),
+                        $"{battle.Active.Name} is charging {charging.Name}!", theme.TextStrong, TextStyles.Headline);
+                    var unleash = CenteredAt(new Vector2(panel.Center.X, panel.Center.Y + 14f * scale),
+                        new Vector2(panel.Width * 0.62f, panel.Height * 0.34f));
+                    if (LgUi.Button(unleash, $"Unleash {charging.Name}", Accent, theme, true))
+                    {
+                        battle.UseMove(0);
+                        menu = Menu.Root;
+                    }
+
+                    break;
+                }
+
+                if (battle.Active.MustRecharge)
+                {
+                    Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 16f * scale),
+                        $"{battle.Active.Name} must recharge!", theme.TextStrong, TextStyles.Headline);
+                    var recharge = CenteredAt(new Vector2(panel.Center.X, panel.Center.Y + 14f * scale),
+                        new Vector2(panel.Width * 0.62f, panel.Height * 0.34f));
+                    if (LgUi.Button(recharge, "Recharge", Accent, theme, true))
+                    {
+                        battle.UseMove(0);
+                        menu = Menu.Root;
+                    }
+
+                    break;
+                }
+
                 var quad = new[] { "Fight", "Bag", "Team", "Run" };
                 var hints = new[]
                 {
@@ -245,7 +277,7 @@ internal sealed partial class LillypadGoApp
 
                     if (ImGui.IsMouseHoveringRect(button.Min, button.Max))
                     {
-                        ImGui.SetTooltip(hints[i]);
+                        ShowTooltip(hints[i]);
                     }
                 }
 
@@ -325,7 +357,7 @@ internal sealed partial class LillypadGoApp
 
             if (ImGui.IsMouseHoveringRect(recover.Min, recover.Max))
             {
-                ImGui.SetTooltip(BuildMoveTooltip(Moves.Struggle, battle.Active, battle.Wild, 1));
+                ShowTooltip(BuildMoveTooltip(Moves.Struggle, battle.Active, battle.Wild, 1));
             }
 
             BackButton(panel, theme, scale);
@@ -351,7 +383,7 @@ internal sealed partial class LillypadGoApp
 
             if (ImGui.IsMouseHoveringRect(rect.Min, rect.Max))
             {
-                ImGui.SetTooltip(BuildMoveTooltip(move, battle.Active, battle.Wild, battle.Active.Pp[i]));
+                ShowTooltip(BuildMoveTooltip(move, battle.Active, battle.Wild, battle.Active.Pp[i]));
             }
         }
 
@@ -497,7 +529,7 @@ internal sealed partial class LillypadGoApp
 
         if (LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max))
         {
-            ImGui.SetTooltip(BuildBattleItemTooltip(item));
+            ShowTooltip(BuildBattleItemTooltip(item));
         }
     }
 
@@ -563,7 +595,7 @@ internal sealed partial class LillypadGoApp
             new Vector2(panel.Max.X - 10f * scale, panel.Min.Y + 34f * scale));
         if (ImGui.IsMouseHoveringRect(headerRect.Min, headerRect.Max))
         {
-            ImGui.SetTooltip(BuildProfileMoveTooltip(choice.Move, choice.Move.Pp));
+            ShowTooltip(BuildProfileMoveTooltip(choice.Move, choice.Move.Pp));
         }
 
         for (var i = 0; i < choice.Monster.Moves.Count; i++)
@@ -585,7 +617,7 @@ internal sealed partial class LillypadGoApp
 
             if (ImGui.IsMouseHoveringRect(rect.Min, rect.Max))
             {
-                ImGui.SetTooltip(BuildProfileMoveTooltip(move, choice.Monster.Pp[i]));
+                ShowTooltip(BuildProfileMoveTooltip(move, choice.Monster.Pp[i]));
             }
         }
 
@@ -633,7 +665,7 @@ internal sealed partial class LillypadGoApp
 
             if (ImGui.IsMouseHoveringRect(rect.Min, rect.Max))
             {
-                ImGui.SetTooltip(BuildMonsterTooltip(m, m.Fainted ? "This creature has fainted and cannot switch in." :
+                ShowTooltip(BuildMonsterTooltip(m, m.Fainted ? "This creature has fainted and cannot switch in." :
                     forced ? "Choose this creature to continue the battle." : "Switching uses your turn."));
             }
 
@@ -654,9 +686,15 @@ internal sealed partial class LillypadGoApp
 
     private void DrawResult(Rect panel, PhoneTheme theme, float scale)
     {
+        var drawList = ImGui.GetWindowDrawList();
         var win = new Vector4(0.42f, 0.86f, 0.5f, 1f);
+        var gold = new Vector4(1f, 0.82f, 0.32f, 1f);
         var gym = pendingGymIndex >= 0 ? Gyms.All[pendingGymIndex] : null;
-        var (title, color) = battle!.Outcome switch
+        var outcome = battle!.Outcome;
+        var positive = outcome is BattleOutcome.Won or BattleOutcome.Captured;
+        var earnedBadge = outcome == BattleOutcome.Won && gym is not null && State.HasBadge(gym.Index);
+
+        var (title, color) = outcome switch
         {
             BattleOutcome.Captured when State.Party.Count >= LillypadGoState.PartyLimit =>
                 ($"{battle.Wild.Name} was caught!", win),
@@ -668,31 +706,117 @@ internal sealed partial class LillypadGoApp
             BattleOutcome.Whiteout => ("Your team was wiped out!", theme.Danger),
             _ => ("…", theme.TextStrong),
         };
-        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.34f), title, color,
-            TextStyles.Headline);
-        var detail = battle.Outcome switch
+
+        // Celebratory wash + sparkles behind a positive result.
+        if (positive)
         {
-            BattleOutcome.Won when gym is not null && !State.HasBadge(gym.Index) =>
-                $"You earned the {gym.Badge}!  (+{LgUi.Money(battle.PrizeMoney)})",
-            BattleOutcome.Won => $"Earned {LgUi.Money(battle.PrizeMoney)}.",
+            Squircle.FillVerticalGradient(drawList, panel.Min, panel.Max, 14f * scale,
+                ImGui.GetColorU32(win with { W = 0.14f }), ImGui.GetColorU32(win with { W = 0.02f }));
+            for (var i = 0; i < 12; i++)
+            {
+                var ph = time * 1.4f + i * 2.61f;
+                var sx = panel.Min.X + (0.1f + 0.8f * ((i * 0.137f + time * 0.05f) % 1f)) * panel.Width;
+                var sy = panel.Min.Y + panel.Height * (0.16f + 0.62f * ((i * 0.29f) % 1f));
+                var tw = 0.5f + 0.5f * MathF.Sin(ph);
+                drawList.AddCircleFilled(new Vector2(sx, sy), (1.2f + tw * 1.6f) * scale,
+                    ImGui.GetColorU32((i % 2 == 0 ? gold : win) with { W = 0.35f + tw * 0.4f }));
+            }
+        }
+
+        // Emblem medallion: the earned badge, the caught creature, a trophy, or a defeat mark.
+        var emblem = new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.25f);
+        var radius = panel.Height * 0.19f;
+        DrawResultEmblem(drawList, emblem, radius, outcome, gym, earnedBadge, gold, win, theme, scale);
+
+        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.53f),
+            FitLabel(title, panel.Width - 24f * scale, TextStyles.Headline), color, TextStyles.Headline);
+
+        var detail = outcome switch
+        {
+            BattleOutcome.Won when earnedBadge => $"You earned the {gym!.Badge}!",
+            BattleOutcome.Won => "Victory!",
             BattleOutcome.Captured when State.Party.Count >= LillypadGoState.PartyLimit => "Sent safely to storage.",
             BattleOutcome.Captured => "Added to your active team.",
             BattleOutcome.Fled when battle.IsTrainerBattle => "No badge, money or spoils for forfeiting.",
             BattleOutcome.Whiteout => "Revive your team at a town Marketboard.",
             _ => string.Empty,
         };
-        if (detail.Length > 0)
+
+        // Prize money as a coin pill for battle wins; the detail line otherwise.
+        var infoY = panel.Min.Y + panel.Height * 0.68f;
+        if (outcome == BattleOutcome.Won && battle.PrizeMoney > 0)
         {
-            Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.5f), detail,
-                theme.TextMuted, TextStyles.Caption1);
+            var pill = CenteredAt(new Vector2(panel.Center.X, infoY), new Vector2(panel.Width * 0.42f, 22f * scale));
+            Squircle.Fill(drawList, pill.Min, pill.Max, 11f * scale, ImGui.GetColorU32(gold with { W = 0.16f }));
+            Squircle.Stroke(drawList, pill.Min, pill.Max, 11f * scale, ImGui.GetColorU32(gold with { W = 0.6f }),
+                1f * scale);
+            ProgressRing.CenterIcon(drawList, new Vector2(pill.Min.X + 16f * scale, pill.Center.Y),
+                FontAwesomeIcon.Coins, gold, 12f * scale);
+            Typography.DrawCentered(new Vector2(pill.Center.X + 8f * scale, pill.Center.Y),
+                $"+{LgUi.Money(battle.PrizeMoney)}", gold, TextStyles.SubheadlineEmphasized);
+            if (earnedBadge)
+            {
+                Typography.DrawCentered(new Vector2(panel.Center.X, infoY + 18f * scale),
+                    detail, win with { W = 0.95f }, TextStyles.Caption2);
+            }
+        }
+        else if (detail.Length > 0)
+        {
+            Typography.DrawCentered(new Vector2(panel.Center.X, infoY),
+                FitLabel(detail, panel.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted,
+                TextStyles.Caption1);
         }
 
-        var continueButton = CenteredAt(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.72f),
-            new Vector2(panel.Width * 0.5f, panel.Height * 0.3f));
-        if (LgUi.Button(continueButton, "Continue", Accent, theme, true))
+        var continueButton = CenteredAt(new Vector2(panel.Center.X, panel.Max.Y - panel.Height * 0.16f),
+            new Vector2(panel.Width * 0.5f, panel.Height * 0.26f));
+        if (LgUi.Button(continueButton, "Continue", positive ? win : Accent, theme, true))
         {
             FinishBattle();
         }
+    }
+
+    // The medallion at the top of the result panel, chosen by outcome.
+    private void DrawResultEmblem(ImDrawListPtr drawList, Vector2 center, float radius, BattleOutcome outcome,
+        GymDef? gym, bool earnedBadge, Vector4 gold, Vector4 win, PhoneTheme theme, float scale)
+    {
+        if (outcome == BattleOutcome.Won && gym is not null)
+        {
+            ProgressRing.Glow(center, radius * 1.15f, Elements.Color(gym.Type), 0.6f);
+            if (GymBadge(gym, out var badgeTex, out var badgeAspect))
+            {
+                var w = radius * 2f;
+                var h = w / MathF.Max(0.01f, badgeAspect);
+                drawList.AddImage(badgeTex, center - new Vector2(w * 0.5f, h * 0.5f),
+                    center + new Vector2(w * 0.5f, h * 0.5f), Vector2.Zero, Vector2.One,
+                    ImGui.GetColorU32(earnedBadge ? Vector4.One : new Vector4(1f, 1f, 1f, 0.85f)));
+            }
+
+            return;
+        }
+
+        if (outcome == BattleOutcome.Captured)
+        {
+            var caught = battle!.Captured ?? battle.Wild;
+            ProgressRing.Glow(center, radius * 1.1f, Elements.Color(caught.Element), 0.5f);
+            drawList.AddCircleFilled(center, radius, ImGui.GetColorU32(GamePalette.CellSunken));
+            MonsterArt.Draw(drawList, center, radius * 1.5f, caught.Species, 1f, MonsterPose.Idle(time));
+            return;
+        }
+
+        var (icon, tone) = outcome switch
+        {
+            BattleOutcome.Won => (FontAwesomeIcon.Trophy, gold),
+            BattleOutcome.Whiteout => (FontAwesomeIcon.HeartBroken, theme.Danger),
+            _ => (FontAwesomeIcon.FlagCheckered, theme.TextStrong with { W = 0.7f }),
+        };
+        if (outcome == BattleOutcome.Won)
+        {
+            ProgressRing.Glow(center, radius * 1.15f, gold, 0.6f);
+        }
+
+        drawList.AddCircleFilled(center, radius, ImGui.GetColorU32(GamePalette.CellSunken));
+        drawList.AddCircle(center, radius, ImGui.GetColorU32(tone with { W = 0.6f }), 28, 1.4f * scale);
+        ProgressRing.CenterIcon(drawList, center, icon, tone, radius * 1.1f);
     }
 
     private void FinishBattle()

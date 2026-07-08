@@ -149,7 +149,7 @@ internal sealed partial class LillypadGoApp
         }
 
         PrepPartyForBattle();
-        battle = new Battle(State.Party, wild, State.Bag, rng);
+        battle = new Battle(State.Party, wild, State.Bag, rng, State.ZoneWeather);
         State.Pending = null;
         pendingGymIndex = -1;
         EnterBattle();
@@ -165,7 +165,7 @@ internal sealed partial class LillypadGoApp
 
         PrepPartyForBattle();
         var (min, max) = State.TrainingRange(tier);
-        battle = Training.Build(State.Party, tier, min, max, State.Bag, rng);
+        battle = Training.Build(State.Party, tier, min, max, State.Bag, rng, State.ZoneWeather);
         State.Pending = null;
         pendingGymIndex = -1;
         EnterBattle();
@@ -183,6 +183,10 @@ internal sealed partial class LillypadGoApp
         battle = Gyms.Build(gym, State.Party, State.Bag, rng);
         State.Pending = null;
         pendingGymIndex = gym.Index;
+        // Cue the gym-leader intro: it plays over the battle scene for a few seconds, then the
+        // leader throws out their first Pokémon and the fight begins.
+        gymIntroGym = gym;
+        gymIntroTimer = 2.8f;
         EnterBattle();
     }
 
@@ -256,7 +260,7 @@ internal sealed partial class LillypadGoApp
                 if (hovered)
                 {
                     ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    ImGui.SetTooltip(BuildMonsterTooltip(m, "Click to open this creature's profile."));
+                    ShowTooltip(BuildMonsterTooltip(m, "Click to open this creature's profile."));
                     if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                     {
                         OpenDetail(m, View.Map);

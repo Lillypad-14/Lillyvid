@@ -51,7 +51,8 @@ internal sealed class MonsterSpecies
     public MonsterSpecies(string id, string name, Element element, ArtSpec art, int baseHp, int baseAtk, int baseDef,
         int baseSpd, int catchRate, (int Level, MoveDef Move)[] learnset, Element? secondaryElement = null,
         int? baseSpAtk = null, int? baseSpDef = null, int dexNumber = 0, string? evolvesToId = null,
-        int evolveLevel = 0, string? evolveMethod = null, float maleRatio = 0.5f, string[]? abilities = null)
+        int evolveLevel = 0, string? evolveMethod = null, float maleRatio = 0.5f, string[]? abilities = null,
+        string[]? tmMoves = null)
     {
         Id = id;
         Name = name;
@@ -72,6 +73,7 @@ internal sealed class MonsterSpecies
         EvolveMethod = evolveMethod;
         MaleRatio = maleRatio;
         Abilities = abilities is { Length: > 0 } ? abilities : new[] { "Pressure" };
+        TmMoveIds = tmMoves ?? Array.Empty<string>();
     }
 
     public string Id { get; }
@@ -99,6 +101,10 @@ internal sealed class MonsterSpecies
     public float MaleRatio { get; }
     public string[] Abilities { get; }
     public bool Genderless => MaleRatio < 0f;
+
+    // Move ids this species can learn from a Generation-IX TM (legality straight from Showdown data).
+    public IReadOnlyList<string> TmMoveIds { get; }
+    public bool CanLearnTm(string moveId) => TmMoveIds.Contains(moveId);
 
     public int BaseStatTotal => BaseHp + BaseAtk + BaseDef + BaseSpAtk + BaseSpDef + BaseSpd;
 
@@ -150,9 +156,9 @@ internal static partial class Dex
     private static void Add(string id, string name, Element type, Element? type2, int hp, int atk, int def,
         int spAtk, int spDef, int spd, int catchRate, int dexNumber, ArtSpec art, (int lvl, string id)[] learnset,
         string? evolvesToId = null, int evolveLevel = 0, string? evolveMethod = null, float maleRatio = 0.5f,
-        string[]? abilities = null)
+        string[]? abilities = null, string[]? tmMoves = null)
         => Register(new MonsterSpecies(id, name, type, art, hp, atk, def, spd, catchRate, LS(learnset), type2,
-            spAtk, spDef, dexNumber, evolvesToId, evolveLevel, evolveMethod, maleRatio, abilities));
+            spAtk, spDef, dexNumber, evolvesToId, evolveLevel, evolveMethod, maleRatio, abilities, tmMoves));
 
     public static MonsterSpecies? Find(string id) => ById.TryGetValue(id, out var species) ? species : null;
 

@@ -41,6 +41,7 @@ internal sealed class EncounterService : IDisposable
 
         state.Territory = clientState.TerritoryType;
         state.CurrentBiome = ArrZones.Find(state.Territory)?.Biome ?? Biomes.ForTerritory(state.Territory);
+        state.ZoneWeather = ReadZoneWeather();
         if (!state.BackgroundTrackingEnabled)
         {
             hasLast = false;
@@ -132,6 +133,34 @@ internal sealed class EncounterService : IDisposable
             }
 
             return;
+        }
+    }
+
+    // Reads the game's live weather for the current zone and maps it onto our battle weather set.
+    // The precipitation weather ids (rain/thunder, sand/dust, snow/blizzard, heat waves) are stable
+    // across the whole game; anything else counts as clear.
+    private static unsafe BattleWeather ReadZoneWeather()
+    {
+        try
+        {
+            var env = FFXIVClientStructs.FFXIV.Client.Graphics.Environment.EnvManager.Instance();
+            if (env is null)
+            {
+                return BattleWeather.None;
+            }
+
+            return env->ActiveWeather switch
+            {
+                7 or 8 or 9 or 10 => BattleWeather.Rain, // Rain, Showers, Thunder, Thunderstorms
+                11 or 12 => BattleWeather.Sandstorm,     // Dust Storms, Sandstorm
+                14 => BattleWeather.Sun,                 // Heat Waves
+                15 or 16 => BattleWeather.Snow,          // Snow, Blizzards
+                _ => BattleWeather.None,
+            };
+        }
+        catch
+        {
+            return BattleWeather.None;
         }
     }
 

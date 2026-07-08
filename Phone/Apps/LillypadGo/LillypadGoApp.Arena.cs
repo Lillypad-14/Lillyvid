@@ -54,7 +54,16 @@ internal sealed partial class LillypadGoApp
                 TextStyles.Caption1);
         }
 
-        var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, content.Min.Y + 122f * scale),
+        // On the Gyms tab, a badge case showcases the collectable badges earned so far.
+        var listTop = content.Min.Y + 122f * scale;
+        if (arenaTab == 1)
+        {
+            DrawBadgeCase(new Rect(new Vector2(content.Min.X + 12f * scale, content.Min.Y + 124f * scale),
+                new Vector2(content.Max.X - 12f * scale, content.Min.Y + 170f * scale)), theme, scale);
+            listTop = content.Min.Y + 180f * scale;
+        }
+
+        var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, listTop),
             new Vector2(content.Max.X - 12f * scale, content.Max.Y - 46f * scale));
 
         if (arenaTab == 0)
@@ -69,6 +78,55 @@ internal sealed partial class LillypadGoApp
         }
 
         DrawNavigation(content, theme, scale);
+    }
+
+    // Resolves a gym's badge texture: the real extracted badge (badges/gym/<Leader>.png), falling
+    // back to the Showdown type icon (badges/<Type>.png) until a leader's badge art exists.
+    private static bool GymBadge(GymDef gym, out Dalamud.Bindings.ImGui.ImTextureID handle, out float aspect) =>
+        AssetTextures.TryGet($"badges/gym/{gym.Leader}.png", out handle, out aspect) ||
+        AssetTextures.TryGet($"badges/{gym.Type}.png", out handle, out aspect);
+
+    // A trophy strip of the six gym badges: earned ones glow in their type colour, the rest are
+    // greyed and locked. Reads as a "badge case" at the top of the Gyms tab.
+    private void DrawBadgeCase(Rect rect, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        LgUi.Card(drawList, rect.Min, rect.Max, 12f * scale, scale);
+        var count = Gyms.All.Count;
+        var cellW = rect.Width / count;
+        for (var i = 0; i < count; i++)
+        {
+            var gym = Gyms.All[i];
+            var earned = State.HasBadge(gym.Index);
+            var center = new Vector2(rect.Min.X + cellW * (i + 0.5f), rect.Center.Y - 4f * scale);
+            var typeColor = Elements.Color(gym.Type);
+            if (earned)
+            {
+                ProgressRing.Glow(center, 16f * scale, typeColor, 0.5f);
+            }
+
+            var w = 30f * scale;
+            if (GymBadge(gym, out var badgeTex, out var badgeAspect))
+            {
+                var h = w / MathF.Max(0.01f, badgeAspect);
+                var half = new Vector2(w * 0.5f, h * 0.5f);
+                var tint = earned ? Vector4.One : new Vector4(0.5f, 0.5f, 0.55f, 0.5f);
+                drawList.AddImage(badgeTex, center - half, center + half, Vector2.Zero, Vector2.One,
+                    ImGui.GetColorU32(tint));
+            }
+            else
+            {
+                drawList.AddCircleFilled(center, 13f * scale,
+                    ImGui.GetColorU32(earned ? typeColor with { W = 0.5f } : GamePalette.CellSunken));
+                ProgressRing.CenterIcon(drawList, center,
+                    earned ? FontAwesomeIcon.Certificate : FontAwesomeIcon.Lock,
+                    earned ? typeColor : theme.TextMuted, 12f * scale);
+            }
+
+            Typography.DrawCentered(new Vector2(center.X, rect.Max.Y - 8f * scale),
+                FitLabel(gym.Type.ToString(), cellW - 4f * scale, TextStyles.Caption2),
+                earned ? typeColor with { W = 0.95f } : theme.TextMuted, TextStyles.Caption2);
+        }
     }
 
     private void DrawTierRow(Training.Tier tier, Rect rect, PhoneTheme theme, float scale, bool canBattle)
@@ -183,7 +241,7 @@ internal sealed partial class LillypadGoApp
         }
 
         var badgeW = 40f * scale;
-        if (AssetTextures.TryGet($"badges/{gym.Type}.png", out var badgeTex, out var badgeAspect))
+        if (GymBadge(gym, out var badgeTex, out var badgeAspect))
         {
             var w = badgeW;
             var h = badgeW / MathF.Max(0.01f, badgeAspect);
@@ -258,7 +316,7 @@ internal sealed partial class LillypadGoApp
             LgUi.Button(buttonRect, "Travel", GamePalette.CellSunken, theme, false);
             if (hovered)
             {
-                ImGui.SetTooltip($"Challenge {gym.Leader} in {gym.City}. Travel there to fight this gym.");
+                ShowTooltip($"Challenge {gym.Leader} in {gym.City}. Travel there to fight this gym.");
             }
         }
     }

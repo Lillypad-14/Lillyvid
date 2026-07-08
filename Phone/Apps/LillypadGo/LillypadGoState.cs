@@ -21,6 +21,10 @@ internal sealed class LillypadGoState
     public List<MonsterInstance> Box { get; } = new();
     public HashSet<string> Seen { get; } = new();
     public HashSet<int> Badges { get; } = new();
+
+    // Move ids for the Gen-IX TMs the trainer owns. TMs are permanent once bought (reusable), so a
+    // set of owned move ids is all we persist.
+    public HashSet<string> OwnedTms { get; } = new(StringComparer.OrdinalIgnoreCase);
     public bool StarterChosen { get; set; }
     public int Money { get; set; }
     public int TotalSteps { get; set; }
@@ -35,6 +39,10 @@ internal sealed class LillypadGoState
     public uint Territory { get; set; }
     public Biome CurrentBiome { get; set; } = Biome.Grassland;
     public float StepProgress { get; set; }
+
+    // Live weather in the player's current zone (sampled by EncounterService), carried into wild
+    // and training battles. Gym battles ignore it and start clear.
+    public BattleWeather ZoneWeather { get; set; }
 
     public bool HasAnyMonster => Party.Count > 0 || Box.Count > 0;
 
@@ -178,6 +186,7 @@ internal sealed class LillypadGoState
                 BackgroundTrackingEnabled = BackgroundTrackingEnabled,
                 Seen = Seen.ToArray(),
                 Badges = Badges.ToArray(),
+                OwnedTms = OwnedTms.ToArray(),
                 TrainingMin = trainingMin,
                 TrainingMax = trainingMax,
                 Party = Party.Select(ToDto).ToArray(),
@@ -236,6 +245,15 @@ internal sealed class LillypadGoState
             foreach (var badge in dto.Badges)
             {
                 Badges.Add(badge);
+            }
+        }
+
+        OwnedTms.Clear();
+        if (dto.OwnedTms is not null)
+        {
+            foreach (var tm in dto.OwnedTms)
+            {
+                OwnedTms.Add(tm);
             }
         }
 
@@ -338,6 +356,7 @@ internal sealed class LillypadGoState
         public bool? BackgroundTrackingEnabled { get; set; }
         public string[]? Seen { get; set; }
         public int[]? Badges { get; set; }
+        public string[]? OwnedTms { get; set; }
         public int[]? TrainingMin { get; set; }
         public int[]? TrainingMax { get; set; }
         public MonsterDto[]? Party { get; set; }

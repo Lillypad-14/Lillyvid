@@ -46,6 +46,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         Progression,
         Region,
         Missing,
+        National,
     }
 
     private enum TeamSort
@@ -107,6 +108,8 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private Battle? battle;
     private int pendingGymIndex = -1;
     private bool confirmingRun;
+    private float gymIntroTimer; // >0 while the pre-gym-battle leader intro is playing
+    private GymDef? gymIntroGym;
     private MonsterInstance? displayedPlayer;
     private int displayedPlayerHp;
     private int displayedWildHp;
@@ -135,6 +138,9 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private MonsterInstance? detailMonster;
     private bool releaseConfirm;
     private int draggingMoveIndex = -1; // drag-and-drop move reordering in the Team detail screen
+    private MonsterInstance? draggingRosterMon; // drag-and-drop party reordering on the Roster screen
+    private Vector2 rosterDragOrigin;
+    private bool rosterDragMoved;
     private View detailReturnView = View.Team;
     private string detailNameDraft = string.Empty;
     private Anim playerAnim;
@@ -167,6 +173,8 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private int dexEntryTab;
     private float dexEntryTabIndicator = -1f;
     private float dexEntryScroll;
+    private int dexLearnFilter; // Learnset filter: 0 = All, 1 = Level-Up, 2 = TM
+    private float dexLearnFilterIndicator = -1f;
     private View lastDrawnView;
     private float viewAnim = 1f;
     private const float ViewTransitionSeconds = 0.18f;

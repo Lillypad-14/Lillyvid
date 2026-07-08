@@ -49,6 +49,21 @@ internal enum MoveEffect : byte
     CureUserStatus,
     Acupressure,
     NoOp,
+    UserFaints,   // Self-Destruct / Explosion: the user faints after dealing damage
+    TrapTarget,   // Mean Look / Block / Spider Web: the target can no longer flee or switch out
+    SmackDown,    // knocks a target out of the air, grounding it for the rest of the battle
+    DrainHalf,    // heals the user by half the damage dealt (Giga Drain, Leech Life, ...)
+    MultiHit,     // strikes two to five times in one turn
+    HighCrit,     // has a heightened critical-hit rate
+    Ohko,         // one-hit KO if it lands (low accuracy)
+    LevelDamage,  // deals damage equal to the user's level (Seismic Toss, Night Shade)
+    FixedDamage40, // always deals 40 HP (Dragon Rage)
+    FixedDamage20, // always deals 20 HP (Sonic Boom)
+    HalveTargetHp, // deals damage equal to half the target's current HP (Super Fang)
+    MustRecharge,  // the user must spend the next turn recharging (Hyper Beam, Giga Impact)
+    RaiseAtkDef,      // raises the user's Attack and Defense (Bulk Up)
+    RaiseSpAtkSpDef,  // raises the user's Sp. Atk and Sp. Def (Calm Mind)
+    RaiseAtkSpd,      // raises the user's Attack and Speed (Dragon Dance)
 }
 
 internal enum MoveCategory : byte
@@ -62,7 +77,8 @@ internal enum MoveCategory : byte
 internal sealed class MoveDef
 {
     public MoveDef(string name, Element element, int power, int accuracy, int pp, MoveEffect effect = MoveEffect.None,
-        int effectChance = 0, MoveCategory category = MoveCategory.Physical, int priority = 0, int stageChange = 1)
+        int effectChance = 0, MoveCategory category = MoveCategory.Physical, int priority = 0, int stageChange = 1,
+        string? shortDesc = null)
     {
         Name = name;
         Element = element;
@@ -74,6 +90,7 @@ internal sealed class MoveDef
         Category = power <= 0 ? MoveCategory.Status : category;
         Priority = priority;
         StageChange = Math.Clamp(stageChange, 1, 6);
+        ShortDesc = shortDesc ?? string.Empty;
     }
 
     public string Name { get; }
@@ -87,11 +104,18 @@ internal sealed class MoveDef
     public int Priority { get; }
     public int StageChange { get; }
 
+    // A one-line mechanic summary from the generated move data (present for every move).
+    public string ShortDesc { get; }
+
     public bool IsStatus => Power <= 0;
 
     public string CategoryLabel => Category.ToString();
 
-    public string Description => Effect switch
+    // Prefer the move's own description so every move explains what it does; fall back to the
+    // effect-derived text for anything the generator didn't supply.
+    public string Description => !string.IsNullOrEmpty(ShortDesc) ? ShortDesc : EffectDescription;
+
+    private string EffectDescription => Effect switch
     {
         MoveEffect.RaiseAtk => $"Raises the user's Attack by {StageText()}.",
         MoveEffect.RaiseDef => $"Raises the user's Defense by {StageText()}.",
@@ -146,6 +170,21 @@ internal sealed class MoveDef
         MoveEffect.CureUserStatus => "Cures the user's major status condition.",
         MoveEffect.Acupressure => "Sharply raises one of the user's battle stats at random.",
         MoveEffect.NoOp => "Has no battle effect. Sometimes doing nothing is the point.",
+        MoveEffect.UserFaints => "Deals damage, but the user faints afterward.",
+        MoveEffect.TrapTarget => "Prevents the target from fleeing or switching out.",
+        MoveEffect.SmackDown => "Knocks a flying target to the ground, so Ground moves can hit it.",
+        MoveEffect.DrainHalf => "The user recovers half of the damage this move deals.",
+        MoveEffect.MultiHit => "Hits two to five times in a single turn.",
+        MoveEffect.HighCrit => "Deals damage with a heightened critical-hit rate.",
+        MoveEffect.Ohko => "Knocks out the target in one hit if it connects.",
+        MoveEffect.LevelDamage => "Deals damage equal to the user's level.",
+        MoveEffect.FixedDamage40 => "Always deals 40 HP of damage.",
+        MoveEffect.FixedDamage20 => "Always deals 20 HP of damage.",
+        MoveEffect.HalveTargetHp => "Deals damage equal to half the target's current HP.",
+        MoveEffect.MustRecharge => "The user must spend the next turn recharging.",
+        MoveEffect.RaiseAtkDef => $"Raises the user's Attack and Defense by {StageText()}.",
+        MoveEffect.RaiseSpAtkSpDef => $"Raises the user's Sp. Atk and Sp. Def by {StageText()}.",
+        MoveEffect.RaiseAtkSpd => $"Raises the user's Attack and Speed by {StageText()}.",
         _ => IsStatus
             ? "No direct battle effect is modelled for this move yet."
             : "Deals direct damage with no added effect.",

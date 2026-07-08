@@ -2,7 +2,7 @@
 // Kanto-flavoured Biome/Zone encounter tables.
 const fs = require('fs');
 const path = require('path');
-const { species, moves, abilityDesc } = require('./gen1.json');
+const { species, moves, abilityDesc, tmCatalogue } = require('./gen1.json');
 const OUT = path.join(__dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -29,7 +29,7 @@ function emitMoves() {
   L.push('        var d = new Dictionary<string, MoveDef>(StringComparer.OrdinalIgnoreCase);');
   for (const m of moves) {
     const cat = m.category === 'Special' ? 'Special' : m.category === 'Status' ? 'Status' : 'Physical';
-    L.push(`        d[${csStr(m.id)}] = new MoveDef(${csStr(m.name)}, Element.${m.type}, ${m.power}, ${m.accuracy}, ${m.pp}, MoveEffect.${m.effect}, ${m.chance}, MoveCategory.${cat}, ${m.priority}, ${m.stage});`);
+    L.push(`        d[${csStr(m.id)}] = new MoveDef(${csStr(m.name)}, Element.${m.type}, ${m.power}, ${m.accuracy}, ${m.pp}, MoveEffect.${m.effect}, ${m.chance}, MoveCategory.${cat}, ${m.priority}, ${m.stage}, ${csStr(m.desc)});`);
   }
   L.push('        return d;');
   L.push('    }');
@@ -99,9 +99,10 @@ function emitDex() {
     const evoLevel = s.evo ? (s.evo.level || 0) : 0;
     const evoMethod = s.evo && s.evo.method ? csStr(s.evo.method) : 'null';
     const abilities = (s.abilities || []).map(csStr).join(', ');
+    const tms = (s.tms || []).map(csStr).join(', ');
     L.push(`        Add(${csStr(s.id)}, ${csStr(s.name)}, Element.${s.types[0]}, ${type2}, ${st.hp}, ${st.atk}, ${st.def}, ${st.spa}, ${st.spd}, ${st.spe}, ${s.capture}, ${s.num},`);
     L.push(`            ${artSpec(s)},`);
-    L.push(`            new (int, string)[] { ${ls} }, ${evoTo}, ${evoLevel}, ${evoMethod}, ${f(s.maleRatio)}, new[] { ${abilities} });`);
+    L.push(`            new (int, string)[] { ${ls} }, ${evoTo}, ${evoLevel}, ${evoMethod}, ${f(s.maleRatio)}, new[] { ${abilities} }, new string[] { ${tms} });`);
   }
   L.push('    }');
   L.push('}');
@@ -118,6 +119,13 @@ function emitDex() {
   L.push('');
   L.push('    public static string Describe(string ability) =>');
   L.push('        Desc.TryGetValue(ability, out var d) && d.Length > 0 ? d : "No in-battle effect modelled yet.";');
+  L.push('}');
+  L.push('');
+  L.push('// The Generation-IX TM catalogue: every move at least one of the 151 Kanto species can learn');
+  L.push('// via TM, in stable display order. TM number = index + 1.');
+  L.push('internal static class TmCatalog');
+  L.push('{');
+  L.push(`    public static readonly string[] MoveIds = { ${(tmCatalogue || []).map(csStr).join(', ')} };`);
   L.push('}');
   fs.writeFileSync(path.join(OUT, 'PokedexData.g.cs'), L.join('\n') + '\n');
 }

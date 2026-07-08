@@ -16,6 +16,8 @@ internal sealed partial class LillypadGoApp
     // ---- Marketboard (town-only shop + Pokécenter) ----------------------------------
 
     private float marketScroll;
+    private int marketTab; // 0 = Items, 1 = TMs
+    private float marketTabIndicator = -1f;
 
     private void DrawMarket(Rect content, PhoneTheme theme)
     {
@@ -35,33 +37,38 @@ internal sealed partial class LillypadGoApp
 
         DrawPokecenterCard(content, theme, scale);
 
-        Typography.Draw(new Vector2(content.Min.X + 16f * scale, content.Min.Y + 138f * scale), "FOR SALE",
-            Accent, TextStyles.Caption2);
-        var sortRect = CenteredAt(new Vector2(content.Max.X - 74f * scale, content.Min.Y + 142f * scale),
-            new Vector2(128f * scale, 22f * scale));
-        if (LgUi.Button(sortRect, $"Sort: {new[] { "Type", "Cheapest", "Priciest" }[shopSortMode]}", GamePalette.Cell,
-                theme, true))
+        // Items vs. Gen-IX TMs.
+        var tabBounds = new Rect(new Vector2(content.Min.X + 14f * scale, content.Min.Y + 134f * scale),
+            new Vector2(content.Max.X - 14f * scale, content.Min.Y + 160f * scale));
+        var tabClicked = LgUi.Segmented(tabBounds, new[] { "Items", "TMs" }, marketTab, Accent, theme, scale,
+            ref marketTabIndicator);
+        if (tabClicked >= 0 && tabClicked != marketTab)
         {
-            shopSortMode = (shopSortMode + 1) % 3;
+            marketTab = tabClicked;
             marketScroll = 0f;
         }
 
-        var stock = shopSortMode switch
-        {
-            1 => Items.All.OrderBy(item => item.Price).ToList(),
-            2 => Items.All.OrderByDescending(item => item.Price).ToList(),
-            _ => Items.All.ToList(),
-        };
-        var listTop = content.Min.Y + 156f * scale;
+        var listTop = content.Min.Y + 172f * scale;
         var listBottom = content.Max.Y - 62f * scale;
         var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, listTop),
             new Vector2(content.Max.X - 12f * scale, listBottom));
-        DrawScrollList(listArea, 50f * scale, 8f * scale, stock.Count, ref marketScroll, scale,
-            (i, rowRect) => DrawShopRow(stock[i], rowRect, theme, scale));
+
+        if (marketTab == 1)
+        {
+            DrawScrollList(listArea, 50f * scale, 8f * scale, Tms.All.Count, ref marketScroll, scale,
+                (i, rowRect) => DrawTmRow(Tms.All[i], rowRect, theme, scale));
+        }
+        else
+        {
+            DrawScrollList(listArea, 50f * scale, 8f * scale, Items.All.Count, ref marketScroll, scale,
+                (i, rowRect) => DrawShopRow(Items.All[i], rowRect, theme, scale));
+        }
 
         var status = bagStatus.Length > 0
             ? bagStatus
-            : "Buy supplies, then use Poké Balls and potions from the Bag or in battle.";
+            : marketTab == 1
+                ? "Buy a TM here, then teach it from a creature's Moves screen if it can learn it."
+                : "Buy supplies, then use Poké Balls and potions from the Bag or in battle.";
         Typography.DrawCentered(new Vector2(content.Center.X, listBottom + 16f * scale),
             FitLabel(status, content.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted, TextStyles.Caption1);
 
@@ -102,7 +109,7 @@ internal sealed partial class LillypadGoApp
 
         if (ImGui.IsMouseHoveringRect(healRect.Min, healRect.Max))
         {
-            ImGui.SetTooltip(needsCare
+            ShowTooltip(needsCare
                 ? "Free full heal and revival for your entire roster (party and storage)."
                 : "Your team is already in perfect health.");
         }
@@ -144,7 +151,58 @@ internal sealed partial class LillypadGoApp
 
         if (!canAfford && LgUi.Interactive && ImGui.IsMouseHoveringRect(buyRect.Min, buyRect.Max))
         {
-            ImGui.SetTooltip($"You need {LgUi.Money(item.Price - State.Money)} more.");
+            ShowTooltip($"You need {LgUi.Money(item.Price - State.Money)} more.");
+        }
+    }
+
+    private void DrawTmRow(TmDef tm, Rect rect, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var owned = State.OwnedTms.Contains(tm.MoveId);
+        var canAfford = State.Money >= tm.Price;
+        var tint = Elements.Color(tm.Move.Element);
+        var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
+        LgUi.Card(drawList, rect.Min, rect.Max, 11f * scale, scale, hovered);
+        drawList.AddRectFilled(rect.Min, new Vector2(rect.Min.X + 4f * scale, rect.Max.Y),
+            ImGui.GetColorU32(tint with { W = 0.85f }), 3f * scale);
+
+        // Disc badge with the TM number.
+        var iconCenter = new Vector2(rect.Min.X + 30f * scale, rect.Center.Y);
+        drawList.AddCircleFilled(iconCenter, 17f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
+        drawList.AddCircle(iconCenter, 17f * scale, ImGui.GetColorU32(tint with { W = 0.6f }), 24, 1.4f * scale);
+        Typography.DrawCentered(iconCenter, tm.Number.ToString(), tint, TextStyles.Caption1);
+
+        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 7f * scale),
+            FitLabel($"{Tms.Label(tm.Number)}  {tm.Move.Name}", rect.Width - 150f * scale, TextStyles.Headline),
+            theme.TextStrong, TextStyles.Headline);
+        var power = tm.Move.IsStatus ? "Status" : $"Pow {tm.Move.Power}";
+        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 29f * scale),
+            FitLabel($"{Elements.Name(tm.Move.Element)}  ·  {power}  ·  {tm.Move.Pp} PP", rect.Width - 150f * scale,
+                TextStyles.Caption2), theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
+
+        var buyRect = CenteredAt(new Vector2(rect.Max.X - 46f * scale, rect.Center.Y),
+            new Vector2(80f * scale, 30f * scale));
+        if (owned)
+        {
+            Typography.DrawCentered(buyRect.Center, "Owned", tint, TextStyles.Caption1);
+        }
+        else if (LgUi.Button(buyRect, LgUi.Money(tm.Price), canAfford ? theme.Accent : GamePalette.CellSunken, theme,
+                     canAfford))
+        {
+            State.Money -= tm.Price;
+            State.OwnedTms.Add(tm.MoveId);
+            State.Save();
+            bagStatus = $"Bought {Tms.Label(tm.Number)} {tm.Move.Name}.";
+        }
+
+        if (hovered)
+        {
+            ShowTooltip(BuildProfileMoveTooltip(tm.Move, tm.Move.Pp));
+        }
+
+        if (!owned && !canAfford && LgUi.Interactive && ImGui.IsMouseHoveringRect(buyRect.Min, buyRect.Max))
+        {
+            ShowTooltip($"You need {LgUi.Money(tm.Price - State.Money)} more.");
         }
     }
 }

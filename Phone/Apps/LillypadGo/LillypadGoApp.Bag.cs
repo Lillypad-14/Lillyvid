@@ -17,7 +17,6 @@ internal sealed partial class LillypadGoApp
     private string bagStatus = string.Empty;
     private float bagScroll;
     private int bagSortMode;  // 0 = Type, 1 = Name, 2 = Count
-    private int shopSortMode; // 0 = Type, 1 = Price low→high, 2 = Price high→low
 
     private void DrawBag(Rect content, PhoneTheme theme)
     {
@@ -75,7 +74,7 @@ internal sealed partial class LillypadGoApp
 
         if (ImGui.IsMouseHoveringRect(marketRect.Min, marketRect.Max))
         {
-            ImGui.SetTooltip(inTown
+            ShowTooltip(inTown
                 ? "Shop for items and heal your team at the Pokécenter counter."
                 : "Travel to a town (any aetheryte city) to reach a Marketboard.");
         }
@@ -135,7 +134,7 @@ internal sealed partial class LillypadGoApp
         if (hovered)
         {
             ImGui.SetMouseCursor(usable ? ImGuiMouseCursor.Hand : ImGuiMouseCursor.Arrow);
-            ImGui.SetTooltip(BuildItemUseTooltip(item, target));
+            ShowTooltip(BuildItemUseTooltip(item, target));
             if (usable && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             {
                 UseItemOverworld(item);

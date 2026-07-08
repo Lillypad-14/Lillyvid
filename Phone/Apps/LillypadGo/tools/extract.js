@@ -26,6 +26,8 @@ const Learnsets = evalTable('learnsets.ts', 'Learnsets');
 const Abilities = evalTable('abilities.ts', 'Abilities');
 // Ability descriptions live in the separate text/localisation file, not data/abilities.ts.
 const AbilitiesText = evalTable('abilities_text.ts', 'AbilitiesText');
+// Move descriptions likewise live in data/text/moves.ts (MovesText[id].shortDesc/desc).
+const MovesText = evalTable('moves_text.ts', 'MovesText');
 
 // --- PokeAPI CSV: num -> {capture, habitat, legendary} ---
 const csv = fs.readFileSync(path.join(DIR, 'species.csv'), 'utf8').trim().split(/\r?\n/);
@@ -110,7 +112,7 @@ const SPECIAL_EFFECTS = {
   aromatherapy: ['CureUserStatus', 0, 1],
   batonpass: ['RaiseSpd', 0, 1],
   bellydrum: ['BellyDrum', 0, 1],
-  block: ['LowerTargetSpd', 0, 1],
+  block: ['TrapTarget', 0, 1],
   camouflage: ['RaiseDef', 0, 1],
   charge: ['RaiseSpDef', 0, 1],
   clearsmog: ['Haze', 0, 1],
@@ -141,7 +143,14 @@ const SPECIAL_EFFECTS = {
   magnetrise: ['RaiseEvasion', 0, 1],
   magneticflux: ['RaiseDef', 0, 1],
   mefirst: ['RaiseAtk', 0, 1],
-  meanlook: ['LowerTargetSpd', 0, 1],
+  meanlook: ['TrapTarget', 0, 1],
+  spiderweb: ['TrapTarget', 0, 1],
+  thousandwaves: ['TrapTarget', 0, 1],
+  jawlock: ['TrapTarget', 0, 1],
+  anchorshot: ['TrapTarget', 0, 1],
+  spiritshackle: ['TrapTarget', 0, 1],
+  smackdown: ['SmackDown', 0, 1],
+  thousandarrows: ['SmackDown', 0, 1],
   metronome: ['NoOp', 0, 1],
   mimic: ['RaiseAccuracy', 0, 1],
   miracleeye: ['LowerTargetEvasion', 0, 1],
@@ -208,6 +217,20 @@ function mapEffect(mv, moveid) {
   }
   // 0) unique: Transform (Ditto)
   if (mv.name === 'Transform') return { effect: 'Transform', chance: 0, stage: 1 };
+  // 0b) defining mechanics that override any secondary: self-KO, OHKO, multi-hit, HP drain.
+  if (mv.selfdestruct || moveid === 'selfdestruct' || moveid === 'explosion' || moveid === 'mistyexplosion') {
+    return { effect: 'UserFaints', chance: 0, stage: 1 };
+  }
+  if (mv.ohko) return { effect: 'Ohko', chance: 0, stage: 1 };
+  if (mv.multihit) return { effect: 'MultiHit', chance: 0, stage: 1 };
+  if (mv.drain) return { effect: 'DrainHalf', chance: 0, stage: 1 };
+  // Fixed / level-based damage (Seismic Toss, Night Shade, Dragon Rage, Sonic Boom, Super Fang).
+  if (mv.damage === 'level') return { effect: 'LevelDamage', chance: 0, stage: 1 };
+  if (mv.damage === 40) return { effect: 'FixedDamage40', chance: 0, stage: 1 };
+  if (mv.damage === 20) return { effect: 'FixedDamage20', chance: 0, stage: 1 };
+  if (moveid === 'superfang') return { effect: 'HalveTargetHp', chance: 0, stage: 1 };
+  // Recharge moves (Hyper Beam, Giga Impact, …) flag the user to spend the next turn recharging.
+  if (mv.self && mv.self.volatileStatus === 'mustrecharge') return { effect: 'MustRecharge', chance: 0, stage: 1 };
   // 1) primary status (status-only moves like Thunder Wave, Toxic, Will-O-Wisp)
   if (mv.status && STATUS[mv.status]) return { effect: STATUS[mv.status], chance: 100, stage: 1 };
   // 1b) primary volatile status (Supersonic/Confuse Ray = confusion, etc.)
@@ -225,6 +248,16 @@ function mapEffect(mv, moveid) {
   // 3) top-level boosts (self-buff or foe-debuff status moves)
   if (mv.boosts) {
     const self = mv.target === 'self';
+    // Common multi-stat self-boosts (Bulk Up, Calm Mind, Dragon Dance) get dedicated effects.
+    if (self) {
+      const b = mv.boosts;
+      const pos = Object.keys(b).filter((k) => b[k] > 0);
+      const s = new Set(pos);
+      const only = (arr) => pos.length === arr.length && arr.every((k) => s.has(k));
+      if (only(['atk', 'def'])) return { effect: 'RaiseAtkDef', chance: 100, stage: Math.abs(b.atk) };
+      if (only(['spa', 'spd'])) return { effect: 'RaiseSpAtkSpDef', chance: 100, stage: Math.abs(b.spa) };
+      if (only(['atk', 'spe'])) return { effect: 'RaiseAtkSpd', chance: 100, stage: Math.abs(b.atk) };
+    }
     const table = self ? BOOST_RAISE : BOOST_LOWER;
     const b = firstBoost(mv.boosts, table);
     if (b) return { effect: b.effect, chance: 100, stage: b.stage };
@@ -233,6 +266,8 @@ function mapEffect(mv, moveid) {
   if (mv.heal || mv.flags?.heal) return { effect: 'HealUser', chance: 0, stage: 1 };
   // 5) recoil
   if (mv.recoil) return { effect: 'RecoilQuarterMax', chance: 0, stage: 1 };
+  // 6) heightened critical-hit rate (Slash, Razor Leaf, Crabhammer, ...), as a last-resort flag.
+  if ((mv.critRatio || 1) >= 2) return { effect: 'HighCrit', chance: 0, stage: 1 };
   return none;
 }
 
@@ -240,13 +275,30 @@ const VALID_TYPES = new Set(['Normal', 'Fire', 'Water', 'Electric', 'Grass', 'Ic
   'Ground', 'Flying', 'Psychic', 'Bug', 'Rock', 'Ghost', 'Dragon', 'Dark', 'Steel', 'Fairy']);
 const elem = (t) => VALID_TYPES.has(t) ? t : 'Normal';
 
-// --- Collect referenced moves ---
+// --- Gen-IX TM legality: a species can learn a move by TM if its learnset has a "9M" code ---
+function machineMoves(id) {
+  const entry = Learnsets[id];
+  const out = [];
+  if (!entry || !entry.learnset) return out;
+  for (const [moveid, codes] of Object.entries(entry.learnset)) {
+    if (!Moves[moveid]) continue; // skip anything without real move data
+    if (codes.some((c) => /^9M/.test(c))) out.push(moveid);
+  }
+  out.sort();
+  return out;
+}
+
+// --- Collect referenced moves (level-up + every TM-legal move across the roster) ---
 const usedMoves = new Set(['tackle', 'struggle']);
 const learnsetById = {};
+const tmById = {};
 for (const s of species) {
   const lm = levelupMoves(s.id);
   learnsetById[s.id] = lm;
   for (const e of lm) usedMoves.add(e.moveid);
+  const tm = machineMoves(s.id);
+  tmById[s.id] = tm;
+  for (const moveid of tm) usedMoves.add(moveid);
 }
 
 const moves = [];
@@ -270,6 +322,8 @@ for (const moveid of usedMoves) {
     category,
     priority: mv.priority || 0,
     stage: eff.stage,
+    // Factual one-line mechanic summary from Showdown's move-text data, so every move describes itself.
+    desc: ((MovesText[moveid] && (MovesText[moveid].shortDesc || MovesText[moveid].desc)) || '').trim(),
   });
 }
 moves.sort((a, b) => a.name.localeCompare(b.name));
@@ -341,9 +395,16 @@ const outSpecies = species.map((s) => ({
   habitat: meta[s.num]?.habitat ?? 0,
   legendary: meta[s.num]?.legendary ?? false,
   learnset: learnsetById[s.id],
+  tms: tmById[s.id],
 }));
 
+// The TM catalogue is the union of every Gen-IX TM move any of the 151 can learn.
+const tmCatalogue = [...new Set(species.flatMap((s) => tmById[s.id]))]
+  .filter((id) => Moves[id])
+  .sort((a, b) => Moves[a].name.localeCompare(Moves[b].name));
+console.log('TM catalogue size:', tmCatalogue.length);
+
 fs.writeFileSync(path.join(__dirname, 'gen1.json'),
-  JSON.stringify({ species: outSpecies, moves, abilityDesc }, null, 1));
+  JSON.stringify({ species: outSpecies, moves, abilityDesc, tmCatalogue }, null, 1));
 console.log('species:', outSpecies.length, 'moves:', moves.length);
 console.log('sample:', outSpecies[0].name, outSpecies[0].types, outSpecies[0].learnset.slice(0, 4));

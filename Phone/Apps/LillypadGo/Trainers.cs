@@ -28,7 +28,8 @@ internal static class Training
 
     public static bool IsUnlocked(Tier tier, int badgeCount) => badgeCount >= RequiredBadges(tier);
 
-    public static Battle Build(List<MonsterInstance> party, Tier tier, int minLevel, int maxLevel, Bag bag, Random rng)
+    public static Battle Build(List<MonsterInstance> party, Tier tier, int minLevel, int maxLevel, Bag bag, Random rng,
+        BattleWeather weather = BattleWeather.None)
     {
         minLevel = Math.Clamp(minLevel, tier.MinLevel, tier.MaxLevel);
         maxLevel = Math.Clamp(Math.Max(minLevel, maxLevel), tier.MinLevel, tier.MaxLevel);
@@ -44,6 +45,6 @@ internal static class Training
 
         var name = Titles[rng.Next(Titles.Length)];
         var prize = team.Sum(monster => monster.Level) * 10 + tier.Index * 30;
-        return new Battle(party, team, name, prize, bag, rng);
+        return new Battle(party, team, name, prize, bag, rng, weather);
     }
 }

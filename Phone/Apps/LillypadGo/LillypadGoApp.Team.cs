@@ -31,6 +31,7 @@ internal sealed partial class LillypadGoApp
         {
             teamShowingStorage = pickedTab == 1;
             teamPage = 0;
+            draggingRosterMon = null;
         }
 
         var all = teamShowingStorage ? State.Box : State.Party;
@@ -46,7 +47,7 @@ internal sealed partial class LillypadGoApp
 
         if (ImGui.IsMouseHoveringRect(sortRect.Min, sortRect.Max))
         {
-            ImGui.SetTooltip("Tap to change how this list is ordered.");
+            ShowTooltip("Tap to change how this list is ordered.");
         }
 
         var sorted = SortedTeamView(all, teamSort);
@@ -58,51 +59,62 @@ internal sealed partial class LillypadGoApp
         teamPage = Math.Clamp(teamPage, 0, pageCount - 1);
         var start = teamPage * rowsPerPage;
         var visible = Math.Min(rowsPerPage, sorted.Count - start);
+        var mouse = ImGui.GetMousePos();
+        var dragActive = !teamShowingStorage && draggingRosterMon is not null &&
+            State.Party.Contains(draggingRosterMon);
+        var dropRow = -1; // visible row the cursor is over while dragging (insertion target)
+
         for (var row = 0; row < visible; row++)
         {
             var (m, index) = sorted[start + row];
             var min = new Vector2(content.Min.X + 12f * scale, top + row * rowH + 4f * scale);
             var max = new Vector2(content.Max.X - 12f * scale, top + (row + 1) * rowH - 4f * scale);
-            var rowHovered = ImGui.IsMouseHoveringRect(min, max);
-            LgUi.Card(drawList, min, max, 12f * scale, scale, rowHovered);
-            var portrait = new Vector2(min.X + rowH * 0.5f, (min.Y + max.Y) * 0.5f);
-            MonsterArt.Draw(drawList, portrait, rowH * 0.28f, m.Species, 1f,
-                new MonsterPose(time + index, 0f, 0f, 1f, m.Fainted));
-            if (m.IsFavorite)
-            {
-                drawList.AddCircle(portrait, rowH * 0.34f, ImGui.GetColorU32(Accent with { W = 0.9f }), 28,
-                    1.8f * scale);
-            }
-            var rosterName = FitLabel($"{m.Name}   Lv {m.Level}", max.X - min.X - rowH * 0.95f - 76f * scale,
-                TextStyles.Headline);
-            Typography.Draw(new Vector2(min.X + rowH * 0.95f, min.Y + 6f * scale), rosterName, theme.TextStrong,
-                TextStyles.Headline);
-            LgUi.TypeChips(drawList, new Vector2(min.X + rowH * 0.95f, min.Y + 25f * scale), m.Element,
-                m.SecondaryElement, scale);
-            LgUi.HpBar(drawList, new Vector2(min.X + rowH * 0.95f, max.Y - 9f * scale),
-                new Vector2(max.X - 72f * scale, max.Y - 4f * scale), m.HpFraction);
-
             var rowRect = new Rect(min, max);
-            if (rowRect.Contains(ImGui.GetMousePos()))
+            var isDragged = dragActive && ReferenceEquals(m, draggingRosterMon);
+            if (dragActive && rowRect.Contains(mouse))
             {
-                ImGui.SetTooltip(BuildMonsterTooltip(m, teamShowingStorage
-                    ? "Stored creature. Add it to the team or swap it with the last team slot."
-                    : index == 0 ? "Current lead creature." : "Team creature."));
+                dropRow = row;
             }
 
-            var detailRect = new Rect(min, new Vector2(max.X - 70f * scale, max.Y));
-            if (detailRect.Contains(ImGui.GetMousePos()))
+            var rowHovered = !dragActive && ImGui.IsMouseHoveringRect(min, max);
+            LgUi.Card(drawList, min, max, 12f * scale, scale, rowHovered, sunken: isDragged);
+
+            // The lead slot gets an accent rail so it reads as the team leader at a glance.
+            if (!teamShowingStorage && index == 0 && !isDragged)
             {
-                ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-                {
-                    OpenDetail(m, View.Team);
-                    return;
-                }
+                drawList.AddRectFilled(min, new Vector2(min.X + 4f * scale, max.Y),
+                    ImGui.GetColorU32(Accent with { W = 0.9f }), 3f * scale);
+            }
+
+            if (isDragged)
+            {
+                // Empty slot placeholder; the lifted card follows the cursor (drawn after the loop).
+                continue;
+            }
+
+            DrawRosterRowContents(drawList, min, max, m, index, rowH, theme, scale);
+
+            if (!dragActive && rowRect.Contains(mouse))
+            {
+                ShowTooltip(BuildMonsterTooltip(m, teamShowingStorage
+                    ? "Stored creature. Add it to the team or swap it with the last team slot."
+                    : index == 0 ? "Current lead creature. Drag rows to reorder your team."
+                        : "Team creature. Drag onto the top slot to make it your leader."));
             }
 
             if (teamShowingStorage)
             {
+                var detailRect = new Rect(min, new Vector2(max.X - 70f * scale, max.Y));
+                if (detailRect.Contains(mouse))
+                {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                    {
+                        OpenDetail(m, View.Team);
+                        return;
+                    }
+                }
+
                 var action = State.Party.Count < LillypadGoState.PartyLimit ? "Add" : "Swap";
                 if (LgUi.Button(CenteredAt(new Vector2(max.X - 34f * scale, (min.Y + max.Y) * 0.5f),
                         new Vector2(58f * scale, 26f * scale)), action, Accent, theme, true))
@@ -113,26 +125,85 @@ internal sealed partial class LillypadGoApp
             }
             else
             {
-                var leadRect = CenteredAt(new Vector2(max.X - 34f * scale, min.Y + 17f * scale),
-                    new Vector2(58f * scale, 20f * scale));
-                var canLead = index != 0;
-                if (LgUi.Button(leadRect, "Lead", canLead ? Accent : GamePalette.CellSunken, theme, canLead))
+                // Left area: a tap opens the detail screen; a press-and-drag reorders the party.
+                var dragZone = new Rect(min, new Vector2(max.X - 70f * scale, max.Y));
+                if (!dragActive && dragZone.Contains(mouse))
                 {
-                    var lead = State.Party[index];
-                    State.Party.RemoveAt(index);
-                    State.Party.Insert(0, lead);
-                    State.Save();
-                    return;
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                    {
+                        if (State.Party.Count > 1)
+                        {
+                            // Reordering is WYSIWYG only in caught order, so drop back to it on grab.
+                            if (teamSort != TeamSort.Caught)
+                            {
+                                teamSort = TeamSort.Caught;
+                                teamPage = 0;
+                            }
+
+                            draggingRosterMon = m;
+                            rosterDragOrigin = mouse;
+                            rosterDragMoved = false;
+                        }
+                        else
+                        {
+                            OpenDetail(m, View.Team);
+                            return;
+                        }
+                    }
                 }
 
-                var storeRect = CenteredAt(new Vector2(max.X - 34f * scale, max.Y - 13f * scale),
-                    new Vector2(58f * scale, 20f * scale));
-                var canStore = State.Party.Count > 1;
+                var storeRect = CenteredAt(new Vector2(max.X - 34f * scale, (min.Y + max.Y) * 0.5f),
+                    new Vector2(58f * scale, 26f * scale));
+                var canStore = State.Party.Count > 1 && !dragActive;
                 if (LgUi.Button(storeRect, "Store", canStore ? GamePalette.Cell : GamePalette.CellSunken, theme,
                         canStore))
                 {
                     MoveTeamToStorage(index);
                     return;
+                }
+            }
+        }
+
+        // Draw the lifted roster card following the cursor and resolve the drop on release.
+        if (dragActive)
+        {
+            if (!rosterDragMoved && Vector2.Distance(mouse, rosterDragOrigin) > 6f * scale)
+            {
+                rosterDragMoved = true;
+            }
+
+            var halfH = (rowH - 8f * scale) * 0.5f;
+            var centerY = rosterDragMoved ? mouse.Y : rosterDragOrigin.Y;
+            var floatMin = new Vector2(content.Min.X + 12f * scale, centerY - halfH);
+            var floatMax = new Vector2(content.Max.X - 12f * scale, centerY + halfH);
+            LgUi.Card(drawList, floatMin, floatMax, 12f * scale, scale, true);
+            var realIdx = State.Party.IndexOf(draggingRosterMon!);
+            DrawRosterRowContents(drawList, floatMin, floatMax, draggingRosterMon!, Math.Max(0, realIdx), rowH,
+                theme, scale);
+
+            if (!ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            {
+                if (rosterDragMoved && dropRow >= 0 && start + dropRow < sorted.Count)
+                {
+                    var target = sorted[start + dropRow].Mon;
+                    if (!ReferenceEquals(target, draggingRosterMon))
+                    {
+                        ReorderParty(draggingRosterMon!, target);
+                    }
+
+                    draggingRosterMon = null;
+                }
+                else if (!rosterDragMoved)
+                {
+                    var mon = draggingRosterMon!;
+                    draggingRosterMon = null;
+                    OpenDetail(mon, View.Team);
+                    return;
+                }
+                else
+                {
+                    draggingRosterMon = null;
                 }
             }
         }
@@ -163,6 +234,45 @@ internal sealed partial class LillypadGoApp
         }
 
         DrawNavigation(content, theme, scale);
+    }
+
+    // Paints a roster row's contents (portrait, name, type chips, HP) into the given rect. Shared by
+    // the list rows and the lifted card that follows the cursor while dragging to reorder.
+    private void DrawRosterRowContents(ImDrawListPtr drawList, Vector2 min, Vector2 max, MonsterInstance m, int index,
+        float rowH, PhoneTheme theme, float scale)
+    {
+        var portrait = new Vector2(min.X + rowH * 0.5f, (min.Y + max.Y) * 0.5f);
+        MonsterArt.Draw(drawList, portrait, rowH * 0.28f, m.Species, 1f,
+            new MonsterPose(time + index, 0f, 0f, 1f, m.Fainted));
+        if (m.IsFavorite)
+        {
+            drawList.AddCircle(portrait, rowH * 0.34f, ImGui.GetColorU32(Accent with { W = 0.9f }), 28, 1.8f * scale);
+        }
+
+        var rosterName = FitLabel($"{m.Name}   Lv {m.Level}", max.X - min.X - rowH * 0.95f - 76f * scale,
+            TextStyles.Headline);
+        Typography.Draw(new Vector2(min.X + rowH * 0.95f, min.Y + 6f * scale), rosterName, theme.TextStrong,
+            TextStyles.Headline);
+        LgUi.TypeChips(drawList, new Vector2(min.X + rowH * 0.95f, min.Y + 25f * scale), m.Element,
+            m.SecondaryElement, scale);
+        LgUi.HpBar(drawList, new Vector2(min.X + rowH * 0.95f, max.Y - 9f * scale),
+            new Vector2(max.X - 72f * scale, max.Y - 4f * scale), m.HpFraction);
+    }
+
+    // Moves a party member into another member's slot (shifting the rest). Dropping onto slot 0 makes
+    // the dragged creature the team leader.
+    private void ReorderParty(MonsterInstance mon, MonsterInstance target)
+    {
+        var fromIdx = State.Party.IndexOf(mon);
+        var toIdx = State.Party.IndexOf(target);
+        if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx)
+        {
+            return;
+        }
+
+        State.Party.RemoveAt(fromIdx);
+        State.Party.Insert(toIdx, mon);
+        State.Save();
     }
 
     private static Rect CenteredAt(Vector2 center, Vector2 size) => new(center - size * 0.5f, center + size * 0.5f);

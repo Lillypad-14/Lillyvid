@@ -125,21 +125,27 @@ internal sealed class Battle
     private int playerLightScreenTurns;
     private int wildLightScreenTurns;
 
+    // Zone weather carried in from the overworld lasts the whole battle (unlike the 5-turn timer a
+    // weather move sets), so use a sentinel duration that never expires mid-fight.
+    private const int AmbientWeatherTurns = 9999;
+
     // Wild encounter: a lone opponent that can be caught.
-    public Battle(List<MonsterInstance> party, MonsterInstance wild, Bag bag, Random rng)
-        : this(party, bag, rng)
+    public Battle(List<MonsterInstance> party, MonsterInstance wild, Bag bag, Random rng,
+        BattleWeather startingWeather = BattleWeather.None)
+        : this(party, bag, rng, startingWeather)
     {
         Wild = wild;
         Wild.ResetBattleState();
         Log.Enqueue(new BattleMessage($"A wild {Wild.Name} appeared!", BattleCue.Info));
+        EnqueueAmbientWeather();
         ApplyEntryAbility(Active, Wild);
         ApplyEntryAbility(Wild, Active);
     }
 
     // Trainer or gym battle: the opponent fields a team of 1-6 and their Pokémon cannot be caught.
     public Battle(List<MonsterInstance> party, IReadOnlyList<MonsterInstance> enemyTeam, string trainerName,
-        int prize, Bag bag, Random rng)
-        : this(party, bag, rng)
+        int prize, Bag bag, Random rng, BattleWeather startingWeather = BattleWeather.None)
+        : this(party, bag, rng, startingWeather)
     {
         this.enemyTeam = enemyTeam;
         this.trainerPrize = prize;
@@ -149,11 +155,12 @@ internal sealed class Battle
         Log.Enqueue(new BattleMessage($"{trainerName} wants to battle!", BattleCue.Info));
         Log.Enqueue(new BattleMessage($"{trainerName} sent out {Wild.Name}!", BattleCue.EnemySwitch, Wild,
             stateAfter: BattleSnapshot.Capture(Wild)));
+        EnqueueAmbientWeather();
         ApplyEntryAbility(Active, Wild);
         ApplyEntryAbility(Wild, Active);
     }
 
-    private Battle(List<MonsterInstance> party, Bag bag, Random rng)
+    private Battle(List<MonsterInstance> party, Bag bag, Random rng, BattleWeather startingWeather)
     {
         this.party = party;
         this.bag = bag;
@@ -166,6 +173,26 @@ internal sealed class Battle
 
         Active.ResetBattleState();
         participants.Add(Active);
+        Weather = startingWeather;
+        weatherTurns = startingWeather == BattleWeather.None ? 0 : AmbientWeatherTurns;
+    }
+
+    // A quiet intro line noting the ambient weather the battle started under (from the zone).
+    private void EnqueueAmbientWeather()
+    {
+        if (Weather == BattleWeather.None)
+        {
+            return;
+        }
+
+        Log.Enqueue(new BattleMessage(Weather switch
+        {
+            BattleWeather.Sun => "The sunlight is strong.",
+            BattleWeather.Rain => "Rain is falling.",
+            BattleWeather.Sandstorm => "A sandstorm is raging.",
+            BattleWeather.Snow => "Snow is falling.",
+            _ => string.Empty,
+        }, BattleCue.Info));
     }
 
     public MonsterInstance Wild { get; private set; } = null!;
@@ -241,8 +268,8 @@ internal sealed class Battle
         Wild.Protecting = false;
         Active.Enduring = false;
         Wild.Enduring = false;
-        var playerMove = struggling ? Moves.Struggle : Active.Moves[moveIndex];
-        var wildMove = ChooseWildMove();
+        var playerMove = Active.ChargingMove ?? (struggling ? Moves.Struggle : Active.Moves[moveIndex]);
+        var wildMove = Wild.ChargingMove ?? ChooseWildMove();
         var playerFirst = playerMove.Priority > wildMove.Priority ||
             playerMove.Priority == wildMove.Priority && (EffectiveSpeed(Active) > EffectiveSpeed(Wild) ||
                 EffectiveSpeed(Active) == EffectiveSpeed(Wild) && rng.Next(2) == 0);
@@ -317,6 +344,13 @@ internal sealed class Battle
         if (Outcome != BattleOutcome.Ongoing || partyIndex < 0 || partyIndex >= party.Count || partyIndex == activeIndex ||
             party[partyIndex].Fainted)
         {
+            return;
+        }
+
+        // A voluntary switch is blocked while trapped; a faint-forced switch always goes through.
+        if (!RequiresSwitch && CannotEscape(Active, Wild))
+        {
+            Log.Enqueue(new BattleMessage($"{Active.Name} can't be switched out!", BattleCue.Info, Active));
             return;
         }
 
@@ -476,6 +510,20 @@ internal sealed class Battle
             return;
         }
 
+        // A trap effect (Mean Look) or the foe's Arena Trap / Shadow Tag pins you in place.
+        if (CannotEscape(Active, Wild))
+        {
+            Log.Enqueue(new BattleMessage($"{Active.Name} can't escape!", BattleCue.FleeFail));
+            WildTurn();
+            if (PlayerDown())
+            {
+                return;
+            }
+
+            EndOfTurn();
+            return;
+        }
+
         if (rng.NextDouble() < EscapeChance)
         {
             Outcome = BattleOutcome.Fled;
@@ -499,6 +547,25 @@ internal sealed class Battle
     {
         if (!TryAct(Active))
         {
+            // A charge that fizzles (paralysis, sleep, ...) is cancelled rather than left stuck.
+            Active.ChargingMove = null;
+            Active.SemiInvulnerable = false;
+            return;
+        }
+
+        // Spend the turn recharging after a Hyper Beam-type move.
+        if (Active.MustRecharge)
+        {
+            Active.MustRecharge = false;
+            Log.Enqueue(new BattleMessage($"{Active.Name} must recharge!", BattleCue.Info, Active));
+            return;
+        }
+
+        // Releasing a two-turn move ignores the picked slot and fires the charging move (PP was
+        // already paid on the charge turn).
+        if (Active.ChargingMove is { } releasing)
+        {
+            Execute(Active, Wild, releasing, BattleCue.PlayerAttack, BattleCue.WildHurt);
             return;
         }
 
@@ -526,6 +593,22 @@ internal sealed class Battle
 
         if (!TryAct(Wild))
         {
+            Wild.ChargingMove = null;
+            Wild.SemiInvulnerable = false;
+            return;
+        }
+
+        if (Wild.MustRecharge)
+        {
+            Wild.MustRecharge = false;
+            Log.Enqueue(new BattleMessage($"{Wild.Name} must recharge!", BattleCue.Info, Wild));
+            return;
+        }
+
+        // Release a charging two-turn move if one is pending; otherwise pick normally.
+        if (Wild.ChargingMove is { } releasing)
+        {
+            Execute(Wild, Active, releasing, BattleCue.WildAttack, BattleCue.PlayerHurt);
             return;
         }
 
@@ -667,7 +750,8 @@ internal sealed class Battle
 
         if ((Weather == BattleWeather.Sun && monster.Ability is "Chlorophyll") ||
             (Weather == BattleWeather.Rain && monster.Ability is "Swift Swim") ||
-            (Weather == BattleWeather.Sandstorm && monster.Ability is "Sand Rush"))
+            (Weather == BattleWeather.Sandstorm && monster.Ability is "Sand Rush") ||
+            (Weather == BattleWeather.Snow && monster.Ability is "Slush Rush"))
         {
             speed *= 2;
         }
@@ -727,12 +811,156 @@ internal sealed class Battle
         return 1f;
     }
 
+    // Whether weather effects are currently negated by Cloud Nine / Air Lock on the field.
+    public bool WeatherIsSuppressed => WeatherSuppressed && Weather != BattleWeather.None;
+
+    public string WeatherName => Weather switch
+    {
+        BattleWeather.Sun => "Harsh Sunlight",
+        BattleWeather.Rain => "Rain",
+        BattleWeather.Sandstorm => "Sandstorm",
+        BattleWeather.Snow => "Snow",
+        _ => "Clear Skies",
+    };
+
+    // A plain-language readout of exactly what the current weather (and terrain) is doing, matching
+    // what the engine actually models. Drives the in-battle weather info tooltip.
+    public IReadOnlyList<string> WeatherSummary()
+    {
+        var lines = new List<string>();
+        if (WeatherIsSuppressed)
+        {
+            lines.Add("Weather effects are negated (Cloud Nine / Air Lock).");
+            return lines;
+        }
+
+        switch (Weather)
+        {
+            case BattleWeather.Sun:
+                lines.Add("Fire-type moves deal 1.5x damage.");
+                lines.Add("Water-type moves deal 0.5x damage.");
+                lines.Add("Solar Power / Dry Skin scorch their holders.");
+                break;
+            case BattleWeather.Rain:
+                lines.Add("Water-type moves deal 1.5x damage.");
+                lines.Add("Fire-type moves deal 0.5x damage.");
+                lines.Add("Rain Dish / Dry Skin restore HP each turn.");
+                break;
+            case BattleWeather.Sandstorm:
+                lines.Add("Rock-types gain +50% Sp. Def.");
+                lines.Add("Rock/Ground/Steel moves get a small boost.");
+                lines.Add("All others lose 1/16 max HP each turn.");
+                break;
+            case BattleWeather.Snow:
+                lines.Add("Ice-type moves get a small boost.");
+                lines.Add("Ice Body restores HP each turn.");
+                break;
+            default:
+                lines.Add("No weather is active.");
+                break;
+        }
+
+        if (Terrain != BattleTerrain.None)
+        {
+            lines.Add($"{Terrain} Terrain is also active.");
+        }
+
+        return lines;
+    }
+
+    // How the current weather affects a specific battler through its ability or typing — for the
+    // in-battle hover readout. Returns an empty list when nothing applies.
+    public IReadOnlyList<string> WeatherAbilityLines(MonsterInstance mon)
+    {
+        var lines = new List<string>();
+        if (Weather == BattleWeather.None)
+        {
+            return lines;
+        }
+
+        if (WeatherIsSuppressed)
+        {
+            lines.Add("Weather effects are negated on the field.");
+            return lines;
+        }
+
+        var ab = mon.Ability;
+        switch (Weather)
+        {
+            case BattleWeather.Sun:
+                if (ab is "Chlorophyll") lines.Add("Chlorophyll: Speed x2.");
+                if (ab is "Solar Power") lines.Add("Solar Power: Sp. Atk x1.5, but loses HP each turn.");
+                if (ab is "Dry Skin") lines.Add("Dry Skin: loses HP each turn in the sun.");
+                if (ab is "Leaf Guard") lines.Add("Leaf Guard: immune to status conditions.");
+                if (ab is "Flower Gift") lines.Add("Flower Gift: boosted while sunny.");
+                break;
+            case BattleWeather.Rain:
+                if (ab is "Swift Swim") lines.Add("Swift Swim: Speed x2.");
+                if (ab is "Rain Dish") lines.Add("Rain Dish: restores HP each turn.");
+                if (ab is "Dry Skin") lines.Add("Dry Skin: restores HP each turn in the rain.");
+                if (ab is "Hydration") lines.Add("Hydration: cures its status each turn.");
+                break;
+            case BattleWeather.Sandstorm:
+                if (ab is "Sand Rush") lines.Add("Sand Rush: Speed x2.");
+                if (ab is "Sand Force") lines.Add("Sand Force: Rock/Ground/Steel moves x1.3.");
+                if (ab is "Sand Veil") lines.Add("Sand Veil: +25% evasion.");
+                if (mon.HasType(Element.Rock)) lines.Add("Rock-type: +50% Sp. Def in the sandstorm.");
+                lines.Add(TakesSandstormDamage(mon)
+                    ? "Takes 1/16 max HP damage each turn."
+                    : "Immune to the sandstorm's chip damage.");
+                break;
+            case BattleWeather.Snow:
+                if (ab is "Slush Rush") lines.Add("Slush Rush: Speed x2.");
+                if (ab is "Ice Body") lines.Add("Ice Body: restores HP each turn.");
+                if (ab is "Snow Cloak") lines.Add("Snow Cloak: +25% evasion.");
+                break;
+        }
+
+        return lines;
+    }
+
+    private bool TakesSandstormDamage(MonsterInstance mon) =>
+        Weather == BattleWeather.Sandstorm && !WeatherSuppressed &&
+        !mon.HasType(Element.Rock) && !mon.HasType(Element.Ground) && !mon.HasType(Element.Steel) &&
+        mon.Ability is not ("Sand Veil" or "Sand Rush" or "Sand Force" or "Overcoat" or "Magic Guard");
+
     private void SetWeather(BattleWeather weather, string message)
     {
         Weather = weather;
         weatherTurns = weather == BattleWeather.None ? 0 : 5;
         Log.Enqueue(new BattleMessage(message, BattleCue.Buff));
     }
+
+    // Two-turn charge moves (spend a turn winding up before striking) and the subset that hide the
+    // user while charging (semi-invulnerable). Matched by name so no data regeneration is required.
+    private static readonly HashSet<string> ChargeMoves = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Dig", "Fly", "Dive", "Bounce", "Phantom Force", "Shadow Force", "Sky Drop",
+        "Solar Beam", "Solar Blade", "Skull Bash", "Razor Wind", "Sky Attack",
+        "Freeze Shock", "Ice Burn", "Meteor Beam", "Electro Shot", "Geomancy",
+    };
+
+    private static readonly HashSet<string> InvulnerableCharges = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Dig", "Fly", "Dive", "Bounce", "Phantom Force", "Shadow Force", "Sky Drop",
+    };
+
+    private static bool IsChargeMove(MoveDef move) => ChargeMoves.Contains(move.Name);
+    private static bool IsInvulnerableCharge(MoveDef move) => InvulnerableCharges.Contains(move.Name);
+
+    private static string ChargeText(MonsterInstance user, MoveDef move) => move.Name switch
+    {
+        "Dig" => $"{user.Name} burrowed underground!",
+        "Dive" => $"{user.Name} hid underwater!",
+        "Fly" or "Bounce" => $"{user.Name} flew up high!",
+        "Sky Drop" => $"{user.Name} took off into the sky!",
+        "Phantom Force" or "Shadow Force" => $"{user.Name} vanished instantly!",
+        "Solar Beam" or "Solar Blade" => $"{user.Name} absorbed light!",
+        "Skull Bash" => $"{user.Name} lowered its head!",
+        "Razor Wind" or "Sky Attack" => $"{user.Name} is glowing!",
+        "Meteor Beam" or "Electro Shot" => $"{user.Name} is gathering energy!",
+        _ => $"{user.Name} is charging up!",
+    };
 
     private void SetTerrain(BattleTerrain terrain, string message)
     {
@@ -768,6 +996,12 @@ internal sealed class Battle
     // Effectiveness, with Scrappy letting Normal/Fighting hit Ghost types.
     private static float EffectivenessWith(MonsterInstance attacker, MonsterInstance defender, MoveDef move)
     {
+        // Smack Down grounded the target, so a Ground move ignores the Flying-type immunity.
+        if (defender.Grounded && move.Element == Element.Ground)
+        {
+            return GroundedEffectiveness(defender);
+        }
+
         var eff = Elements.Effectiveness(move.Element, defender.Element, defender.SecondaryElement);
         if (eff <= 0f && attacker.Ability is "Scrappy" && move.Element is Element.Normal or Element.Fighting &&
             defender.HasType(Element.Ghost))
@@ -782,6 +1016,43 @@ internal sealed class Battle
         }
 
         return eff;
+    }
+
+    // Ground effectiveness against a grounded (Smack Down) target: the Flying type counts as neutral
+    // rather than granting immunity; every other type resolves normally.
+    private static float GroundedEffectiveness(MonsterInstance defender)
+    {
+        static float Part(Element? type) => type is null ? 1f
+            : type == Element.Flying ? 1f
+            : Elements.Effectiveness(Element.Ground, type.Value);
+        return Part(defender.Element) * Part(defender.SecondaryElement);
+    }
+
+    // Whether a creature is subject to Ground moves / Arena Trap: grounded unless it's a Flying-type
+    // or has Levitate — Smack Down overrides that and forces it grounded.
+    private static bool IsGrounded(MonsterInstance mon) =>
+        mon.Grounded || (!mon.HasType(Element.Flying) && mon.Ability is not "Levitate");
+
+    // Whether a creature is prevented from fleeing or switching out by a trap effect or ability.
+    private bool CannotEscape(MonsterInstance mon, MonsterInstance foe)
+    {
+        if (mon.HasType(Element.Ghost))
+        {
+            return false; // Ghost-types are never trapped.
+        }
+
+        if (mon.Trapped)
+        {
+            return true;
+        }
+
+        return foe.Ability switch
+        {
+            "Arena Trap" => IsGrounded(mon),
+            "Shadow Tag" => mon.Ability is not "Shadow Tag",
+            "Magnet Pull" => mon.HasType(Element.Steel),
+            _ => false,
+        };
     }
 
     // On-switch abilities: Intimidate, Download, and weather setters.
@@ -831,7 +1102,7 @@ internal sealed class Battle
         StatKind? boost = null;
         switch (defender.Ability)
         {
-            case "Levitate" when t == Element.Ground:
+            case "Levitate" when t == Element.Ground && !defender.Grounded:
                 msg = $"{defender.Name} is unaffected thanks to Levitate!";
                 break;
             case "Flash Fire" when t == Element.Fire:
@@ -974,6 +1245,13 @@ internal sealed class Battle
         if (Terrain == BattleTerrain.Misty || (Terrain == BattleTerrain.Electric && status == Status.Sleep))
         {
             Log.Enqueue(new BattleMessage($"{target.Name} is protected by the terrain!", BattleCue.Info, target));
+            return false;
+        }
+
+        // Leaf Guard blocks all status conditions in harsh sunlight.
+        if (target.Ability is "Leaf Guard" && Weather == BattleWeather.Sun && !WeatherSuppressed)
+        {
+            Log.Enqueue(new BattleMessage($"{target.Name}'s Leaf Guard blocked the status!", BattleCue.Info, target));
             return false;
         }
 
@@ -1198,9 +1476,47 @@ internal sealed class Battle
     {
         Log.Enqueue(new BattleMessage($"{attacker.Name} used {move.Name}!", attackCue, attacker, move: move));
 
+        // Two-turn moves (Dig/Fly/Solar Beam …): the first use only charges (and, for Dig/Fly-type
+        // moves, hides the user); the release happens next turn. Solar Beam skips the charge in sun.
+        if (IsChargeMove(move) && !ReferenceEquals(attacker.ChargingMove, move))
+        {
+            var instant = move.Name is "Solar Beam" or "Solar Blade" &&
+                Weather == BattleWeather.Sun && !WeatherSuppressed;
+            if (!instant)
+            {
+                attacker.ChargingMove = move;
+                attacker.SemiInvulnerable = IsInvulnerableCharge(move);
+                Log.Enqueue(new BattleMessage(ChargeText(attacker, move), BattleCue.Buff, attacker));
+                return;
+            }
+        }
+
+        // Releasing the charge clears the charging state before the strike resolves.
+        if (ReferenceEquals(attacker.ChargingMove, move))
+        {
+            attacker.ChargingMove = null;
+            attacker.SemiInvulnerable = false;
+        }
+
         if (!IsSelfEffect(move.Effect) && defender.Protecting)
         {
             Log.Enqueue(new BattleMessage($"{defender.Name} protected itself!", BattleCue.Info, defender));
+            return;
+        }
+
+        // A semi-invulnerable target (mid Dig/Fly/Dive) can't be hit unless No Guard is in play.
+        if (!IsSelfEffect(move.Effect) && defender.SemiInvulnerable && attacker.Ability is not "No Guard")
+        {
+            Log.Enqueue(new BattleMessage($"{attacker.Name}'s attack couldn't reach {defender.Name}!",
+                BattleCue.Info));
+            return;
+        }
+
+        // Damp on either battler smothers self-detonating moves (Self-Destruct / Explosion).
+        if (move.Effect == MoveEffect.UserFaints && (Active.Ability is "Damp" || Wild.Ability is "Damp"))
+        {
+            Log.Enqueue(new BattleMessage($"{attacker.Name}'s move was smothered by Damp!", BattleCue.Info,
+                attacker));
             return;
         }
 
@@ -1217,6 +1533,14 @@ internal sealed class Battle
             if (attacker.Ability is "Compound Eyes") acc *= 1.3f;
             if (attacker.Ability is "Hustle" && move.Category == MoveCategory.Physical) acc *= 0.8f;
             if (move.IsStatus && defender.Ability is "Wonder Skin") acc *= 0.5f;
+            // Sand Veil / Snow Cloak give +25% evasion in their weather.
+            if (!WeatherSuppressed && attacker.Ability is not "Mold Breaker" &&
+                ((Weather == BattleWeather.Sandstorm && defender.Ability is "Sand Veil") ||
+                 (Weather == BattleWeather.Snow && defender.Ability is "Snow Cloak")))
+            {
+                acc *= 0.8f;
+            }
+
             if (rng.NextDouble() * 100f >= acc)
             {
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s attack missed!", BattleCue.Info));
@@ -1246,8 +1570,14 @@ internal sealed class Battle
             }
 
             // Crit: blocked by Battle/Shell Armor, boosted by Super Luck (rate) and Sniper (damage).
+            // High-crit moves (Slash, Razor Leaf, ...) roll a much smaller denominator.
             var noCrit = defAb is "Battle Armor" or "Shell Armor";
             var critRate = attacker.Ability is "Super Luck" ? 8 : 24;
+            if (move.Effect == MoveEffect.HighCrit)
+            {
+                critRate = attacker.Ability is "Super Luck" ? 3 : 6;
+            }
+
             var isCritical = !noCrit && rng.Next(critRate) == 0;
             var crit = isCritical ? (attacker.Ability is "Sniper" ? 2.25f : 1.5f) : 1f;
 
@@ -1268,6 +1598,12 @@ internal sealed class Battle
 
             var defMul = 1f;
             if (defAb is "Marvel Scale" && defender.Status != Status.None) defMul *= 1.5f;
+            // Rock-types get +50% Sp. Def in a sandstorm.
+            if (!WeatherSuppressed && Weather == BattleWeather.Sandstorm && defender.HasType(Element.Rock) &&
+                move.Category == MoveCategory.Special)
+            {
+                defMul *= 1.5f;
+            }
 
             // Move-power multipliers.
             var powerMul = PinchAbilityBoost(attacker, move.Element);
@@ -1282,6 +1618,19 @@ internal sealed class Battle
             }
 
             if (attacker.FlashFireActive && move.Element == Element.Fire) powerMul *= 1.5f;
+            // Sand Force: +30% to Rock/Ground/Steel moves in a sandstorm.
+            if (!WeatherSuppressed && Weather == BattleWeather.Sandstorm && attacker.Ability is "Sand Force" &&
+                move.Element is Element.Rock or Element.Ground or Element.Steel)
+            {
+                powerMul *= 1.3f;
+            }
+
+            // Solar Power: +50% special damage in harsh sun (at the cost of HP each turn).
+            if (!WeatherSuppressed && Weather == BattleWeather.Sun && attacker.Ability is "Solar Power" &&
+                move.Category == MoveCategory.Special)
+            {
+                powerMul *= 1.5f;
+            }
 
             // Effectiveness-based modifiers.
             var effMul = 1f;
@@ -1301,6 +1650,31 @@ internal sealed class Battle
             var effectiveDefense = Math.Max(1, (int)(defense * defMul));
             var raw = ((2f * attacker.Level / 5f + 2f) * move.Power * attack * atkMul / effectiveDefense / 50f) + 2f;
             var damage = Math.Max(1, (int)(raw * effectiveness * stab * crit * variance * burn * powerMul * effMul));
+
+            // Fixed / level-based damage moves ignore the normal formula (immunity still blocks them,
+            // handled by the effectiveness<=0 check above).
+            switch (move.Effect)
+            {
+                case MoveEffect.LevelDamage: damage = Math.Max(1, attacker.Level); break;
+                case MoveEffect.FixedDamage40: damage = 40; break;
+                case MoveEffect.FixedDamage20: damage = 20; break;
+                case MoveEffect.HalveTargetHp: damage = Math.Max(1, defender.CurrentHp / 2); break;
+            }
+
+            // One-hit KO moves ignore the damage roll; multi-hit moves strike several times.
+            var hitCount = 1;
+            if (move.Effect == MoveEffect.Ohko)
+            {
+                damage = defender.CurrentHp;
+                isCritical = false;
+            }
+            else if (move.Effect == MoveEffect.MultiHit)
+            {
+                // Skill Link always lands the maximum five hits.
+                hitCount = attacker.Ability is "Skill Link" ? 5 : RollMultiHits();
+                damage *= hitCount;
+            }
+
             var appliedDamage = Math.Min(defender.CurrentHp, damage);
 
             // Sturdy: survive a would-be OHKO from full HP with 1 HP left.
@@ -1326,6 +1700,33 @@ internal sealed class Battle
             Log.Enqueue(new BattleMessage(DamageText(defender, appliedDamage, effectiveness, isCritical), hurtCue,
                 defender, defender.CurrentHp, isCritical, effectiveness, move,
                 stateAfter: BattleSnapshot.Capture(defender)));
+            if (hitCount > 1)
+            {
+                Log.Enqueue(new BattleMessage($"Hit {hitCount} times!", BattleCue.Info, defender));
+            }
+
+            if (move.Effect == MoveEffect.Ohko && defender.Fainted)
+            {
+                Log.Enqueue(new BattleMessage("It's a one-hit KO!", BattleCue.Info, defender));
+            }
+
+            // Draining moves recover the user by half of the damage dealt — unless the target has
+            // Liquid Ooze, which makes the drain backfire and hurt the user instead.
+            if (move.Effect == MoveEffect.DrainHalf && appliedDamage > 0 && !attacker.Fainted)
+            {
+                var amount = Math.Max(1, appliedDamage / 2);
+                if (defender.Ability is "Liquid Ooze")
+                {
+                    IndirectDamage(attacker, amount, "Liquid Ooze");
+                }
+                else if (attacker.CurrentHp < attacker.MaxHp)
+                {
+                    attacker.Heal(amount);
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} drained {amount} HP!", BattleCue.Heal, attacker,
+                        attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
+                }
+            }
+
             if (sturdy)
             {
                 Log.Enqueue(new BattleMessage($"{defender.Name} endured the hit with Sturdy!", BattleCue.Buff,
@@ -1694,7 +2095,65 @@ internal sealed class Battle
             case MoveEffect.NoOp:
                 Log.Enqueue(new BattleMessage("But nothing happened!", BattleCue.Info, attacker));
                 break;
+            case MoveEffect.UserFaints:
+                if (!attacker.Fainted)
+                {
+                    var isPlayer = ReferenceEquals(attacker, Active);
+                    attacker.CurrentHp = 0;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} was caught in its own blast!",
+                        isPlayer ? BattleCue.PlayerHurt : BattleCue.WildHurt, attacker, 0,
+                        stateAfter: BattleSnapshot.Capture(attacker)));
+                }
+
+                break;
+            case MoveEffect.TrapTarget:
+                // Ghost-types are never trapped by these moves.
+                if (!defender.Trapped && !defender.HasType(Element.Ghost) && !defender.Fainted)
+                {
+                    defender.Trapped = true;
+                    Log.Enqueue(new BattleMessage($"{defender.Name} can no longer escape!", BattleCue.Info,
+                        defender));
+                }
+
+                break;
+            case MoveEffect.SmackDown:
+                if (!defender.Grounded && !defender.Fainted)
+                {
+                    defender.Grounded = true;
+                    Log.Enqueue(new BattleMessage($"{defender.Name} was knocked to the ground!", BattleCue.Info,
+                        defender));
+                }
+
+                break;
+            case MoveEffect.MustRecharge:
+                attacker.MustRecharge = true;
+                break;
+            case MoveEffect.RaiseAtkDef:
+                RaiseStat(attacker, StatKind.Atk, move.StageChange);
+                RaiseStat(attacker, StatKind.Def, move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Attack and Defense rose!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.RaiseSpAtkSpDef:
+                RaiseStat(attacker, StatKind.SpA, move.StageChange);
+                RaiseStat(attacker, StatKind.SpD, move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Sp. Atk and Sp. Def rose!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.RaiseAtkSpd:
+                RaiseStat(attacker, StatKind.Atk, move.StageChange);
+                RaiseStat(attacker, StatKind.Spe, move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Attack and Speed rose!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
         }
+    }
+
+    // Multi-hit strike count: 2 and 3 hits are common, 4 and 5 rare (modern 3/8, 3/8, 1/8, 1/8).
+    private int RollMultiHits()
+    {
+        var r = rng.Next(8);
+        return r < 3 ? 2 : r < 6 ? 3 : r == 6 ? 4 : 5;
     }
 
     private static string DamageText(MonsterInstance defender, int damage, float effectiveness, bool crit)
@@ -1964,6 +2423,29 @@ internal sealed class Battle
         if (Weather == BattleWeather.Sun && monster.Ability is "Solar Power")
         {
             IndirectDamage(monster, monster.MaxHp / 8, "Solar Power");
+        }
+
+        // Ice Body: heals a little each turn in snow.
+        if (Weather == BattleWeather.Snow && monster.Ability is "Ice Body" && monster.CurrentHp < monster.MaxHp)
+        {
+            monster.Heal(Math.Max(1, monster.MaxHp / 16));
+            Log.Enqueue(new BattleMessage($"{monster.Name} restored HP with Ice Body!", BattleCue.Heal,
+                monster, monster.CurrentHp, stateAfter: BattleSnapshot.Capture(monster)));
+        }
+
+        // Dry Skin: soaks up rain (heals) but is scorched by harsh sun (loses HP).
+        if (monster.Ability is "Dry Skin")
+        {
+            if (Weather == BattleWeather.Rain && monster.CurrentHp < monster.MaxHp)
+            {
+                monster.Heal(Math.Max(1, monster.MaxHp / 8));
+                Log.Enqueue(new BattleMessage($"{monster.Name} soaked up the rain with Dry Skin!", BattleCue.Heal,
+                    monster, monster.CurrentHp, stateAfter: BattleSnapshot.Capture(monster)));
+            }
+            else if (Weather == BattleWeather.Sun)
+            {
+                IndirectDamage(monster, monster.MaxHp / 8, "Dry Skin");
+            }
         }
     }
 

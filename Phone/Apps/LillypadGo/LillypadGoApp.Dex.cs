@@ -22,8 +22,8 @@ internal sealed partial class LillypadGoApp
         InitializeDexExpansion();
         var sortBounds = new Rect(new Vector2(content.Min.X + 12f * scale, content.Min.Y + 66f * scale),
             new Vector2(content.Max.X - 12f * scale, content.Min.Y + 96f * scale));
-        var changedSort = LgUi.Segmented(sortBounds, new[] { "Progress", "Region", "Missing" }, (int)dexSort,
-            Accent, theme, scale, ref dexSortIndicator);
+        var changedSort = LgUi.Segmented(sortBounds, new[] { "Progress", "Region", "Missing", "National" },
+            (int)dexSort, Accent, theme, scale, ref dexSortIndicator);
         if (changedSort >= 0)
         {
             dexSort = (DexSort)changedSort;
@@ -43,7 +43,11 @@ internal sealed partial class LillypadGoApp
 
         var y = list.Min.Y - dexScroll;
         drawList.PushClipRect(list.Min, list.Max, true);
-        if (dexSort == DexSort.Region)
+        if (dexSort == DexSort.National)
+        {
+            DrawDexNational(list, caughtIds, ref y, theme, scale);
+        }
+        else if (dexSort == DexSort.Region)
         {
             foreach (var region in ArrZones.All.GroupBy(zone => new { zone.Region, zone.RegionOrder })
                          .OrderBy(group => group.Key.RegionOrder))
@@ -203,7 +207,7 @@ internal sealed partial class LillypadGoApp
             if (hovered)
             {
                 var note = exclusive ? $"Exclusive to {zone.Name}." : $"Found in {zone.Name}.";
-                ImGui.SetTooltip(seen ? BuildSpeciesTooltip(species, note) :
+                ShowTooltip(seen ? BuildSpeciesTooltip(species, note) :
                     $"Undiscovered creature\n\n{note} Search this zone to reveal it.");
                 if (seen && LgUi.Interactive)
                 {
@@ -240,8 +244,90 @@ internal sealed partial class LillypadGoApp
 
     private static bool RowVisible(Rect row, Rect clip) => row.Max.Y >= clip.Min.Y && row.Min.Y <= clip.Max.Y;
 
+    // The numbered National dex: every species by dex number in a two-column grid, seen/caught state
+    // shown, tap-through to the full entry — just like the mainline Pokédex list.
+    private void DrawDexNational(Rect clip, HashSet<string> caughtIds, ref float y, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var all = Dex.All.OrderBy(species => species.DexNumber).ToArray();
+        const int cols = 2;
+        var gap = 6f * scale;
+        var cellW = (clip.Width - 8f * scale - gap * (cols - 1)) / cols;
+        var cellH = 52f * scale;
+        var left = clip.Min.X + 4f * scale;
+        var mouse = ImGui.GetMousePos();
+        for (var i = 0; i < all.Length; i++)
+        {
+            var col = i % cols;
+            var min = new Vector2(left + col * (cellW + gap), y + i / cols * (cellH + gap));
+            var max = min + new Vector2(cellW, cellH);
+            var rect = new Rect(min, max);
+            if (!RowVisible(rect, clip))
+            {
+                continue;
+            }
+
+            var species = all[i];
+            var seen = State.Seen.Contains(species.Id);
+            var caught = caughtIds.Contains(species.Id);
+            var hovered = clip.Contains(mouse) && ImGui.IsMouseHoveringRect(min, max);
+            LgUi.Card(drawList, min, max, 8f * scale, scale, hovered, !seen);
+
+            Typography.Draw(new Vector2(min.X + 8f * scale, min.Y + 6f * scale),
+                $"#{species.DexNumber:D3}", theme.TextMuted, TextStyles.Caption2);
+            var portrait = new Vector2(min.X + 24f * scale, max.Y - 17f * scale);
+            if (seen)
+            {
+                MonsterArt.Draw(drawList, portrait, 15f * scale, species, 1f,
+                    MonsterPose.Idle(time + species.DexNumber));
+            }
+            else
+            {
+                Typography.DrawCentered(portrait, "?", theme.TextMuted, TextStyles.Title3);
+            }
+
+            var name = FitLabel(seen ? species.Name : "----", max.X - (min.X + 44f * scale) - 8f * scale,
+                TextStyles.SubheadlineEmphasized);
+            Typography.Draw(new Vector2(min.X + 44f * scale, min.Y + 22f * scale), name,
+                seen ? theme.TextStrong : theme.TextMuted, TextStyles.SubheadlineEmphasized);
+            if (caught)
+            {
+                var dot = new Vector2(max.X - 12f * scale, min.Y + 12f * scale);
+                drawList.AddCircleFilled(dot, 4f * scale, ImGui.GetColorU32(Accent));
+            }
+
+            if (hovered && seen)
+            {
+                ShowTooltip(BuildSpeciesTooltip(species, caught ? "In your collection." : "Seen in the wild."));
+                if (LgUi.Interactive)
+                {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                    {
+                        dexEntrySpecies = species;
+                        learnsetMonster = null;
+                        teachPendingMove = null;
+                        dexEntryTab = 0;
+                        dexEntryTabIndicator = -1f;
+                        dexEntryScroll = 0f;
+                        dexEntryReturnView = View.Dex;
+                        view = View.DexEntry;
+                    }
+                }
+            }
+        }
+
+        y += (all.Length + cols - 1) / cols * (cellH + gap);
+    }
+
     private float MeasureDexContentHeight(float scale)
     {
+        if (dexSort == DexSort.National)
+        {
+            var rows = (Dex.All.Count + 1) / 2;
+            return rows * 58f * scale;
+        }
+
         var total = 0f;
         if (dexSort == DexSort.Region)
         {

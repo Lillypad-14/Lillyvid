@@ -115,7 +115,7 @@ internal sealed partial class LillypadGoApp
         if (gearHovered)
         {
             ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-            ImGui.SetTooltip("Options");
+            ShowTooltip("Options");
             if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             {
                 view = View.Options;
@@ -268,6 +268,18 @@ internal sealed partial class LillypadGoApp
         }
 
         return suffix;
+    }
+
+    // A width-bounded tooltip so long descriptive text (move/ability/item summaries) wraps into a
+    // readable box instead of streaming off the screen edge. Uses TextUnformatted so stray '%' in
+    // descriptions can't be read as a format specifier.
+    private static void ShowTooltip(string text)
+    {
+        ImGui.BeginTooltip();
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 20f);
+        ImGui.TextUnformatted(text);
+        ImGui.PopTextWrapPos();
+        ImGui.EndTooltip();
     }
 
     private void DrawStatusPanel(ImDrawListPtr drawList, Vector2 min, Vector2 max, MonsterInstance m, float displayedHp,

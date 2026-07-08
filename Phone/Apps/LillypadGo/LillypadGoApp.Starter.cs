@@ -69,7 +69,7 @@ internal sealed partial class LillypadGoApp
                     starterCandidate = species;
                 }
 
-                ImGui.SetTooltip(BuildSpeciesTooltip(species, "Click to select this partner."));
+                ShowTooltip(BuildSpeciesTooltip(species, "Click to select this partner."));
             }
         }
 

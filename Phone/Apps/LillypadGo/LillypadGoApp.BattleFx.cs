@@ -67,57 +67,96 @@ internal sealed partial class LillypadGoApp
 
     private static void DrawSunOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
     {
-        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(new Vector4(1f, 0.72f, 0.2f, 0.08f)));
-        var center = arena.Min + new Vector2(arena.Width * 0.78f, arena.Height * 0.16f);
-        for (var i = 0; i < 3; i++)
+        // Warm golden wash + a radiant sun disc with pulsing rings and a slow ray sweep.
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(new Vector4(1f, 0.68f, 0.18f, 0.12f)));
+        var center = arena.Min + new Vector2(arena.Width * 0.8f, arena.Height * 0.15f);
+        dl.AddCircleFilled(center, 16f * scale, ImGui.GetColorU32(new Vector4(1f, 0.86f, 0.36f, 0.5f)));
+        for (var i = 0; i < 4; i++)
         {
-            var radius = (26f + i * 18f + MathF.Sin(clock * 1.2f + i) * 4f) * scale;
-            dl.AddCircle(center, radius, ImGui.GetColorU32(new Vector4(1f, 0.8f, 0.22f, 0.22f - i * 0.05f)),
+            var radius = (24f + i * 16f + MathF.Sin(clock * 1.2f + i) * 4f) * scale;
+            dl.AddCircle(center, radius, ImGui.GetColorU32(new Vector4(1f, 0.8f, 0.24f, 0.22f - i * 0.045f)),
                 40, 2f * scale);
+        }
+
+        for (var i = 0; i < 8; i++)
+        {
+            var ang = clock * 0.15f + i * MathF.PI / 4f;
+            var dir = new Vector2(MathF.Cos(ang), MathF.Sin(ang));
+            dl.AddLine(center + dir * 20f * scale, center + dir * 44f * scale,
+                ImGui.GetColorU32(new Vector4(1f, 0.82f, 0.3f, 0.26f)), 2f * scale);
         }
     }
 
     private static void DrawRainOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
     {
+        // Cool darkening wash, dense wind-blown streaks, and the odd lightning flash — Showdown rain.
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(new Vector4(0.16f, 0.24f, 0.44f, 0.14f)));
         var rain = Elements.Color(Element.Water);
-        for (var i = 0; i < 42; i++)
+        for (var i = 0; i < 70; i++)
         {
             var seed = i * 37.91f;
             var x = arena.Min.X + ((seed * 19f) % arena.Width);
-            var y = arena.Min.Y + ((seed * 7f + clock * 260f * scale) % (arena.Height + 34f * scale)) -
-                34f * scale;
-            dl.AddLine(new Vector2(x, y), new Vector2(x - 10f * scale, y + 24f * scale),
-                ImGui.GetColorU32(rain with { W = 0.34f }), 1.4f * scale);
+            var speed = 300f + (i % 5) * 40f;
+            var y = arena.Min.Y + ((seed * 7f + clock * speed * scale) % (arena.Height + 40f * scale)) -
+                40f * scale;
+            var len = (20f + i % 3 * 6f) * scale;
+            dl.AddLine(new Vector2(x, y), new Vector2(x - len * 0.42f, y + len),
+                ImGui.GetColorU32(rain with { W = 0.30f + (i % 3) * 0.05f }), 1.3f * scale);
+        }
+
+        var flash = MathF.Sin(clock * 0.7f);
+        if (flash > 0.985f)
+        {
+            dl.AddRectFilled(arena.Min, arena.Max,
+                ImGui.GetColorU32(new Vector4(0.8f, 0.86f, 1f, (flash - 0.985f) * 18f)));
         }
     }
 
     private static void DrawSandOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
     {
-        var sand = new Vector4(0.86f, 0.62f, 0.32f, 1f);
-        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(sand with { W = 0.07f }));
+        // Showdown's sandstorm is a tan haze that streams sideways: a warm wash, a few translucent
+        // scrolling bands, wind streaks, then fine fast grains — all confined to the arena.
+        var sand = new Vector4(0.80f, 0.58f, 0.31f, 1f);
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(sand with { W = 0.16f }));
+        for (var i = 0; i < 4; i++)
+        {
+            var h = arena.Height * (0.26f + i * 0.03f);
+            var y = arena.Min.Y + (((i * 0.27f + clock * 0.05f) % 1f) * (arena.Height + h)) - h;
+            dl.AddRectFilled(new Vector2(arena.Min.X, y), new Vector2(arena.Max.X, y + h),
+                ImGui.GetColorU32(sand with { W = 0.05f }));
+        }
+
+        for (var i = 0; i < 30; i++)
+        {
+            var seed = i * 61.3f;
+            var y = arena.Min.Y + (seed * 13f) % arena.Height;
+            var x = arena.Min.X + ((seed * 9f + clock * 460f * scale) % (arena.Width + 80f * scale)) - 80f * scale;
+            var len = (30f + i % 4 * 12f) * scale;
+            dl.AddLine(new Vector2(x, y), new Vector2(x + len, y + MathF.Sin(clock + i) * 2f * scale),
+                ImGui.GetColorU32(sand with { W = 0.20f }), 1.5f * scale);
+        }
+
         for (var i = 0; i < 48; i++)
         {
             var seed = i * 53.17f;
-            var x = arena.Min.X + ((seed * 13f + clock * 130f * scale) % (arena.Width + 20f * scale)) -
-                10f * scale;
+            var x = arena.Min.X + ((seed * 13f + clock * 320f * scale) % (arena.Width + 20f * scale)) - 10f * scale;
             var y = arena.Min.Y + ((seed * 5f + MathF.Sin(clock + i) * 18f) % arena.Height);
-            dl.AddCircleFilled(new Vector2(x, y), (1.2f + i % 3) * scale,
-                ImGui.GetColorU32(sand with { W = 0.18f }));
+            dl.AddCircleFilled(new Vector2(x, y), (0.8f + i % 3) * scale, ImGui.GetColorU32(sand with { W = 0.22f }));
         }
     }
 
     private static void DrawSnowOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
     {
         var ice = Elements.Color(Element.Ice);
-        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(new Vector4(0.72f, 0.9f, 1f, 0.07f)));
-        for (var i = 0; i < 36; i++)
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(new Vector4(0.72f, 0.9f, 1f, 0.1f)));
+        for (var i = 0; i < 54; i++)
         {
             var seed = i * 29.3f;
-            var x = arena.Min.X + ((seed * 11f + MathF.Sin(clock * 0.8f + i) * 18f) % arena.Width);
-            var y = arena.Min.Y + ((seed * 17f + clock * 54f * scale) % (arena.Height + 12f * scale)) -
-                12f * scale;
-            dl.AddCircleFilled(new Vector2(x, y), (1.5f + i % 3) * scale,
-                ImGui.GetColorU32(ice with { W = 0.36f }));
+            var sway = MathF.Sin(clock * (0.8f + (i % 3) * 0.2f) + i) * 16f * scale;
+            var x = arena.Min.X + ((seed * 11f) % arena.Width) + sway;
+            var y = arena.Min.Y + ((seed * 17f + clock * (60f + i % 4 * 16f) * scale) %
+                (arena.Height + 12f * scale)) - 12f * scale;
+            dl.AddCircleFilled(new Vector2(x, y), (1.4f + i % 3) * scale, ImGui.GetColorU32(ice with { W = 0.4f }));
         }
     }
 

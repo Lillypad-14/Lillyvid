@@ -120,6 +120,11 @@ internal sealed class MonsterInstance
     public bool IngrainActive { get; set; }
     public bool LeechSeeded { get; set; }
     public bool FlashFireActive { get; set; } // Flash Fire absorbed a Fire move this battle
+    public bool Trapped { get; set; }   // Mean Look / Block / Arena Trap: cannot flee or switch out
+    public bool Grounded { get; set; }  // Smack Down: knocked out of the air, losing Ground immunity
+    public MoveDef? ChargingMove { get; set; } // a two-turn move (Dig/Fly/Solar Beam) mid-charge
+    public bool SemiInvulnerable { get; set; } // underground/in the air during a Dig/Fly-type charge
+    public bool MustRecharge { get; set; } // spends the next turn recharging (Hyper Beam etc.)
 
     public bool Fainted => CurrentHp <= 0;
     public string Name => string.IsNullOrWhiteSpace(Nickname) ? Species.Name : Nickname;
@@ -183,6 +188,11 @@ internal sealed class MonsterInstance
         IngrainActive = false;
         LeechSeeded = false;
         FlashFireActive = false;
+        Trapped = false;
+        Grounded = false;
+        ChargingMove = null;
+        SemiInvulnerable = false;
+        MustRecharge = false;
         RevertTransform(); // a copy from Transform is lost on switch/at battle start
     }
 

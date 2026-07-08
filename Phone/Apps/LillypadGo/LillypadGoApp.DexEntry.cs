@@ -159,20 +159,39 @@ internal sealed partial class LillypadGoApp
         Typography.Draw(new Vector2(summaryMax.X - 58f * scale, summaryMin.Y + 39f * scale),
             $"{species.Learnset.Length} moves", theme.TextMuted, TextStyles.Caption2);
 
-        var headerY = content.Min.Y + 184f * scale;
-        Typography.Draw(new Vector2(content.Min.X + 22f * scale, headerY), "LEVEL", theme.TextMuted,
+        // Filter tab: all moves, level-up only, or TM-learnable only.
+        var filterBounds = new Rect(new Vector2(content.Min.X + 12f * scale, content.Min.Y + 180f * scale),
+            new Vector2(content.Max.X - 12f * scale, content.Min.Y + 204f * scale));
+        var filterPick = LgUi.Segmented(filterBounds, new[] { "All", "Level-Up", "TM" }, dexLearnFilter, Accent,
+            theme, scale, ref dexLearnFilterIndicator);
+        if (filterPick >= 0 && filterPick != dexLearnFilter)
+        {
+            dexLearnFilter = filterPick;
+            dexEntryScroll = 0f;
+        }
+
+        var headerY = content.Min.Y + 214f * scale;
+        Typography.Draw(new Vector2(content.Min.X + 22f * scale, headerY), "LEARN", theme.TextMuted,
             TextStyles.Caption2);
         Typography.Draw(new Vector2(content.Min.X + 78f * scale, headerY), "MOVE", theme.TextMuted,
             TextStyles.Caption2);
         Typography.Draw(new Vector2(content.Max.X - 54f * scale, headerY), "POWER", theme.TextMuted,
             TextStyles.Caption2);
 
-        var list = new Rect(new Vector2(content.Min.X + 8f * scale, content.Min.Y + 204f * scale),
+        var list = new Rect(new Vector2(content.Min.X + 8f * scale, content.Min.Y + 232f * scale),
             new Vector2(content.Max.X - 9f * scale, content.Max.Y - 12f * scale));
-        var moves = species.Learnset.OrderBy(entry => entry.Level).ThenBy(entry => entry.Move.Name).ToArray();
+        // Level-up moves first, then the species' Gen-IX TM-legal moves; filtered by the tab above.
+        var rows = BuildLearnRows(species);
+        rows = dexLearnFilter switch
+        {
+            1 => rows.Where(row => row.TmId is null).ToArray(),
+            2 => rows.Where(row => row.TmId is not null).ToArray(),
+            _ => rows,
+        };
 
         // When opened for one of the player's creatures (via Team → Moves), this tab becomes a move
-        // relearner: teach any learnset move at or below the creature's level, replacing one if full.
+        // relearner: teach any learnset move at or below the creature's level, or any owned TM the
+        // species can learn, replacing one if the moveset is full.
         var editMon = learnsetMonster is { } lm && lm.Species.Id == species.Id ? learnsetMonster : null;
 
         // Freeze the list while the replace overlay is up; the shared scroller gates per-row clicks
@@ -183,8 +202,8 @@ internal sealed partial class LillypadGoApp
             LgUi.Interactive = false;
         }
 
-        DrawScrollList(list, 48f * scale, 4f * scale, moves.Length, ref dexEntryScroll, scale,
-            (i, row) => DrawLearnsetRow(moves[i], editMon, row, theme, scale));
+        DrawScrollList(list, 48f * scale, 4f * scale, rows.Length, ref dexEntryScroll, scale,
+            (i, row) => DrawLearnsetRow(rows[i], editMon, row, theme, scale));
 
         LgUi.Interactive = prevInteractive;
 
@@ -194,11 +213,27 @@ internal sealed partial class LillypadGoApp
         }
     }
 
-    private void DrawLearnsetRow((int Level, MoveDef Move) entry, MonsterInstance? editMon, Rect row, PhoneTheme theme,
-        float scale)
+    // A teachable/learnable move row: a level-up move (Level >= 0) or a TM move (Level = -1, TmId set).
+    private readonly record struct LearnRow(int Level, MoveDef Move, string? TmId);
+
+    private static LearnRow[] BuildLearnRows(MonsterSpecies species)
+    {
+        var levelUp = species.Learnset.OrderBy(entry => entry.Level).ThenBy(entry => entry.Move.Name)
+            .Select(entry => new LearnRow(entry.Level, entry.Move, null));
+        var tms = species.TmMoveIds
+            .Select(id => (id, move: Moves.Find(id)))
+            .Where(entry => entry.move is not null)
+            .OrderBy(entry => Tms.NumberOf(entry.id))
+            .Select(entry => new LearnRow(-1, entry.move!, entry.id));
+        return levelUp.Concat(tms).ToArray();
+    }
+
+    private void DrawLearnsetRow(LearnRow entry, MonsterInstance? editMon, Rect row, PhoneTheme theme, float scale)
     {
         var drawList = ImGui.GetWindowDrawList();
+        var isTm = entry.TmId is not null;
         var known = editMon is not null && editMon.Knows(entry.Move);
+        var ownsTm = isTm && State.OwnedTms.Contains(entry.TmId!);
         var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(row.Min, row.Max);
         LgUi.Card(drawList, row.Min, row.Max, 8f * scale, scale, hovered);
         if (known)
@@ -207,8 +242,9 @@ internal sealed partial class LillypadGoApp
                 ImGui.GetColorU32(Accent with { W = 0.85f }), 3f * scale);
         }
 
-        Typography.DrawCentered(new Vector2(row.Min.X + 28f * scale, row.Center.Y), $"Lv {entry.Level}",
-            theme.TextStrong, TextStyles.Caption1);
+        var source = isTm ? Tms.Label(Tms.NumberOf(entry.TmId!)) : $"Lv {entry.Level}";
+        Typography.DrawCentered(new Vector2(row.Min.X + 28f * scale, row.Center.Y), source,
+            isTm ? Accent with { W = 0.9f } : theme.TextStrong, TextStyles.Caption2);
         var moveX = row.Min.X + 58f * scale;
         var rightReserve = editMon is not null ? 74f * scale : 50f * scale;
         Typography.Draw(new Vector2(moveX, row.Min.Y + 7f * scale),
@@ -216,8 +252,8 @@ internal sealed partial class LillypadGoApp
             theme.TextStrong, TextStyles.SubheadlineEmphasized);
         var detail = $"{Elements.Name(entry.Move.Element)}  |  {entry.Move.CategoryLabel}  |  {entry.Move.Pp} PP";
         Typography.Draw(new Vector2(moveX, row.Min.Y + 27f * scale),
-            FitLabel(detail, row.Max.X - moveX - rightReserve, TextStyles.Caption2), theme.TextMuted,
-            TextStyles.Caption2);
+            FitLabel(detail, row.Max.X - moveX - rightReserve, TextStyles.Caption2),
+            theme.TextStrong with { W = 0.74f }, TextStyles.Caption2);
 
         if (editMon is not null)
         {
@@ -227,7 +263,11 @@ internal sealed partial class LillypadGoApp
             {
                 Typography.DrawCentered(pill.Center, "Known", Accent, TextStyles.Caption1);
             }
-            else if (entry.Level > editMon.Level)
+            else if (isTm && !ownsTm)
+            {
+                Typography.DrawCentered(pill.Center, "Need TM", theme.TextMuted, TextStyles.Caption2);
+            }
+            else if (!isTm && entry.Level > editMon.Level)
             {
                 Typography.DrawCentered(pill.Center, "Locked", theme.TextMuted, TextStyles.Caption1);
             }
@@ -250,7 +290,7 @@ internal sealed partial class LillypadGoApp
 
         if (hovered)
         {
-            ImGui.SetTooltip(BuildProfileMoveTooltip(entry.Move, entry.Move.Pp));
+            ShowTooltip(BuildProfileMoveTooltip(entry.Move, entry.Move.Pp));
         }
     }
 
