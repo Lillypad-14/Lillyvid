@@ -16,6 +16,12 @@ $localDotnet = Join-Path (Split-Path $repoRoot -Parent) ".dotnet\dotnet.exe"
 if (Test-Path -LiteralPath $localDotnet) {
     $dotnet = $localDotnet
 }
+else {
+    $appDataDotnet = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Microsoft\dotnet\dotnet.exe"
+    if (Test-Path -LiteralPath $appDataDotnet) {
+        $dotnet = $appDataDotnet
+    }
+}
 
 $artifactRoot = Join-Path $repoRoot "artifacts"
 $packageRoot = Join-Path $artifactRoot "VideoSyncPrototype"
@@ -39,6 +45,31 @@ New-Item -ItemType Directory -Force -Path $overlayOut | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot "bin\$Configuration\VideoSyncPrototype.dll") -Destination $packageRoot -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "bin\$Configuration\VideoSyncPrototype.deps.json") -Destination $packageRoot -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot "bin\$Configuration\VideoSyncPrototype.json") -Destination $packageRoot -Force
+
+foreach ($contentDir in @("Assets", "Fonts", "Wallpapers")) {
+    $sourceDir = Join-Path $repoRoot "bin\$Configuration\$contentDir"
+    if (Test-Path -LiteralPath $sourceDir) {
+        Copy-Item -LiteralPath $sourceDir -Destination (Join-Path $packageRoot $contentDir) -Recurse -Force
+    }
+}
+
+$noticePath = Join-Path $repoRoot "bin\$Configuration\THIRD-PARTY-NOTICES.md"
+if (Test-Path -LiteralPath $noticePath) {
+    Copy-Item -LiteralPath $noticePath -Destination $packageRoot -Force
+}
+
+$assetSource = Join-Path $repoRoot "Assets\pokemon"
+$assetCount = (Get-ChildItem -LiteralPath $assetSource -Recurse -File | Measure-Object).Count
+$zipAssetRoot = Join-Path $packageRoot "Assets\pokemon"
+$packagedAssetCount = if (Test-Path -LiteralPath $zipAssetRoot) {
+    (Get-ChildItem -LiteralPath $zipAssetRoot -Recurse -File | Measure-Object).Count
+} else {
+    0
+}
+
+if ($assetCount -le 0 -or $packagedAssetCount -ne $assetCount) {
+    throw "Lillypad Go asset packaging failed. Expected $assetCount Assets\pokemon files, packaged $packagedAssetCount."
+}
 
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
@@ -89,3 +120,4 @@ if ($WritePluginMaster) {
 
 Write-Host "Packaged:"
 Write-Host $zipPath
+Write-Host "Lillypad Go assets packaged: $packagedAssetCount"
