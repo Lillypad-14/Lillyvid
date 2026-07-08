@@ -1500,32 +1500,35 @@ internal sealed class Battle
         }
     }
 
+    // The enemy's move choice. Wild creatures act on instinct (a random usable move); trainers and
+    // gym leaders play to win (score each move, prioritise KOs, use status/setup/heals situationally).
     private MoveDef ChooseWildMove()
     {
-        MoveDef best = Wild.Moves.Count > 0 ? Wild.Moves[0] : Moves.Tackle;
-        var bestScore = -1f;
+        var usable = new List<MoveDef>();
         for (var i = 0; i < Wild.Moves.Count; i++)
         {
-            if (i < Wild.Pp.Count && Wild.Pp[i] <= 0)
+            if (i >= Wild.Pp.Count || Wild.Pp[i] > 0)
             {
-                continue;
+                usable.Add(Wild.Moves[i]);
             }
+        }
 
-            var move = Wild.Moves[i];
-            var score = move.Effect switch
-            {
-                MoveEffect.HealUser when Wild.CurrentHp >= Wild.MaxHp => 0f,
-                MoveEffect.HealUser => Wild.HpFraction < 0.4f ? 120f : Wild.HpFraction < 0.7f ? 52f : 10f,
-                MoveEffect.RaiseAtk => Wild.AtkStage >= 2 ? 2f : 28f - Wild.AtkStage * 7f,
-                MoveEffect.RaiseDef => Wild.DefStage >= 2 ? 2f : 28f - Wild.DefStage * 7f,
-                MoveEffect.RaiseSpAtk => Wild.SpAtkStage >= 2 ? 2f : 28f - Wild.SpAtkStage * 7f,
-                MoveEffect.RaiseSpDef => Wild.SpDefStage >= 2 ? 2f : 28f - Wild.SpDefStage * 7f,
-                MoveEffect.RaiseSpd => Wild.SpdStage >= 2 ? 2f : 28f - Wild.SpdStage * 7f,
-                _ when move.IsStatus => 12f,
-                _ => move.Power * Elements.Effectiveness(move.Element, Active.Element, Active.SecondaryElement) *
-                     (Wild.HasType(move.Element) ? 1.5f : 1f),
-            };
-            score *= 0.7f + (float)rng.NextDouble() * 0.6f;
+        if (usable.Count == 0)
+        {
+            return Moves.Struggle;
+        }
+
+        if (!IsTrainerBattle)
+        {
+            return usable[rng.Next(usable.Count)];
+        }
+
+        MoveDef best = usable[0];
+        var bestScore = float.MinValue;
+        foreach (var move in usable)
+        {
+            // A little jitter keeps trainers from being perfectly predictable, but good moves win.
+            var score = ScoreTrainerMove(move) * (0.85f + (float)rng.NextDouble() * 0.3f);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -1533,7 +1536,63 @@ internal sealed class Battle
             }
         }
 
-        return bestScore < 0f ? Moves.Struggle : best;
+        return best;
+    }
+
+    // Heuristic value of a move for a trainer/gym AI, given the current matchup (Wild attacks Active).
+    private float ScoreTrainerMove(MoveDef move)
+    {
+        if (!move.IsStatus)
+        {
+            var eff = EffectivenessWith(Wild, Active, move);
+            if (eff <= 0f)
+            {
+                return 1f; // never pick a move the target is immune to
+            }
+
+            var stab = Wild.HasType(move.Element) ? 1.5f : 1f;
+            var atk = Wild.OffensiveStat(move.Category, false);
+            var def = Math.Max(1, Active.DefensiveStat(move.Category, false));
+            var raw = (2f * Wild.Level / 5f + 2f) * move.Power * atk / def / 50f + 2f;
+            var estDamage = raw * eff * stab;
+            var accuracy = move.Accuracy <= 0 ? 1f : move.Accuracy / 100f;
+            var score = estDamage * accuracy;
+            if (estDamage >= Active.CurrentHp)
+            {
+                score *= 4f; // this move should KO — go for it
+            }
+
+            return score;
+        }
+
+        var setup = Math.Max(0, Wild.AtkStage) + Math.Max(0, Wild.SpAtkStage) + Math.Max(0, Wild.SpdStage) +
+            Math.Max(0, Wild.DefStage) + Math.Max(0, Wild.SpDefStage);
+        return move.Effect switch
+        {
+            MoveEffect.HealUser => Wild.HpFraction < 0.35f ? 220f : Wild.HpFraction < 0.6f ? 80f : 2f,
+            MoveEffect.Rest => Wild.HpFraction < 0.4f ? 210f : 2f,
+            MoveEffect.Burn or MoveEffect.Paralyze or MoveEffect.Poison or MoveEffect.Sleep or MoveEffect.Freeze
+                => Active.Status == Status.None ? 85f : 2f,
+            MoveEffect.Confuse => Active.ConfusionTurns <= 0 ? 60f : 2f,
+            MoveEffect.Yawn => Active.Status == Status.None ? 55f : 2f,
+            MoveEffect.LeechSeed => Active.LeechSeeded ? 2f : 60f,
+            MoveEffect.RaiseAtk or MoveEffect.RaiseSpAtk or MoveEffect.RaiseDef or MoveEffect.RaiseSpDef
+                or MoveEffect.RaiseSpd or MoveEffect.RaiseAtkDef or MoveEffect.RaiseSpAtkSpDef
+                or MoveEffect.RaiseAtkSpd or MoveEffect.BellyDrum or MoveEffect.Acupressure
+                => Wild.HpFraction > 0.55f && setup < 4 ? 75f : 4f,
+            MoveEffect.LowerTargetAtk or MoveEffect.LowerTargetSpAtk or MoveEffect.LowerTargetDef
+                or MoveEffect.LowerTargetSpDef or MoveEffect.LowerTargetSpd or MoveEffect.LowerTargetAccuracy
+                or MoveEffect.LowerTargetEvasion => 38f,
+            MoveEffect.ReflectSide or MoveEffect.LightScreenSide => 55f,
+            MoveEffect.SetSun or MoveEffect.SetRain or MoveEffect.SetSandstorm or MoveEffect.SetSnow
+                or MoveEffect.SetElectricTerrain or MoveEffect.SetGrassyTerrain or MoveEffect.SetMistyTerrain
+                or MoveEffect.SetPsychicTerrain or MoveEffect.TrickRoom => 45f,
+            MoveEffect.ProtectUser or MoveEffect.EndureUser => Active.LastMove is null ? 8f : 14f,
+            MoveEffect.CureUserStatus => Wild.Status != Status.None ? 60f : 2f,
+            MoveEffect.Haze => setup < 0 ? 40f : 12f,
+            MoveEffect.NoOp => 1f,
+            _ => 30f,
+        };
     }
 
     private void Execute(MonsterInstance attacker, MonsterInstance defender, MoveDef move, BattleCue attackCue,
