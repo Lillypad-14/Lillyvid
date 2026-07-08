@@ -15,6 +15,112 @@ internal sealed partial class LillypadGoApp
 {
     // ---- Battle: floating popups + hit/move visual effects ----
 
+    private static void DrawFieldEffects(ImDrawListPtr drawList, Rect arena, BattleWeather weather,
+        BattleTerrain terrain, float clock, float scale)
+    {
+        DrawTerrainOverlay(drawList, arena, terrain, clock, scale);
+        switch (weather)
+        {
+            case BattleWeather.Sun:
+                DrawSunOverlay(drawList, arena, clock, scale);
+                break;
+            case BattleWeather.Rain:
+                DrawRainOverlay(drawList, arena, clock, scale);
+                break;
+            case BattleWeather.Sandstorm:
+                DrawSandOverlay(drawList, arena, clock, scale);
+                break;
+            case BattleWeather.Snow:
+                DrawSnowOverlay(drawList, arena, clock, scale);
+                break;
+        }
+    }
+
+    private static void DrawTerrainOverlay(ImDrawListPtr dl, Rect arena, BattleTerrain terrain, float clock,
+        float scale)
+    {
+        if (terrain == BattleTerrain.None)
+        {
+            return;
+        }
+
+        var tone = terrain switch
+        {
+            BattleTerrain.Electric => Elements.Color(Element.Electric),
+            BattleTerrain.Grassy => Elements.Color(Element.Grass),
+            BattleTerrain.Misty => Elements.Color(Element.Fairy),
+            BattleTerrain.Psychic => Elements.Color(Element.Psychic),
+            _ => new Vector4(1f),
+        };
+        var horizon = arena.Min.Y + arena.Height * 0.58f;
+        var floor = new Rect(new Vector2(arena.Min.X, horizon), arena.Max);
+        dl.AddRectFilled(floor.Min, floor.Max, ImGui.GetColorU32(tone with { W = 0.1f }));
+        for (var i = 0; i < 8; i++)
+        {
+            var y = horizon + (i + 1) * floor.Height / 9f;
+            var pulse = 0.35f + 0.2f * MathF.Sin(clock * 2.4f + i);
+            dl.AddLine(new Vector2(arena.Min.X + 18f * scale, y),
+                new Vector2(arena.Max.X - 18f * scale, y), ImGui.GetColorU32(tone with { W = pulse * 0.22f }),
+                1.2f * scale);
+        }
+    }
+
+    private static void DrawSunOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
+    {
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(new Vector4(1f, 0.72f, 0.2f, 0.08f)));
+        var center = arena.Min + new Vector2(arena.Width * 0.78f, arena.Height * 0.16f);
+        for (var i = 0; i < 3; i++)
+        {
+            var radius = (26f + i * 18f + MathF.Sin(clock * 1.2f + i) * 4f) * scale;
+            dl.AddCircle(center, radius, ImGui.GetColorU32(new Vector4(1f, 0.8f, 0.22f, 0.22f - i * 0.05f)),
+                40, 2f * scale);
+        }
+    }
+
+    private static void DrawRainOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
+    {
+        var rain = Elements.Color(Element.Water);
+        for (var i = 0; i < 42; i++)
+        {
+            var seed = i * 37.91f;
+            var x = arena.Min.X + ((seed * 19f) % arena.Width);
+            var y = arena.Min.Y + ((seed * 7f + clock * 260f * scale) % (arena.Height + 34f * scale)) -
+                34f * scale;
+            dl.AddLine(new Vector2(x, y), new Vector2(x - 10f * scale, y + 24f * scale),
+                ImGui.GetColorU32(rain with { W = 0.34f }), 1.4f * scale);
+        }
+    }
+
+    private static void DrawSandOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
+    {
+        var sand = new Vector4(0.86f, 0.62f, 0.32f, 1f);
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(sand with { W = 0.07f }));
+        for (var i = 0; i < 48; i++)
+        {
+            var seed = i * 53.17f;
+            var x = arena.Min.X + ((seed * 13f + clock * 130f * scale) % (arena.Width + 20f * scale)) -
+                10f * scale;
+            var y = arena.Min.Y + ((seed * 5f + MathF.Sin(clock + i) * 18f) % arena.Height);
+            dl.AddCircleFilled(new Vector2(x, y), (1.2f + i % 3) * scale,
+                ImGui.GetColorU32(sand with { W = 0.18f }));
+        }
+    }
+
+    private static void DrawSnowOverlay(ImDrawListPtr dl, Rect arena, float clock, float scale)
+    {
+        var ice = Elements.Color(Element.Ice);
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(new Vector4(0.72f, 0.9f, 1f, 0.07f)));
+        for (var i = 0; i < 36; i++)
+        {
+            var seed = i * 29.3f;
+            var x = arena.Min.X + ((seed * 11f + MathF.Sin(clock * 0.8f + i) * 18f) % arena.Width);
+            var y = arena.Min.Y + ((seed * 17f + clock * 54f * scale) % (arena.Height + 12f * scale)) -
+                12f * scale;
+            dl.AddCircleFilled(new Vector2(x, y), (1.5f + i % 3) * scale,
+                ImGui.GetColorU32(ice with { W = 0.36f }));
+        }
+    }
+
     private void AddBattlePopup(bool onWild, int hpDelta, BattleMessage battleMessage)
     {
         if (hpDelta == 0)
@@ -138,6 +244,20 @@ internal sealed partial class LillypadGoApp
                 var side = new Vector2(-direction.Y, direction.X) * 3.5f * scale;
                 drawList.AddTriangleFilled(position + direction * 7f * scale, position - direction * 5f * scale + side,
                     position - direction * 5f * scale - side, ImGui.GetColorU32(ice with { W = 0.72f }));
+            }
+
+            return;
+        }
+
+        if (status == Status.Sleep)
+        {
+            var psychic = Elements.Color(Element.Psychic);
+            for (var i = 0; i < 4; i++)
+            {
+                var phase = (clock * 0.35f + i * 0.22f) % 1f;
+                var position = center + new Vector2((18f + i * 8f) * scale, (-18f - phase * 34f) * scale);
+                var alpha = MathF.Sin(phase * MathF.PI) * 0.85f;
+                Typography.Draw(position, "Z", psychic with { W = alpha }, TextStyles.Caption1);
             }
 
             return;

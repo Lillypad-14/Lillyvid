@@ -98,9 +98,99 @@ function levelupMoves(id) {
 }
 
 // --- Move effect mapping -> our MoveEffect enum ---
-const STATUS = { brn: 'Burn', frz: 'Freeze', par: 'Paralyze', psn: 'Poison', tox: 'Poison' };
+const STATUS = { brn: 'Burn', frz: 'Freeze', slp: 'Sleep', par: 'Paralyze', psn: 'Poison', tox: 'Poison' };
 const BOOST_LOWER = { atk: 'LowerTargetAtk', def: 'LowerTargetDef', spa: 'LowerTargetSpAtk', spd: 'LowerTargetSpDef', spe: 'LowerTargetSpd', accuracy: 'LowerTargetAccuracy' };
-const BOOST_RAISE = { atk: 'RaiseAtk', def: 'RaiseDef', spe: 'RaiseSpd', evasion: 'RaiseEvasion' };
+const BOOST_RAISE = { atk: 'RaiseAtk', def: 'RaiseDef', spa: 'RaiseSpAtk', spd: 'RaiseSpDef', spe: 'RaiseSpd', accuracy: 'RaiseAccuracy', evasion: 'RaiseEvasion' };
+
+const SPECIAL_EFFECTS = {
+  acupressure: ['Acupressure', 0, 1],
+  afteryou: ['RaiseSpd', 0, 1],
+  allyswitch: ['RaiseEvasion', 0, 1],
+  aquaring: ['AquaRing', 0, 1],
+  aromatherapy: ['CureUserStatus', 0, 1],
+  batonpass: ['RaiseSpd', 0, 1],
+  bellydrum: ['BellyDrum', 0, 1],
+  block: ['LowerTargetSpd', 0, 1],
+  camouflage: ['RaiseDef', 0, 1],
+  charge: ['RaiseSpDef', 0, 1],
+  clearsmog: ['Haze', 0, 1],
+  conversion: ['RaiseDef', 0, 1],
+  conversion2: ['RaiseSpDef', 0, 1],
+  copycat: ['RaiseAtk', 0, 1],
+  curse: ['RaiseAtk', 0, 1],
+  destinybond: ['NoOp', 0, 1],
+  detect: ['ProtectUser', 0, 1],
+  disable: ['LowerTargetAccuracy', 0, 1],
+  electricterrain: ['SetElectricTerrain', 0, 1],
+  encore: ['LowerTargetAtk', 0, 1],
+  endure: ['EndureUser', 0, 1],
+  focusenergy: ['RaiseAtk', 0, 1],
+  followme: ['RaiseDef', 0, 1],
+  foresight: ['LowerTargetEvasion', 0, 1],
+  gastroacid: ['LowerTargetSpAtk', 0, 1],
+  grassyterrain: ['SetGrassyTerrain', 0, 1],
+  gravity: ['LowerTargetEvasion', 0, 1],
+  guardswap: ['RaiseSpDef', 0, 1],
+  haze: ['Haze', 0, 1],
+  helpinghand: ['RaiseAtk', 0, 1],
+  imprison: ['LowerTargetSpAtk', 0, 1],
+  ingrain: ['Ingrain', 0, 1],
+  leechseed: ['LeechSeed', 0, 1],
+  lightscreen: ['LightScreenSide', 0, 1],
+  lockon: ['RaiseAccuracy', 0, 2],
+  magnetrise: ['RaiseEvasion', 0, 1],
+  magneticflux: ['RaiseDef', 0, 1],
+  mefirst: ['RaiseAtk', 0, 1],
+  meanlook: ['LowerTargetSpd', 0, 1],
+  metronome: ['NoOp', 0, 1],
+  mimic: ['RaiseAccuracy', 0, 1],
+  miracleeye: ['LowerTargetEvasion', 0, 1],
+  mirrormove: ['RaiseAtk', 0, 1],
+  mist: ['LightScreenSide', 0, 1],
+  mistyterrain: ['SetMistyTerrain', 0, 1],
+  mudsport: ['RaiseSpDef', 0, 1],
+  perishsong: ['NoOp', 0, 1],
+  powerswap: ['RaiseSpAtk', 0, 1],
+  protect: ['ProtectUser', 0, 1],
+  psychicterrain: ['SetPsychicTerrain', 0, 1],
+  psychup: ['Acupressure', 0, 1],
+  quickguard: ['ProtectUser', 0, 1],
+  ragepowder: ['RaiseDef', 0, 1],
+  raindance: ['SetRain', 0, 1],
+  recycle: ['HealUser', 0, 1],
+  reflect: ['ReflectSide', 0, 1],
+  reflecttype: ['RaiseDef', 0, 1],
+  refresh: ['CureUserStatus', 0, 1],
+  roar: ['ForceSwitch', 0, 1],
+  roleplay: ['RaiseSpAtk', 0, 1],
+  safeguard: ['LightScreenSide', 0, 1],
+  sandstorm: ['SetSandstorm', 0, 1],
+  sleeptalk: ['NoOp', 0, 1],
+  snowscape: ['SetSnow', 0, 1],
+  soak: ['LowerTargetSpDef', 0, 1],
+  spikes: ['LowerTargetSpd', 0, 1],
+  spite: ['LowerTargetSpAtk', 0, 1],
+  splash: ['NoOp', 0, 1],
+  spotlight: ['RaiseDef', 0, 1],
+  stealthrock: ['LowerTargetSpd', 0, 1],
+  stockpile: ['RaiseDef', 0, 1],
+  substitute: ['ProtectUser', 0, 1],
+  sunnyday: ['SetSun', 0, 1],
+  sweetscent: ['LowerTargetEvasion', 0, 1],
+  switcheroo: ['LowerTargetAtk', 0, 1],
+  tailwind: ['RaiseSpd', 0, 2],
+  taunt: ['LowerTargetSpAtk', 0, 1],
+  telekinesis: ['LowerTargetEvasion', 0, 1],
+  teleport: ['ForceSwitch', 0, 1],
+  toxicspikes: ['LowerTargetSpd', 0, 1],
+  trick: ['LowerTargetAtk', 0, 1],
+  watersport: ['RaiseSpDef', 0, 1],
+  whirlwind: ['ForceSwitch', 0, 1],
+  wideguard: ['ProtectUser', 0, 1],
+  wonderroom: ['Haze', 0, 1],
+  worryseed: ['LowerTargetSpAtk', 0, 1],
+  yawn: ['Yawn', 0, 1],
+};
 
 function firstBoost(boosts, table) {
   for (const [k, v] of Object.entries(boosts)) {
@@ -109,9 +199,13 @@ function firstBoost(boosts, table) {
   return null;
 }
 
-function mapEffect(mv) {
+function mapEffect(mv, moveid) {
   // returns {effect, chance, stage}
   const none = { effect: 'None', chance: 0, stage: 1 };
+  if (SPECIAL_EFFECTS[moveid]) {
+    const [effect, chance, stage] = SPECIAL_EFFECTS[moveid];
+    return { effect, chance, stage };
+  }
   // 0) unique: Transform (Ditto)
   if (mv.name === 'Transform') return { effect: 'Transform', chance: 0, stage: 1 };
   // 1) primary status (status-only moves like Thunder Wave, Toxic, Will-O-Wisp)
@@ -163,7 +257,7 @@ for (const moveid of usedMoves) {
   let power = mv.basePower || 0;
   if (power === 0 && category !== 'Status') power = 50; // fixed/variable-power fallbacks
   const acc = mv.accuracy === true ? 0 : mv.accuracy; // 0 = never-miss sentinel in engine
-  const eff = mapEffect(mv);
+  const eff = mapEffect(mv, moveid);
   moves.push({
     id: moveid,
     name: mv.name,

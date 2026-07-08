@@ -99,8 +99,11 @@ internal sealed partial class LillypadGoApp
         var rect = new Rect(new Vector2(clip.Min.X + 6f * scale, y),
             new Vector2(clip.Max.X - 4f * scale, y + height));
         var expanded = expandedDexRegions.Contains(region);
-        var caught = zones.Sum(zone => DexCaughtCount(zone, caughtIds));
-        var total = zones.Sum(zone => zone.Encounters.Select(entry => entry.SpeciesId).Distinct().Count());
+        var regionSpecies = zones.SelectMany(zone => zone.Encounters.Select(entry => entry.SpeciesId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var caught = regionSpecies.Count(caughtIds.Contains);
+        var total = regionSpecies.Length;
         if (RowVisible(rect, clip) && DrawDexDisclosure(rect, FitLabel(region, rect.Width - 112f * scale,
                 TextStyles.SubheadlineEmphasized), $"{caught}/{total}", expanded, theme, scale, true, clip))
         {

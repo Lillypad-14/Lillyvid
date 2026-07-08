@@ -196,6 +196,35 @@ const EARLY_FIXED = {
   141: ['rattata', 'spearow', 'sandshrew', 'geodude'],
 };
 const EARLY_EXCLUSIVE = { 134: 'magikarp', 148: 'metapod', 141: 'sandshrew' };
+const ZONE_OVERRIDES = {
+  // Late-game zones are intentionally broader than a single biome bucket. Coerthas is the
+  // "Seafoam/Victory Road" bridge, while Mor Dhona is the Cerulean Cave-style finale.
+  155: {
+    exclusive: 'articuno',
+    entries: [
+      ['dewgong', 28], ['cloyster', 26], ['jynx', 24], ['lapras', 18],
+      ['chansey', 12], ['snorlax', 10], ['aerodactyl', 8], ['dratini', 8],
+      ['dragonair', 8], ['porygon', 8], ['ditto', 8], ['articuno', 3],
+    ],
+  },
+  156: {
+    exclusive: 'mewtwo',
+    entries: [
+      ['gyarados', 28], ['lapras', 22], ['blastoise', 18], ['venusaur', 18],
+      ['charizard', 18], ['alakazam', 14], ['gengar', 14], ['dragonair', 12],
+      ['dragonite', 6], ['rhydon', 10], ['exeggutor', 10], ['starmie', 10],
+      ['zapdos', 3], ['moltres', 3], ['mewtwo', 2], ['mew', 1],
+    ],
+  },
+};
+
+function minProgressFor(s) {
+  if (s.legendary) return 15;
+  if (['dratini', 'dragonair', 'dragonite', 'aerodactyl', 'lapras', 'snorlax', 'chansey', 'porygon'].includes(s.id)) return 12;
+  if (s.bst >= 500) return 10;
+  if (s.bst >= 450) return 7;
+  return 3;
+}
 
 function emitZones() {
   const maxProg = ZONES.length - 1;
@@ -207,11 +236,14 @@ function emitZones() {
   const placed = new Set();
   for (const [terr, , , , biome, prog] of ZONES) {
     let entries; let exclusive;
-    if (EARLY_FIXED[terr]) {
+    if (ZONE_OVERRIDES[terr]) {
+      exclusive = ZONE_OVERRIDES[terr].exclusive;
+      entries = ZONE_OVERRIDES[terr].entries.map(([id, weight]) => ({ id, weight }));
+    } else if (EARLY_FIXED[terr]) {
       exclusive = EARLY_EXCLUSIVE[terr];
       entries = EARLY_FIXED[terr].map((id, i) => ({ id, weight: id === exclusive ? 24 : 34 - i * 6 }));
     } else {
-      const allowLegend = prog >= maxProg - 2;
+      const allowLegend = prog >= maxProg - 1;
       const picks = pickNear(members[biome], targetOf(prog), 5, allowLegend);
       exclusive = picks[picks.length - 1].id;
       const enc = picks.slice(0, 4);
@@ -230,6 +262,7 @@ function emitZones() {
     if (placed.has(s.id)) continue;
     let best = nonEarly[0][0]; let bestScore = Infinity;
     for (const [terr, , , , biome, prog] of nonEarly) {
+      if (prog < minProgressFor(s)) continue;
       let score = Math.abs(bstById[s.id] - targetOf(prog));
       if (!biomesOf(speciesById[s.id]).includes(biome)) score += 90;
       if (score < bestScore) { bestScore = score; best = terr; }

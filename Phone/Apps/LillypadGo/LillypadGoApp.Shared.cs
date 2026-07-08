@@ -307,6 +307,7 @@ internal sealed partial class LillypadGoApp
         var (statusElement, statusLabel) = displayedStatus switch
         {
             Status.Freeze => (Element.Ice, "FRZ"),
+            Status.Sleep => (Element.Psychic, "SLP"),
             Status.Paralysis => (Element.Electric, "PAR"),
             Status.Poison => (Element.Poison, "PSN"),
             _ => (Element.Fire, "BRN"),

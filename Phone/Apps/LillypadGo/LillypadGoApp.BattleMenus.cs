@@ -538,6 +538,7 @@ internal sealed partial class LillypadGoApp
     {
         Status.Burn => "burn",
         Status.Freeze => "freeze",
+        Status.Sleep => "sleep",
         Status.Paralysis => "paralysis",
         Status.Poison => "poison",
         _ => "status",

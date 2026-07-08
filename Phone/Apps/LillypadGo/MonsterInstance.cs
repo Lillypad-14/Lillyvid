@@ -7,6 +7,7 @@ internal enum Status : byte
     Freeze,
     Paralysis,
     Poison,
+    Sleep,
 }
 
 internal enum Gender : byte
@@ -111,6 +112,13 @@ internal sealed class MonsterInstance
     public int EvasionStage { get; set; }
     public bool Flinched { get; set; }
     public int ConfusionTurns { get; set; }
+    public int SleepTurns { get; set; }
+    public int YawnTurns { get; set; }
+    public bool Protecting { get; set; }
+    public bool Enduring { get; set; }
+    public bool AquaRingActive { get; set; }
+    public bool IngrainActive { get; set; }
+    public bool LeechSeeded { get; set; }
     public bool FlashFireActive { get; set; } // Flash Fire absorbed a Fire move this battle
 
     public bool Fainted => CurrentHp <= 0;
@@ -167,6 +175,13 @@ internal sealed class MonsterInstance
         EvasionStage = 0;
         Flinched = false;
         ConfusionTurns = 0;
+        SleepTurns = 0;
+        YawnTurns = 0;
+        Protecting = false;
+        Enduring = false;
+        AquaRingActive = false;
+        IngrainActive = false;
+        LeechSeeded = false;
         FlashFireActive = false;
         RevertTransform(); // a copy from Transform is lost on switch/at battle start
     }
@@ -329,15 +344,24 @@ internal sealed class MonsterInstance
         }
 
         Status = Status.None;
+        SleepTurns = 0;
+        YawnTurns = 0;
         CurrentHp = full ? MaxHp : Math.Max(1, MaxHp / 2);
     }
 
-    public void CureStatus() => Status = Status.None;
+    public void CureStatus()
+    {
+        Status = Status.None;
+        SleepTurns = 0;
+        YawnTurns = 0;
+    }
 
     public void FullHeal()
     {
         CurrentHp = MaxHp;
         Status = Status.None;
+        SleepTurns = 0;
+        YawnTurns = 0;
         for (var i = 0; i < Pp.Count && i < Moves.Count; i++)
         {
             Pp[i] = Moves[i].Pp;

@@ -26,6 +26,7 @@ internal sealed partial class LillypadGoApp
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
         BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, true);
+        DrawFieldEffects(drawList, content, battle.Weather, battle.Terrain, time, scale);
         var player = displayedPlayer ?? battle.Active;
         playerAnim.Update(dt);
         wildAnim.Update(dt);
