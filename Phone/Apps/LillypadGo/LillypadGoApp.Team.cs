@@ -34,18 +34,33 @@ internal sealed partial class LillypadGoApp
         }
 
         var all = teamShowingStorage ? State.Box : State.Party;
-        var top = content.Min.Y + 72f * scale;
+
+        // Sort control (cycles): Caught order / Level / Type / Dex # / Name.
+        var sortRect = CenteredAt(new Vector2(content.Min.X + 92f * scale, content.Min.Y + 84f * scale),
+            new Vector2(160f * scale, 24f * scale));
+        if (LgUi.Button(sortRect, $"Sort: {TeamSortLabel(teamSort)}", GamePalette.Cell, theme, true))
+        {
+            teamSort = (TeamSort)(((int)teamSort + 1) % 5);
+            teamPage = 0;
+        }
+
+        if (ImGui.IsMouseHoveringRect(sortRect.Min, sortRect.Max))
+        {
+            ImGui.SetTooltip("Tap to change how this list is ordered.");
+        }
+
+        var sorted = SortedTeamView(all, teamSort);
+        var top = content.Min.Y + 102f * scale;
         var bottom = content.Max.Y - 52f * scale;
         var rowH = 62f * scale;
         var rowsPerPage = Math.Max(1, (int)((bottom - top) / rowH));
-        var pageCount = Math.Max(1, (all.Count + rowsPerPage - 1) / rowsPerPage);
+        var pageCount = Math.Max(1, (sorted.Count + rowsPerPage - 1) / rowsPerPage);
         teamPage = Math.Clamp(teamPage, 0, pageCount - 1);
         var start = teamPage * rowsPerPage;
-        var visible = Math.Min(rowsPerPage, all.Count - start);
+        var visible = Math.Min(rowsPerPage, sorted.Count - start);
         for (var row = 0; row < visible; row++)
         {
-            var index = start + row;
-            var m = all[index];
+            var (m, index) = sorted[start + row];
             var min = new Vector2(content.Min.X + 12f * scale, top + row * rowH + 4f * scale);
             var max = new Vector2(content.Max.X - 12f * scale, top + (row + 1) * rowH - 4f * scale);
             var rowHovered = ImGui.IsMouseHoveringRect(min, max);
@@ -152,6 +167,31 @@ internal sealed partial class LillypadGoApp
 
     private static Rect CenteredAt(Vector2 center, Vector2 size) => new(center - size * 0.5f, center + size * 0.5f);
 
+    // A sorted VIEW over the party/box that preserves each creature's real index (so the row
+    // actions still target the right slot in the underlying list).
+    private static List<(MonsterInstance Mon, int Index)> SortedTeamView(List<MonsterInstance> list, TeamSort sort)
+    {
+        var indexed = list.Select((m, i) => (Mon: m, Index: i));
+        var ordered = sort switch
+        {
+            TeamSort.Level => indexed.OrderByDescending(e => e.Mon.Level).ThenBy(e => e.Index),
+            TeamSort.Type => indexed.OrderBy(e => (int)e.Mon.Element).ThenByDescending(e => e.Mon.Level),
+            TeamSort.Dex => indexed.OrderBy(e => e.Mon.Species.DexNumber),
+            TeamSort.Name => indexed.OrderBy(e => e.Mon.Name, StringComparer.OrdinalIgnoreCase),
+            _ => indexed,
+        };
+        return ordered.ToList();
+    }
+
+    private static string TeamSortLabel(TeamSort sort) => sort switch
+    {
+        TeamSort.Level => "Level",
+        TeamSort.Type => "Type",
+        TeamSort.Dex => "Dex #",
+        TeamSort.Name => "Name",
+        _ => "Caught",
+    };
+
     private void MoveStoredToTeam(int boxIndex)
     {
         if (boxIndex < 0 || boxIndex >= State.Box.Count)
@@ -193,7 +233,29 @@ internal sealed partial class LillypadGoApp
         detailMonster = monster;
         detailReturnView = returnView;
         detailNameDraft = monster.Nickname;
+        releaseConfirm = false;
+        draggingMoveIndex = -1;
         view = View.Detail;
+    }
+
+    // The Poké Dollars earned for releasing a creature (scales with level and species strength).
+    private static int ReleaseValue(MonsterInstance monster) =>
+        Math.Max(40, monster.Level * 12 + monster.Species.BaseStatTotal / 3);
+
+    private void ReleaseMonster(MonsterInstance monster)
+    {
+        var reward = ReleaseValue(monster);
+        var removed = State.Party.Remove(monster) || State.Box.Remove(monster);
+        if (!removed)
+        {
+            return;
+        }
+
+        State.Money += reward;
+        releaseConfirm = false;
+        detailMonster = null;
+        State.Save();
+        view = detailReturnView;
     }
 
 }

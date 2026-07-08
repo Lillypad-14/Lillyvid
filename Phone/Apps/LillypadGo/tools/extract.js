@@ -23,6 +23,9 @@ function evalTable(file, name) {
 const Pokedex = evalTable('pokedex.ts', 'Pokedex');
 const Moves = evalTable('moves.ts', 'Moves');
 const Learnsets = evalTable('learnsets.ts', 'Learnsets');
+const Abilities = evalTable('abilities.ts', 'Abilities');
+// Ability descriptions live in the separate text/localisation file, not data/abilities.ts.
+const AbilitiesText = evalTable('abilities_text.ts', 'AbilitiesText');
 
 // --- PokeAPI CSV: num -> {capture, habitat, legendary} ---
 const csv = fs.readFileSync(path.join(DIR, 'species.csv'), 'utf8').trim().split(/\r?\n/);
@@ -55,11 +58,28 @@ if (species.length !== 151) {
   console.error('WARNING expected 151 base species, got', species.length);
 }
 
-// --- Level-up learnset: newest generation's L-codes ---
+// --- Level-up learnset ---
+// Prefer Scarlet/Violet (gen 9) level-up moves: a move is a real SV level-up move only if its
+// newest code is "9L<level>". Falling back to the newest older-gen L-code (the previous behaviour)
+// pulled TM-only SV moves at their old level-up levels, which read as wrong. Only mons with no SV
+// level-up data at all (rare for Kanto) use the legacy newest-gen fallback.
 function levelupMoves(id) {
   const entry = Learnsets[id];
   const out = [];
   if (!entry || !entry.learnset) return out;
+
+  const sv = [];
+  for (const [moveid, codes] of Object.entries(entry.learnset)) {
+    for (const code of codes) {
+      const m = /^9L(\d+)$/.exec(code);
+      if (m) { sv.push({ moveid, level: Math.max(1, +m[1]) }); break; }
+    }
+  }
+  if (sv.length) {
+    sv.sort((a, b) => a.level - b.level || a.moveid.localeCompare(b.moveid));
+    return sv;
+  }
+
   for (const [moveid, codes] of Object.entries(entry.learnset)) {
     let bestGen = -1, bestLevel = null;
     for (const code of codes) {
@@ -92,6 +112,8 @@ function firstBoost(boosts, table) {
 function mapEffect(mv) {
   // returns {effect, chance, stage}
   const none = { effect: 'None', chance: 0, stage: 1 };
+  // 0) unique: Transform (Ditto)
+  if (mv.name === 'Transform') return { effect: 'Transform', chance: 0, stage: 1 };
   // 1) primary status (status-only moves like Thunder Wave, Toxic, Will-O-Wisp)
   if (mv.status && STATUS[mv.status]) return { effect: STATUS[mv.status], chance: 100, stage: 1 };
   // 1b) primary volatile status (Supersonic/Confuse Ray = confusion, etc.)
@@ -180,6 +202,33 @@ function evoInfo(s) {
   return null;
 }
 
+// --- Abilities + gender ---
+function abilitiesOf(s) {
+  // Regular abilities first (slots 0/1), then the hidden ability, de-duplicated.
+  const a = s.abilities || {};
+  const list = [];
+  for (const key of ['0', '1', 'H']) {
+    if (a[key] && !list.includes(a[key])) list.push(a[key]);
+  }
+  return list.length ? list : ['Pressure'];
+}
+function maleRatioOf(s) {
+  if (s.gender === 'N') return -1; // genderless
+  if (s.gender === 'M') return 1;
+  if (s.gender === 'F') return 0;
+  return s.genderRatio ? s.genderRatio.M : 0.5;
+}
+
+// Collect used ability short descriptions.
+const abilityDesc = {};
+for (const s of species) {
+  for (const name of abilitiesOf(s)) {
+    if (abilityDesc[name] !== undefined) continue;
+    const def = AbilitiesText[toID(name)];
+    abilityDesc[name] = def && def.shortDesc ? def.shortDesc : '';
+  }
+}
+
 // --- Emit intermediate JSON ---
 const outSpecies = species.map((s) => ({
   id: s.id,
@@ -188,6 +237,8 @@ const outSpecies = species.map((s) => ({
   types: s.types.map(elem),
   stats: s.baseStats,
   color: s.color,
+  abilities: abilitiesOf(s),
+  maleRatio: maleRatioOf(s),
   prevo: s.prevo || null,
   evos: s.evos || null,
   evo: evoInfo(s),
@@ -199,6 +250,6 @@ const outSpecies = species.map((s) => ({
 }));
 
 fs.writeFileSync(path.join(__dirname, 'gen1.json'),
-  JSON.stringify({ species: outSpecies, moves }, null, 1));
+  JSON.stringify({ species: outSpecies, moves, abilityDesc }, null, 1));
 console.log('species:', outSpecies.length, 'moves:', moves.length);
 console.log('sample:', outSpecies[0].name, outSpecies[0].types, outSpecies[0].learnset.slice(0, 4));

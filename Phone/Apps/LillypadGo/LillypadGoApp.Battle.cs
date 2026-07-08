@@ -84,8 +84,21 @@ internal sealed partial class LillypadGoApp
             displayedWildSpdStage, displayedWildLevel, 0f, false, theme, scale);
         if (wildPanel.Contains(ImGui.GetMousePos()))
         {
-            ImGui.SetTooltip(BuildMonsterTooltip(battle.Wild,
-                battle.IsTrainerBattle ? $"{battle.TrainerName}'s Pokémon." : "Wild opponent.", displayedWildHp));
+            string note;
+            if (battle.IsTrainerBattle)
+            {
+                note = $"{battle.TrainerName}'s Pokémon.";
+            }
+            else
+            {
+                var caughtBefore = State.Party.Concat(State.Box)
+                    .Any(m => m.Species.Id == battle.Wild.Species.Id);
+                note = caughtBefore
+                    ? "Wild opponent.\n✓ Already in your collection."
+                    : "Wild opponent.\n★ New species — not caught yet!";
+            }
+
+            ImGui.SetTooltip(BuildMonsterTooltip(battle.Wild, note, displayedWildHp));
         }
 
         // Player active (bottom).
@@ -132,6 +145,13 @@ internal sealed partial class LillypadGoApp
             ImGui.GetColorU32(Accent with { W = 0.4f }), 1.5f * scale);
         var panel = new Rect(panelMin, panelMax);
 
+        // Freeze the panel's buttons briefly after each message (see suppressBattleButtonsUntil).
+        var prevInteractive = LgUi.Interactive;
+        if (time < suppressBattleButtonsUntil)
+        {
+            LgUi.Interactive = false;
+        }
+
         if (message is not null)
         {
             DrawMessage(panel, theme, scale);
@@ -148,6 +168,8 @@ internal sealed partial class LillypadGoApp
         {
             DrawActionMenu(panel, theme, scale);
         }
+
+        LgUi.Interactive = prevInteractive;
     }
 
     private void AdvancePlayback(float dt)
@@ -159,6 +181,9 @@ internal sealed partial class LillypadGoApp
 
         if (message is not null)
         {
+            // Keep the menu buttons inert for a beat after messages so the tap that advances text
+            // doesn't also trigger an action or a move-learn choice.
+            suppressBattleButtonsUntil = time + 0.22f;
             for (var i = 0; i < battleText.Count; i++)
             {
                 battleText[i] = battleText[i] with { Age = battleText[i].Age + dt };

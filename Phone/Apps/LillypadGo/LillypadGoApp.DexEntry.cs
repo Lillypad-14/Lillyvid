@@ -68,10 +68,14 @@ internal sealed partial class LillypadGoApp
             FitLabel(species.Name, textWidth, TextStyles.Title3), theme.TextStrong, TextStyles.Title3);
         LgUi.TypeChips(drawList, new Vector2(textX, heroMin.Y + 46f * scale), species.Element,
             species.SecondaryElement, scale);
-        Typography.Draw(new Vector2(textX, heroMin.Y + 72f * scale), caught ? "Captured" : "Observed",
+        Typography.Draw(new Vector2(textX, heroMin.Y + 70f * scale), caught ? "Captured" : "Observed",
             caught ? Accent : theme.TextMuted, TextStyles.Caption1);
-        Typography.Draw(new Vector2(textX, heroMin.Y + 91f * scale), $"Catch rate  {species.CatchRate}/255",
-            theme.TextMuted, TextStyles.Caption2);
+        Typography.Draw(new Vector2(textX, heroMin.Y + 88f * scale),
+            FitLabel($"Catch {species.CatchRate}/255  ·  {GenderRatioText(species)}", textWidth, TextStyles.Caption2),
+            theme.TextStrong with { W = 0.72f }, TextStyles.Caption2);
+        Typography.Draw(new Vector2(textX, heroMin.Y + 104f * scale),
+            FitLabel($"Ability: {string.Join(" / ", species.Abilities)}", textWidth, TextStyles.Caption2),
+            theme.TextStrong with { W = 0.72f }, TextStyles.Caption2);
 
         var statsMin = new Vector2(content.Min.X + 12f * scale, content.Min.Y + 234f * scale);
         var statsMax = new Vector2(content.Max.X - 12f * scale, content.Min.Y + 344f * scale);
@@ -166,104 +170,87 @@ internal sealed partial class LillypadGoApp
         var list = new Rect(new Vector2(content.Min.X + 8f * scale, content.Min.Y + 204f * scale),
             new Vector2(content.Max.X - 9f * scale, content.Max.Y - 12f * scale));
         var moves = species.Learnset.OrderBy(entry => entry.Level).ThenBy(entry => entry.Move.Name).ToArray();
-        var rowHeight = 48f * scale;
-        var gap = 4f * scale;
-        var contentHeight = moves.Length * (rowHeight + gap);
-        var maxScroll = MathF.Max(0f, contentHeight - list.Height);
-        dexEntryScroll = Math.Clamp(dexEntryScroll, 0f, maxScroll);
-        if (list.Contains(ImGui.GetMousePos()) && LgUi.Interactive)
-        {
-            dexEntryScroll = Math.Clamp(dexEntryScroll - ImGui.GetIO().MouseWheel * 48f * scale, 0f, maxScroll);
-        }
 
         // When opened for one of the player's creatures (via Team → Moves), this tab becomes a move
         // relearner: teach any learnset move at or below the creature's level, replacing one if full.
         var editMon = learnsetMonster is { } lm && lm.Species.Id == species.Id ? learnsetMonster : null;
 
-        // Freeze the list's own buttons while the replace overlay is up so clicks can't fall through.
+        // Freeze the list while the replace overlay is up; the shared scroller gates per-row clicks
+        // to the visible area, which stops the Teach buttons from reacting through the clip edges.
         var prevInteractive = LgUi.Interactive;
         if (teachPendingMove is not null)
         {
             LgUi.Interactive = false;
         }
 
-        var y = list.Min.Y - dexEntryScroll;
-        drawList.PushClipRect(list.Min, list.Max, true);
-        foreach (var entry in moves)
-        {
-            var row = new Rect(new Vector2(list.Min.X + 4f * scale, y),
-                new Vector2(list.Max.X - 4f * scale, y + rowHeight));
-            if (RowVisible(row, list))
-            {
-                var known = editMon is not null && editMon.Knows(entry.Move);
-                var hovered = list.Contains(ImGui.GetMousePos()) && row.Contains(ImGui.GetMousePos());
-                LgUi.Card(drawList, row.Min, row.Max, 8f * scale, scale, hovered);
-                if (known)
-                {
-                    drawList.AddRectFilled(row.Min, new Vector2(row.Min.X + 4f * scale, row.Max.Y),
-                        ImGui.GetColorU32(Accent with { W = 0.85f }), 3f * scale);
-                }
-
-                Typography.DrawCentered(new Vector2(row.Min.X + 28f * scale, row.Center.Y),
-                    $"Lv {entry.Level}", theme.TextStrong, TextStyles.Caption1);
-                var moveX = row.Min.X + 58f * scale;
-                var rightReserve = editMon is not null ? 74f * scale : 50f * scale;
-                Typography.Draw(new Vector2(moveX, row.Min.Y + 7f * scale),
-                    FitLabel(entry.Move.Name, row.Max.X - moveX - rightReserve, TextStyles.SubheadlineEmphasized),
-                    theme.TextStrong, TextStyles.SubheadlineEmphasized);
-                var detail = $"{Elements.Name(entry.Move.Element)}  |  {entry.Move.CategoryLabel}  |  {entry.Move.Pp} PP";
-                Typography.Draw(new Vector2(moveX, row.Min.Y + 27f * scale),
-                    FitLabel(detail, row.Max.X - moveX - rightReserve, TextStyles.Caption2), theme.TextMuted,
-                    TextStyles.Caption2);
-
-                if (editMon is not null)
-                {
-                    var pill = CenteredAt(new Vector2(row.Max.X - 38f * scale, row.Center.Y),
-                        new Vector2(64f * scale, 26f * scale));
-                    if (known)
-                    {
-                        Typography.DrawCentered(pill.Center, "Known", Accent, TextStyles.Caption1);
-                    }
-                    else if (entry.Level > editMon.Level)
-                    {
-                        Typography.DrawCentered(pill.Center, "Locked", theme.TextMuted, TextStyles.Caption1);
-                    }
-                    else if (LgUi.Button(pill, "Teach", theme.Accent, theme, true))
-                    {
-                        if (!editMon.AddMove(entry.Move))
-                        {
-                            teachPendingMove = entry.Move; // full moveset: choose which to replace
-                        }
-
-                        State.Save();
-                    }
-                }
-                else
-                {
-                    var power = entry.Move.IsStatus ? "--" : entry.Move.Power.ToString();
-                    Typography.DrawCentered(new Vector2(row.Max.X - 26f * scale, row.Center.Y), power,
-                        Elements.Color(entry.Move.Element), TextStyles.Headline);
-                }
-
-                if (hovered)
-                {
-                    ImGui.SetTooltip(BuildProfileMoveTooltip(entry.Move, entry.Move.Pp));
-                }
-            }
-
-            y += rowHeight + gap;
-        }
-        drawList.PopClipRect();
-
-        LgUi.Scrollbar(new Rect(new Vector2(content.Max.X - 6f * scale, list.Min.Y),
-                new Vector2(content.Max.X - 3f * scale, list.Max.Y)), dexEntryScroll, maxScroll,
-            list.Height / MathF.Max(list.Height, contentHeight), Accent, scale);
+        DrawScrollList(list, 48f * scale, 4f * scale, moves.Length, ref dexEntryScroll, scale,
+            (i, row) => DrawLearnsetRow(moves[i], editMon, row, theme, scale));
 
         LgUi.Interactive = prevInteractive;
 
         if (editMon is not null && teachPendingMove is not null)
         {
             DrawTeachReplace(content, theme, editMon, scale);
+        }
+    }
+
+    private void DrawLearnsetRow((int Level, MoveDef Move) entry, MonsterInstance? editMon, Rect row, PhoneTheme theme,
+        float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var known = editMon is not null && editMon.Knows(entry.Move);
+        var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(row.Min, row.Max);
+        LgUi.Card(drawList, row.Min, row.Max, 8f * scale, scale, hovered);
+        if (known)
+        {
+            drawList.AddRectFilled(row.Min, new Vector2(row.Min.X + 4f * scale, row.Max.Y),
+                ImGui.GetColorU32(Accent with { W = 0.85f }), 3f * scale);
+        }
+
+        Typography.DrawCentered(new Vector2(row.Min.X + 28f * scale, row.Center.Y), $"Lv {entry.Level}",
+            theme.TextStrong, TextStyles.Caption1);
+        var moveX = row.Min.X + 58f * scale;
+        var rightReserve = editMon is not null ? 74f * scale : 50f * scale;
+        Typography.Draw(new Vector2(moveX, row.Min.Y + 7f * scale),
+            FitLabel(entry.Move.Name, row.Max.X - moveX - rightReserve, TextStyles.SubheadlineEmphasized),
+            theme.TextStrong, TextStyles.SubheadlineEmphasized);
+        var detail = $"{Elements.Name(entry.Move.Element)}  |  {entry.Move.CategoryLabel}  |  {entry.Move.Pp} PP";
+        Typography.Draw(new Vector2(moveX, row.Min.Y + 27f * scale),
+            FitLabel(detail, row.Max.X - moveX - rightReserve, TextStyles.Caption2), theme.TextMuted,
+            TextStyles.Caption2);
+
+        if (editMon is not null)
+        {
+            var pill = CenteredAt(new Vector2(row.Max.X - 38f * scale, row.Center.Y),
+                new Vector2(64f * scale, 26f * scale));
+            if (known)
+            {
+                Typography.DrawCentered(pill.Center, "Known", Accent, TextStyles.Caption1);
+            }
+            else if (entry.Level > editMon.Level)
+            {
+                Typography.DrawCentered(pill.Center, "Locked", theme.TextMuted, TextStyles.Caption1);
+            }
+            else if (LgUi.Button(pill, "Teach", theme.Accent, theme, true))
+            {
+                if (!editMon.AddMove(entry.Move))
+                {
+                    teachPendingMove = entry.Move; // full moveset: choose which to replace
+                }
+
+                State.Save();
+            }
+        }
+        else
+        {
+            var power = entry.Move.IsStatus ? "--" : entry.Move.Power.ToString();
+            Typography.DrawCentered(new Vector2(row.Max.X - 26f * scale, row.Center.Y), power,
+                Elements.Color(entry.Move.Element), TextStyles.Headline);
+        }
+
+        if (hovered)
+        {
+            ImGui.SetTooltip(BuildProfileMoveTooltip(entry.Move, entry.Move.Pp));
         }
     }
 

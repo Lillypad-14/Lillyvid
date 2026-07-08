@@ -37,12 +37,27 @@ internal sealed partial class LillypadGoApp
 
         Typography.Draw(new Vector2(content.Min.X + 16f * scale, content.Min.Y + 138f * scale), "FOR SALE",
             Accent, TextStyles.Caption2);
+        var sortRect = CenteredAt(new Vector2(content.Max.X - 74f * scale, content.Min.Y + 142f * scale),
+            new Vector2(128f * scale, 22f * scale));
+        if (LgUi.Button(sortRect, $"Sort: {new[] { "Type", "Cheapest", "Priciest" }[shopSortMode]}", GamePalette.Cell,
+                theme, true))
+        {
+            shopSortMode = (shopSortMode + 1) % 3;
+            marketScroll = 0f;
+        }
+
+        var stock = shopSortMode switch
+        {
+            1 => Items.All.OrderBy(item => item.Price).ToList(),
+            2 => Items.All.OrderByDescending(item => item.Price).ToList(),
+            _ => Items.All.ToList(),
+        };
         var listTop = content.Min.Y + 156f * scale;
         var listBottom = content.Max.Y - 62f * scale;
         var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, listTop),
             new Vector2(content.Max.X - 12f * scale, listBottom));
-        DrawScrollList(listArea, 50f * scale, 8f * scale, Items.All.Count, ref marketScroll, scale,
-            (i, rowRect) => DrawShopRow(Items.All[i], rowRect, theme, scale));
+        DrawScrollList(listArea, 50f * scale, 8f * scale, stock.Count, ref marketScroll, scale,
+            (i, rowRect) => DrawShopRow(stock[i], rowRect, theme, scale));
 
         var status = bagStatus.Length > 0
             ? bagStatus

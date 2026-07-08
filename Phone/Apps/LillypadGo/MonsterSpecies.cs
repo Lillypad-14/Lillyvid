@@ -51,7 +51,7 @@ internal sealed class MonsterSpecies
     public MonsterSpecies(string id, string name, Element element, ArtSpec art, int baseHp, int baseAtk, int baseDef,
         int baseSpd, int catchRate, (int Level, MoveDef Move)[] learnset, Element? secondaryElement = null,
         int? baseSpAtk = null, int? baseSpDef = null, int dexNumber = 0, string? evolvesToId = null,
-        int evolveLevel = 0, string? evolveMethod = null)
+        int evolveLevel = 0, string? evolveMethod = null, float maleRatio = 0.5f, string[]? abilities = null)
     {
         Id = id;
         Name = name;
@@ -70,6 +70,8 @@ internal sealed class MonsterSpecies
         EvolvesToId = evolvesToId;
         EvolveLevel = evolveLevel;
         EvolveMethod = evolveMethod;
+        MaleRatio = maleRatio;
+        Abilities = abilities is { Length: > 0 } ? abilities : new[] { "Pressure" };
     }
 
     public string Id { get; }
@@ -92,6 +94,28 @@ internal sealed class MonsterSpecies
     public string? EvolvesToId { get; }
     public int EvolveLevel { get; }
     public string? EvolveMethod { get; }
+
+    // Fraction male (0..1); -1 means genderless. Abilities[0] is the primary, [^1] may be hidden.
+    public float MaleRatio { get; }
+    public string[] Abilities { get; }
+    public bool Genderless => MaleRatio < 0f;
+
+    public int BaseStatTotal => BaseHp + BaseAtk + BaseDef + BaseSpAtk + BaseSpDef + BaseSpd;
+
+    // National-dex generation (1 = Kanto #1-151, 2 = Johto #152-251, …). Used for organising
+    // species/zones by generation. The current roster is entirely Generation 1.
+    public int Generation => DexNumber switch
+    {
+        <= 151 => 1,
+        <= 251 => 2,
+        <= 386 => 3,
+        <= 493 => 4,
+        <= 649 => 5,
+        <= 721 => 6,
+        <= 809 => 7,
+        <= 905 => 8,
+        _ => 9,
+    };
 
     public bool HasType(Element type) => Element == type || SecondaryElement == type;
 }
@@ -125,9 +149,10 @@ internal static partial class Dex
 
     private static void Add(string id, string name, Element type, Element? type2, int hp, int atk, int def,
         int spAtk, int spDef, int spd, int catchRate, int dexNumber, ArtSpec art, (int lvl, string id)[] learnset,
-        string? evolvesToId = null, int evolveLevel = 0, string? evolveMethod = null)
+        string? evolvesToId = null, int evolveLevel = 0, string? evolveMethod = null, float maleRatio = 0.5f,
+        string[]? abilities = null)
         => Register(new MonsterSpecies(id, name, type, art, hp, atk, def, spd, catchRate, LS(learnset), type2,
-            spAtk, spDef, dexNumber, evolvesToId, evolveLevel, evolveMethod));
+            spAtk, spDef, dexNumber, evolvesToId, evolveLevel, evolveMethod, maleRatio, abilities));
 
     public static MonsterSpecies? Find(string id) => ById.TryGetValue(id, out var species) ? species : null;
 

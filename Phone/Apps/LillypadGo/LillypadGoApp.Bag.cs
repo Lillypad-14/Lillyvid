@@ -16,6 +16,8 @@ internal sealed partial class LillypadGoApp
     // Shared transient status line for the Bag/Market screens (e.g. "Bought 1 Potion.").
     private string bagStatus = string.Empty;
     private float bagScroll;
+    private int bagSortMode;  // 0 = Type, 1 = Name, 2 = Count
+    private int shopSortMode; // 0 = Type, 1 = Price low→high, 2 = Price high→low
 
     private void DrawBag(Rect content, PhoneTheme theme)
     {
@@ -26,7 +28,26 @@ internal sealed partial class LillypadGoApp
         DrawMoneyPill(content, theme, scale);
 
         var owned = State.Bag.Contents().ToList();
-        var listTop = content.Min.Y + 62f * scale;
+        owned = bagSortMode switch
+        {
+            1 => owned.OrderBy(e => e.Def.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+            2 => owned.OrderByDescending(e => e.Count).ThenBy(e => e.Def.Name).ToList(),
+            _ => owned, // Type = catalogue order (already category-grouped)
+        };
+
+        if (owned.Count > 0)
+        {
+            var sortRect = CenteredAt(new Vector2(content.Min.X + 70f * scale, content.Min.Y + 44f * scale),
+                new Vector2(116f * scale, 22f * scale));
+            if (LgUi.Button(sortRect, $"Sort: {new[] { "Type", "Name", "Count" }[bagSortMode]}", GamePalette.Cell,
+                    theme, true))
+            {
+                bagSortMode = (bagSortMode + 1) % 3;
+                bagScroll = 0f;
+            }
+        }
+
+        var listTop = content.Min.Y + 74f * scale;
         var listBottom = content.Max.Y - 104f * scale;
         var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, listTop),
             new Vector2(content.Max.X - 12f * scale, listBottom));
@@ -129,17 +150,29 @@ internal sealed partial class LillypadGoApp
             ItemCategory.Ball => "Poké Balls can only be thrown during a wild battle.",
             ItemCategory.Potion => target is null
                 ? "No creature needs healing right now."
-                : $"Tap to restore {(item.RestoresFullHp ? "full" : item.HealAmount + " ")}HP to {target.Name}.",
+                : $"Tap to restore {(item.RestoresFullHp ? target.MaxHp - target.CurrentHp : Math.Min(item.HealAmount, target.MaxHp - target.CurrentHp))} HP to {target.Name}.",
             ItemCategory.Revive => target is null
                 ? "No creature has fainted."
-                : $"Tap to revive {target.Name}.",
+                : $"Tap to revive {target.Name} to {(item.RevivesToFull ? target.MaxHp : Math.Max(1, target.MaxHp / 2))} HP.",
             ItemCategory.StatusHeal => target is null
                 ? "No creature has a matching condition."
                 : $"Tap to cure {target.Name}.",
             _ => string.Empty,
         };
-        return $"{item.Name}\n{item.Description}\n\n{action}";
+        return $"{item.Name}  ·  {LgUi.Money(item.Price)}\n{ItemStatsLine(item)}\n\n{item.Description}\n\n{action}";
     }
+
+    // A one-line precise effect summary shared by the bag and in-battle item tooltips.
+    private static string ItemStatsLine(ItemDef item) => item.Category switch
+    {
+        ItemCategory.Ball => $"Catch rate multiplier ×{item.CatchBonus:0.#}",
+        ItemCategory.Potion => item.RestoresFullHp ? "Restores all HP" : $"Restores {item.HealAmount} HP",
+        ItemCategory.Revive => item.RevivesToFull ? "Revives to full HP" : "Revives to half HP",
+        ItemCategory.StatusHeal => item.CuresAllStatus
+            ? "Cures any status condition"
+            : $"Cures {StatusWord(item.CuresStatus)}",
+        _ => string.Empty,
+    };
 
     // The creature an out-of-battle item would act on, or null if none is a valid target.
     private MonsterInstance? OverworldTarget(ItemDef item) => item.Category switch

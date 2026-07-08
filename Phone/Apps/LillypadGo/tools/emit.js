@@ -2,7 +2,7 @@
 // Kanto-flavoured Biome/Zone encounter tables.
 const fs = require('fs');
 const path = require('path');
-const { species, moves } = require('./gen1.json');
+const { species, moves, abilityDesc } = require('./gen1.json');
 const OUT = path.join(__dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -98,11 +98,26 @@ function emitDex() {
     const evoTo = s.evo ? csStr(s.evo.toId) : 'null';
     const evoLevel = s.evo ? (s.evo.level || 0) : 0;
     const evoMethod = s.evo && s.evo.method ? csStr(s.evo.method) : 'null';
+    const abilities = (s.abilities || []).map(csStr).join(', ');
     L.push(`        Add(${csStr(s.id)}, ${csStr(s.name)}, Element.${s.types[0]}, ${type2}, ${st.hp}, ${st.atk}, ${st.def}, ${st.spa}, ${st.spd}, ${st.spe}, ${s.capture}, ${s.num},`);
     L.push(`            ${artSpec(s)},`);
-    L.push(`            new (int, string)[] { ${ls} }, ${evoTo}, ${evoLevel}, ${evoMethod});`);
+    L.push(`            new (int, string)[] { ${ls} }, ${evoTo}, ${evoLevel}, ${evoMethod}, ${f(s.maleRatio)}, new[] { ${abilities} });`);
   }
   L.push('    }');
+  L.push('}');
+  L.push('');
+  L.push('// Short descriptions for the abilities the 151 Kanto species can have (from Showdown abilities.ts).');
+  L.push('internal static class AbilityInfo');
+  L.push('{');
+  L.push('    private static readonly Dictionary<string, string> Desc = new(StringComparer.OrdinalIgnoreCase)');
+  L.push('    {');
+  for (const [name, desc] of Object.entries(abilityDesc || {})) {
+    L.push(`        [${csStr(name)}] = ${csStr(desc)},`);
+  }
+  L.push('    };');
+  L.push('');
+  L.push('    public static string Describe(string ability) =>');
+  L.push('        Desc.TryGetValue(ability, out var d) && d.Length > 0 ? d : "No in-battle effect modelled yet.";');
   L.push('}');
   fs.writeFileSync(path.join(OUT, 'PokedexData.g.cs'), L.join('\n') + '\n');
 }
@@ -154,9 +169,9 @@ function emitBiome() {
 
 // Zone scaffolds preserved from the original ArrZones (territory/region/order/name/biome/level bands).
 const ZONES = [
-  [134, 'La Noscea', 0, 'Middle La Noscea', 'Coast', 0, 2, 8],
-  [148, 'The Black Shroud', 1, 'Central Shroud', 'Forest', 1, 2, 8],
-  [141, 'Thanalan', 2, 'Central Thanalan', 'Desert', 2, 2, 8],
+  [134, 'La Noscea', 0, 'Middle La Noscea', 'Coast', 0, 4, 7],
+  [148, 'The Black Shroud', 1, 'Central Shroud', 'Forest', 1, 4, 7],
+  [141, 'Thanalan', 2, 'Central Thanalan', 'Desert', 2, 4, 7],
   [135, 'La Noscea', 0, 'Lower La Noscea', 'Coast', 3, 5, 12],
   [140, 'Thanalan', 2, 'Western Thanalan', 'Desert', 4, 6, 14],
   [152, 'The Black Shroud', 1, 'East Shroud', 'Forest', 5, 8, 16],
@@ -173,38 +188,66 @@ const ZONES = [
   [156, 'Mor Dhona', 4, 'Mor Dhona', 'Wetland', 16, 44, 50],
 ];
 
+// The three starter zones use a fixed weak, route-accurate roster (Zubat deliberately excluded —
+// its draining moves overwhelm level-5 starters).
+const EARLY_FIXED = {
+  134: ['rattata', 'pidgey', 'spearow', 'magikarp'],
+  148: ['caterpie', 'weedle', 'pidgey', 'metapod'],
+  141: ['rattata', 'spearow', 'sandshrew', 'geodude'],
+};
+const EARLY_EXCLUSIVE = { 134: 'magikarp', 148: 'metapod', 141: 'sandshrew' };
+
 function emitZones() {
   const maxProg = ZONES.length - 1;
+  const targetOf = (prog) => Math.round(250 + (prog / maxProg) * 350);
+  const bstById = Object.fromEntries(species.map((s) => [s.id, s.bst]));
+
+  // 1) Base roster per zone.
+  const zoneEnc = {}; // terr -> { entries:[{id,weight}], exclusive }
+  const placed = new Set();
+  for (const [terr, , , , biome, prog] of ZONES) {
+    let entries; let exclusive;
+    if (EARLY_FIXED[terr]) {
+      exclusive = EARLY_EXCLUSIVE[terr];
+      entries = EARLY_FIXED[terr].map((id, i) => ({ id, weight: id === exclusive ? 24 : 34 - i * 6 }));
+    } else {
+      const allowLegend = prog >= maxProg - 2;
+      const picks = pickNear(members[biome], targetOf(prog), 5, allowLegend);
+      exclusive = picks[picks.length - 1].id;
+      const enc = picks.slice(0, 4);
+      entries = enc.map((m, i) => ({ id: m.id, weight: m.id === exclusive ? 22 : 34 - i * 6 }));
+      if (!enc.find((m) => m.id === exclusive)) entries.push({ id: exclusive, weight: 22 });
+    }
+    for (const e of entries) placed.add(e.id);
+    zoneEnc[terr] = { entries, exclusive };
+  }
+
+  // 2) Coverage pass: every Kanto species that isn't placed yet joins the best-fitting non-early
+  //    zone (closest level band, preferring a matching biome), as a rarer spawn.
+  const nonEarly = ZONES.filter((z) => !EARLY_FIXED[z[0]]);
+  const speciesById = Object.fromEntries(species.map((s) => [s.id, s]));
+  for (const s of species) {
+    if (placed.has(s.id)) continue;
+    let best = nonEarly[0][0]; let bestScore = Infinity;
+    for (const [terr, , , , biome, prog] of nonEarly) {
+      let score = Math.abs(bstById[s.id] - targetOf(prog));
+      if (!biomesOf(speciesById[s.id]).includes(biome)) score += 90;
+      if (score < bestScore) { bestScore = score; best = terr; }
+    }
+    zoneEnc[best].entries.push({ id: s.id, weight: 10 });
+    placed.add(s.id);
+  }
+
+  // 3) Emit.
   const lines = [];
   for (const [terr, region, ro, name, biome, prog, min, max] of ZONES) {
-    const t = prog / maxProg;
-    const targetBst = Math.round(250 + t * 350);
-    const allowLegend = prog >= maxProg - 2;
-    const picks = pickNear(members[biome], targetBst, 5, allowLegend);
-    // exclusive = the strongest fitting member; rest are the encounter list
-    const exclusive = picks[picks.length - 1];
-    const enc = picks.slice(0, 4);
-    const entries = enc.map((m, i) => {
-      const w = m.id === exclusive.id ? (m.legendary ? 6 : 22) : 34 - i * 6;
-      return `new SpawnEntry("${m.id}", ${w}, ${min}, ${max})`;
-    });
-    // ensure exclusive appears in the encounter list
-    if (!enc.find((m) => m.id === exclusive.id)) {
-      entries.push(`new SpawnEntry("${exclusive.id}", ${exclusive.legendary ? 6 : 22}, ${min}, ${max})`);
-    }
-    lines.push(`        new ZoneDefinition(${terr}, "${region}", ${ro}, "${name}", Biome.${biome}, ${prog}, ${min}, ${max}, "${exclusive.id}",\n            ${entries.join(', ')}),`);
+    const { entries, exclusive } = zoneEnc[terr];
+    const entryStr = entries.map((e) => `new SpawnEntry("${e.id}", ${e.weight}, ${min}, ${max})`).join(', ');
+    lines.push(`        new ZoneDefinition(${terr}, "${region}", ${ro}, "${name}", Biome.${biome}, ${prog}, ${min}, ${max}, "${exclusive}",\n            ${entryStr}),`);
   }
   const src = fs.readFileSync(path.join(__dirname, 'tpl', 'ZoneCatalog.cs.tpl'), 'utf8');
   fs.writeFileSync(path.join(OUT, 'ZoneCatalog.cs'), src.replace('/*__ZONES__*/', lines.join('\n')));
-
-  // summary
-  console.log('Zone encounters:');
-  for (const [, , , name, biome, prog, min, max] of ZONES) {
-    const t = prog / maxProg, targetBst = Math.round(250 + t * 350);
-    const allowLegend = prog >= maxProg - 2;
-    const picks = pickNear(members[biome], targetBst, 5, allowLegend);
-    console.log(`  ${name} (${biome} Lv${min}-${max}) -> ` + picks.map((m) => m.id).join(', '));
-  }
+  console.log('Zone coverage: placed', placed.size, 'of', species.length, 'species');
 }
 
 emitMoves();

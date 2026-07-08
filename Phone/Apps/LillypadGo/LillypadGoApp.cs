@@ -48,6 +48,15 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         Missing,
     }
 
+    private enum TeamSort
+    {
+        Caught,
+        Level,
+        Type,
+        Dex,
+        Name,
+    }
+
     private struct Anim
     {
         public float Lunge;
@@ -124,6 +133,8 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private readonly List<BattlePopup> battlePopups = new();
     private MoveFx? moveFx;
     private MonsterInstance? detailMonster;
+    private bool releaseConfirm;
+    private int draggingMoveIndex = -1; // drag-and-drop move reordering in the Team detail screen
     private View detailReturnView = View.Team;
     private string detailNameDraft = string.Empty;
     private Anim playerAnim;
@@ -132,7 +143,11 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private float messageTimer;
     private readonly List<BattleTextEntry> battleText = new();
     private bool awaitingResult;
+    // Guards the battle action/menu buttons for a moment after any message so the click that
+    // advances battle text can't also press Fight/Bag/Team/Run or a move-learn choice.
+    private float suppressBattleButtonsUntil;
     private bool teamShowingStorage;
+    private TeamSort teamSort;
     private int teamPage;
     private float time;
     private float navIndicator = -1f;

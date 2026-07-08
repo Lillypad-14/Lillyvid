@@ -64,7 +64,7 @@ internal sealed partial class LillypadGoApp
         }
         else
         {
-            DrawScrollList(listArea, 68f * scale, 8f * scale, Gyms.All.Count, ref arenaScroll, scale,
+            DrawScrollList(listArea, 82f * scale, 8f * scale, Gyms.All.Count, ref arenaScroll, scale,
                 (i, rowRect) => DrawGymRow(Gyms.All[i], rowRect, theme, scale, !wiped));
         }
 
@@ -81,12 +81,20 @@ internal sealed partial class LillypadGoApp
         drawList.AddRectFilled(rect.Min, new Vector2(rect.Min.X + 4f * scale, rect.Max.Y),
             ImGui.GetColorU32(Accent with { W = unlocked ? 0.85f : 0.3f }), 3f * scale);
 
+        // Numbered medallion so tiers read as a clear ladder.
+        var medallion = new Vector2(rect.Min.X + 30f * scale, rect.Min.Y + 26f * scale);
+        drawList.AddCircleFilled(medallion, 15f * scale,
+            ImGui.GetColorU32(unlocked ? GamePalette.Darken(Accent, 0.25f) : GamePalette.CellSunken));
+        drawList.AddCircle(medallion, 15f * scale,
+            ImGui.GetColorU32(Accent with { W = unlocked ? 0.85f : 0.35f }), 24, 1.4f * scale);
+        Typography.DrawCentered(medallion, tier.Index.ToString(),
+            unlocked ? GamePalette.InkOn(Accent) : theme.TextMuted, TextStyles.Title3);
+
         var textColor = unlocked ? theme.TextStrong : theme.TextStrong with { W = 0.55f };
-        var textX = rect.Min.X + 16f * scale;
+        var textX = rect.Min.X + 56f * scale;
         var textWidth = rect.Max.X - 104f * scale - textX;
         Typography.Draw(new Vector2(textX, rect.Min.Y + 9f * scale),
-            FitLabel($"Tier {tier.Index} · {tier.Name}", textWidth, TextStyles.Headline), textColor,
-            TextStyles.Headline);
+            FitLabel(tier.Name, textWidth, TextStyles.Headline), textColor, TextStyles.Headline);
         Typography.Draw(new Vector2(textX, rect.Min.Y + 30f * scale),
             FitLabel($"Lv {tier.MinLevel}-{tier.MaxLevel}   ·   up to {tier.MaxTeam} Pokémon", textWidth,
                 TextStyles.Caption1), theme.TextStrong with { W = unlocked ? 0.82f : 0.5f }, TextStyles.Caption1);
@@ -161,12 +169,14 @@ internal sealed partial class LillypadGoApp
         var typeColor = Elements.Color(gym.Type);
         var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
         LgUi.Card(drawList, rect.Min, rect.Max, 12f * scale, scale, hovered);
+        // Subtle type wash so each gym reads as its element at a glance.
+        Squircle.Fill(drawList, rect.Min, rect.Max, 12f * scale, ImGui.GetColorU32(typeColor with { W = 0.07f }));
         drawList.AddRectFilled(rect.Min, new Vector2(rect.Min.X + 4f * scale, rect.Max.Y),
             ImGui.GetColorU32(typeColor with { W = 0.85f }), 3f * scale);
 
         // Badge emblem: the Showdown type icon for this gym. Earned badges show in full colour with
         // a glow + green check; unearned ones are greyed out and locked.
-        var badgeCenter = new Vector2(rect.Min.X + 30f * scale, rect.Center.Y);
+        var badgeCenter = new Vector2(rect.Min.X + 32f * scale, rect.Min.Y + 32f * scale);
         if (earned)
         {
             ProgressRing.Glow(badgeCenter, 22f * scale, typeColor, 0.5f);
@@ -205,20 +215,37 @@ internal sealed partial class LillypadGoApp
                 9f * scale);
         }
 
-        var textX = rect.Min.X + 54f * scale;
-        var textWidth = rect.Max.X - 104f * scale - textX;
-        Typography.Draw(new Vector2(textX, rect.Min.Y + 9f * scale),
-            FitLabel($"{gym.Leader} · {gym.City}", textWidth, TextStyles.Headline), theme.TextStrong,
-            TextStyles.Headline);
-        Typography.Draw(new Vector2(textX, rect.Min.Y + 30f * scale),
-            FitLabel($"{Elements.Name(gym.Type)}   ·   {gym.LevelLabel}   ·   {gym.Team.Length} Pokémon", textWidth,
-                TextStyles.Caption1), theme.TextStrong with { W = 0.82f }, TextStyles.Caption1);
-        Typography.Draw(new Vector2(textX, rect.Min.Y + 47f * scale),
-            FitLabel(earned ? $"✓ {gym.Badge}" : gym.Badge, textWidth, TextStyles.Caption2),
-            earned ? new Vector4(0.42f, 0.86f, 0.5f, 1f) : theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
+        Typography.DrawCentered(new Vector2(badgeCenter.X, rect.Max.Y - 12f * scale),
+            $"Gym {gym.Index + 1}", theme.TextStrong with { W = 0.6f }, TextStyles.Caption2);
 
-        var buttonRect = CenteredAt(new Vector2(rect.Max.X - 52f * scale, rect.Center.Y),
-            new Vector2(92f * scale, 32f * scale));
+        var textX = rect.Min.X + 62f * scale;
+        var textWidth = rect.Max.X - 108f * scale - textX;
+        Typography.Draw(new Vector2(textX, rect.Min.Y + 11f * scale),
+            FitLabel($"{gym.Leader}", textWidth, TextStyles.Headline), theme.TextStrong, TextStyles.Headline);
+        Typography.Draw(new Vector2(textX, rect.Min.Y + 32f * scale),
+            FitLabel($"{gym.City}", textWidth, TextStyles.Caption1), theme.TextStrong with { W = 0.7f },
+            TextStyles.Caption1);
+        Typography.Draw(new Vector2(textX, rect.Min.Y + 50f * scale),
+            FitLabel($"{Elements.Name(gym.Type)}  ·  {gym.LevelLabel}  ·  {gym.Team.Length} Pokémon", textWidth,
+                TextStyles.Caption2), theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
+        Typography.Draw(new Vector2(textX, rect.Min.Y + 66f * scale),
+            FitLabel(earned ? $"✓ {gym.Badge} earned" : gym.Badge, textWidth, TextStyles.Caption2),
+            earned ? new Vector4(0.42f, 0.86f, 0.5f, 1f) : theme.TextStrong with { W = 0.6f }, TextStyles.Caption2);
+
+        // The leader's ace (their strongest team member) as a small preview, tagged below.
+        if (Dex.Find(gym.Team[^1].Species) is { } ace)
+        {
+            var aceCenter = new Vector2(rect.Max.X - 48f * scale, rect.Min.Y + 54f * scale);
+            drawList.AddCircleFilled(aceCenter, 15f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
+            drawList.AddCircle(aceCenter, 15f * scale, ImGui.GetColorU32(typeColor with { W = 0.55f }), 24,
+                1f * scale);
+            MonsterArt.Draw(drawList, aceCenter, 24f * scale, ace, -1f, MonsterPose.Idle(time));
+            Typography.DrawCentered(new Vector2(aceCenter.X, rect.Max.Y - 8f * scale), "ACE",
+                typeColor with { W = 0.85f }, TextStyles.Caption2);
+        }
+
+        var buttonRect = CenteredAt(new Vector2(rect.Max.X - 48f * scale, rect.Min.Y + 20f * scale),
+            new Vector2(86f * scale, 28f * scale));
         if (here)
         {
             if (LgUi.Button(buttonRect, earned ? "Rematch" : "Challenge", typeColor, theme, canBattle))

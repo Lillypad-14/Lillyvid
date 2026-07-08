@@ -290,6 +290,10 @@ internal sealed class LillypadGoState
         DamageDealt = m.DamageDealt,
         Moves = m.Moves.Select(move => move.Name).ToArray(),
         Pp = m.Pp.ToArray(),
+        Ivs = m.Ivs.ToArray(),
+        Evs = m.Evs.ToArray(),
+        Ability = m.Ability,
+        Gender = (byte)m.Gender,
     };
 
     private static MonsterInstance? FromDto(MonsterDto dto)
@@ -301,6 +305,10 @@ internal sealed class LillypadGoState
         }
 
         var instance = new MonsterInstance(species, dto.Level);
+        // Restore genetics before HP so stats (and MaxHp) are correct when the saved HP is applied.
+        instance.RestoreGenetics(dto.Ivs, dto.Evs, dto.Ability,
+            dto.Gender is { } g ? (Gender)g : null);
+
         var moves = new List<MoveDef>();
         foreach (var name in dto.Moves ?? Array.Empty<string>())
         {
@@ -350,5 +358,9 @@ internal sealed class LillypadGoState
         public int DamageDealt { get; set; }
         public string[]? Moves { get; set; }
         public int[]? Pp { get; set; }
+        public int[]? Ivs { get; set; }
+        public int[]? Evs { get; set; }
+        public string? Ability { get; set; }
+        public byte? Gender { get; set; }
     }
 }

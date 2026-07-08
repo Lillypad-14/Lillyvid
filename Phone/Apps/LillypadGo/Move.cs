@@ -21,6 +21,7 @@ internal enum MoveEffect : byte
     Flinch,
     RecoilQuarterMax,
     Confuse,
+    Transform,
 }
 
 internal enum MoveCategory : byte
@@ -89,6 +90,7 @@ internal sealed class MoveDef
         MoveEffect.Flinch => EffectText("May make the target flinch before it can act."),
         MoveEffect.RecoilQuarterMax => "Damages the user by one quarter of its maximum HP.",
         MoveEffect.Confuse => EffectText("May confuse the target and make it hurt itself."),
+        MoveEffect.Transform => "The user transforms into a copy of the target, with its moves and stats.",
         _ => "Deals direct damage with no added effect.",
     };
 

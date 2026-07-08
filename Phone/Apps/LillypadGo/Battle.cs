@@ -108,6 +108,8 @@ internal sealed class Battle
         Wild = wild;
         Wild.ResetBattleState();
         Log.Enqueue(new BattleMessage($"A wild {Wild.Name} appeared!", BattleCue.Info));
+        ApplyEntryAbility(Active, Wild);
+        ApplyEntryAbility(Wild, Active);
     }
 
     // Trainer or gym battle: the opponent fields a team of 1-6 and their Pokémon cannot be caught.
@@ -123,6 +125,8 @@ internal sealed class Battle
         Log.Enqueue(new BattleMessage($"{trainerName} wants to battle!", BattleCue.Info));
         Log.Enqueue(new BattleMessage($"{trainerName} sent out {Wild.Name}!", BattleCue.EnemySwitch, Wild,
             stateAfter: BattleSnapshot.Capture(Wild)));
+        ApplyEntryAbility(Active, Wild);
+        ApplyEntryAbility(Wild, Active);
     }
 
     private Battle(List<MonsterInstance> party, Bag bag, Random rng)
@@ -172,6 +176,7 @@ internal sealed class Battle
         Wild.ResetBattleState();
         Log.Enqueue(new BattleMessage($"{TrainerName} sent out {Wild.Name}!", BattleCue.EnemySwitch, Wild,
             stateAfter: BattleSnapshot.Capture(Wild)));
+        ApplyEntryAbility(Wild, Active);
     }
 
     public float EscapeChance
@@ -285,11 +290,13 @@ internal sealed class Battle
 
         var forced = RequiresSwitch;
         RequiresSwitch = false;
+        OnSwitchOut(Active); // Natural Cure / Regenerator when leaving the field
         Active.ResetBattleState();
         activeIndex = partyIndex;
         participants.Add(Active);
         Log.Enqueue(new BattleMessage($"Go, {Active.Name}!", BattleCue.PlayerSwitch, Active, Active.CurrentHp,
             stateAfter: BattleSnapshot.Capture(Active)));
+        ApplyEntryAbility(Active, Wild);
         if (forced)
         {
             return;
@@ -536,14 +543,24 @@ internal sealed class Battle
             monster.ConfusionTurns--;
             if (rng.Next(3) == 0)
             {
-                var raw = ((2f * monster.Level / 5f + 2f) * 40f * monster.EffectiveAtk /
-                    Math.Max(1, monster.EffectiveDef) / 50f) + 2f;
-                var damage = Math.Min(monster.CurrentHp, Math.Max(1, (int)(raw *
-                    (0.85f + (float)rng.NextDouble() * 0.15f))));
-                monster.CurrentHp -= damage;
-                var cue = ReferenceEquals(monster, Wild) ? BattleCue.WildHurt : BattleCue.PlayerHurt;
-                Log.Enqueue(new BattleMessage($"It hurt itself in its confusion! ({damage})", cue, monster,
-                    monster.CurrentHp, stateAfter: BattleSnapshot.Capture(monster)));
+                // Magic Guard prevents the confusion self-hit damage, but the turn is still lost.
+                if (monster.Ability is not "Magic Guard")
+                {
+                    var raw = ((2f * monster.Level / 5f + 2f) * 40f * monster.EffectiveAtk /
+                        Math.Max(1, monster.EffectiveDef) / 50f) + 2f;
+                    var damage = Math.Min(monster.CurrentHp, Math.Max(1, (int)(raw *
+                        (0.85f + (float)rng.NextDouble() * 0.15f))));
+                    monster.CurrentHp -= damage;
+                    var cue = ReferenceEquals(monster, Wild) ? BattleCue.WildHurt : BattleCue.PlayerHurt;
+                    Log.Enqueue(new BattleMessage($"It hurt itself in its confusion! ({damage})", cue, monster,
+                        monster.CurrentHp, stateAfter: BattleSnapshot.Capture(monster)));
+                }
+                else
+                {
+                    Log.Enqueue(new BattleMessage($"{monster.Name} is too confused to move!", BattleCue.Info,
+                        monster));
+                }
+
                 return false;
             }
 
@@ -562,6 +579,408 @@ internal sealed class Battle
         var hpTerm = (3f * Wild.MaxHp - 2f * Wild.CurrentHp) / (3f * Wild.MaxHp);
         var statusBonus = Wild.Status != Status.None ? 1.5f : 1f;
         return Math.Clamp(hpTerm * (Wild.Species.CatchRate / 255f) * ballBonus * statusBonus, 0.03f, 1f);
+    }
+
+    // Overgrow/Blaze/Torrent/Swarm: +50% to the matching type when the user is at/below 1/3 HP.
+    private static float PinchAbilityBoost(MonsterInstance attacker, Element moveType)
+    {
+        if (attacker.CurrentHp * 3 > attacker.MaxHp)
+        {
+            return 1f;
+        }
+
+        return (attacker.Ability, moveType) switch
+        {
+            ("Overgrow", Element.Grass) => 1.5f,
+            ("Blaze", Element.Fire) => 1.5f,
+            ("Torrent", Element.Water) => 1.5f,
+            ("Swarm", Element.Bug) => 1.5f,
+            _ => 1f,
+        };
+    }
+
+    // ---- Ability effects ------------------------------------------------------------
+
+    private enum StatKind { Atk, Def, SpA, SpD, Spe, Acc, Eva }
+
+    private static bool IsContact(MoveDef move) => !move.IsStatus && move.Category == MoveCategory.Physical;
+
+    private static bool HasSecondary(MoveDef move) => !move.IsStatus && move.Effect != MoveEffect.None;
+
+    // Effects that act on the target (blocked by Shield Dust when they're a damaging move's secondary).
+    private static bool IsDefenderEffect(MoveEffect e) => e is MoveEffect.LowerTargetAtk or MoveEffect.LowerTargetDef
+        or MoveEffect.LowerTargetSpAtk or MoveEffect.LowerTargetSpDef or MoveEffect.LowerTargetSpd
+        or MoveEffect.LowerTargetAccuracy or MoveEffect.Burn or MoveEffect.Freeze or MoveEffect.Paralyze
+        or MoveEffect.Poison or MoveEffect.Flinch or MoveEffect.Confuse;
+
+    // Effectiveness, with Scrappy letting Normal/Fighting hit Ghost types.
+    private static float EffectivenessWith(MonsterInstance attacker, MonsterInstance defender, MoveDef move)
+    {
+        var eff = Elements.Effectiveness(move.Element, defender.Element, defender.SecondaryElement);
+        if (eff <= 0f && attacker.Ability is "Scrappy" && move.Element is Element.Normal or Element.Fighting &&
+            defender.HasType(Element.Ghost))
+        {
+            var e = defender.Element == Element.Ghost ? 1f : Elements.Effectiveness(move.Element, defender.Element);
+            if (defender.SecondaryElement is { } s)
+            {
+                e *= s == Element.Ghost ? 1f : Elements.Effectiveness(move.Element, s);
+            }
+
+            return e;
+        }
+
+        return eff;
+    }
+
+    // On-switch abilities: Intimidate + Download (Trace/weather-setters aren't modelled).
+    private void ApplyEntryAbility(MonsterInstance entrant, MonsterInstance opponent)
+    {
+        switch (entrant.Ability)
+        {
+            case "Intimidate" when !opponent.Fainted:
+                LowerStatByFoe(opponent, StatKind.Atk, 1, "Attack", $"{entrant.Name}'s Intimidate");
+                break;
+            case "Download" when !opponent.Fainted:
+                if (opponent.Def <= opponent.SpDef)
+                {
+                    RaiseStat(entrant, StatKind.Atk, 1);
+                    Log.Enqueue(new BattleMessage($"{entrant.Name}'s Download boosted its Attack!", BattleCue.Buff,
+                        entrant, stateAfter: BattleSnapshot.Capture(entrant)));
+                }
+                else
+                {
+                    RaiseStat(entrant, StatKind.SpA, 1);
+                    Log.Enqueue(new BattleMessage($"{entrant.Name}'s Download boosted its Sp. Atk!", BattleCue.Buff,
+                        entrant, stateAfter: BattleSnapshot.Capture(entrant)));
+                }
+
+                break;
+        }
+    }
+
+    // Type-immunity / absorbing abilities. Returns true when the move is nullified.
+    private bool AbsorbByAbility(MonsterInstance attacker, MonsterInstance defender, MoveDef move)
+    {
+        var t = move.Element;
+        string? msg = null;
+        var heal = false;
+        StatKind? boost = null;
+        switch (defender.Ability)
+        {
+            case "Levitate" when t == Element.Ground:
+                msg = $"{defender.Name} is unaffected thanks to Levitate!";
+                break;
+            case "Flash Fire" when t == Element.Fire:
+                defender.FlashFireActive = true;
+                msg = $"Flash Fire powered up {defender.Name}'s Fire moves!";
+                break;
+            case "Volt Absorb" when t == Element.Electric:
+            case "Water Absorb" when t == Element.Water:
+            case "Dry Skin" when t == Element.Water:
+                heal = true;
+                msg = $"{defender.Name} restored HP with {defender.Ability}!";
+                break;
+            case "Lightning Rod" when t == Element.Electric:
+            case "Storm Drain" when t == Element.Water:
+                boost = StatKind.SpA;
+                msg = $"{defender.Name}'s {defender.Ability} drew in the attack!";
+                break;
+            case "Motor Drive" when t == Element.Electric:
+                boost = StatKind.Spe;
+                msg = $"{defender.Name}'s Motor Drive boosted its Speed!";
+                break;
+            case "Sap Sipper" when t == Element.Grass:
+                boost = StatKind.Atk;
+                msg = $"{defender.Name}'s Sap Sipper boosted its Attack!";
+                break;
+        }
+
+        if (msg is null)
+        {
+            return false;
+        }
+
+        if (heal && defender.CurrentHp < defender.MaxHp)
+        {
+            defender.Heal(Math.Max(1, defender.MaxHp / 4));
+            Log.Enqueue(new BattleMessage(msg, BattleCue.Heal, defender, defender.CurrentHp,
+                stateAfter: BattleSnapshot.Capture(defender)));
+        }
+        else if (boost is { } b)
+        {
+            RaiseStat(defender, b, 1);
+            Log.Enqueue(new BattleMessage(msg, BattleCue.Buff, defender, stateAfter: BattleSnapshot.Capture(defender)));
+        }
+        else
+        {
+            Log.Enqueue(new BattleMessage(msg, BattleCue.Info, defender, effectiveness: 0f));
+        }
+
+        return true;
+    }
+
+    private void HandleOnHit(MonsterInstance attacker, MonsterInstance defender, MoveDef move, bool crit,
+        bool moldBreaker)
+    {
+        var contact = IsContact(move);
+        if (defender.Fainted)
+        {
+            if (attacker.Ability is "Moxie" && !attacker.Fainted)
+            {
+                RaiseStat(attacker, StatKind.Atk, 1);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Moxie boosted its Attack!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+            }
+
+            if (!moldBreaker && contact && defender.Ability is "Aftermath")
+            {
+                IndirectDamage(attacker, attacker.MaxHp / 4, "Aftermath");
+            }
+
+            return;
+        }
+
+        if (crit && !moldBreaker && defender.Ability is "Anger Point")
+        {
+            defender.AtkStage = 6;
+            Log.Enqueue(new BattleMessage($"{defender.Name}'s Anger Point maxed its Attack!", BattleCue.Buff,
+                defender, stateAfter: BattleSnapshot.Capture(defender)));
+        }
+
+        if (defender.Ability is "Justified" && move.Element == Element.Dark)
+        {
+            RaiseStat(defender, StatKind.Atk, 1);
+            Log.Enqueue(new BattleMessage($"{defender.Name}'s Justified boosted its Attack!", BattleCue.Buff,
+                defender, stateAfter: BattleSnapshot.Capture(defender)));
+        }
+
+        if (defender.Ability is "Rattled" && move.Element is Element.Bug or Element.Dark or Element.Ghost)
+        {
+            RaiseStat(defender, StatKind.Spe, 1);
+            Log.Enqueue(new BattleMessage($"{defender.Name}'s Rattled boosted its Speed!", BattleCue.Buff,
+                defender, stateAfter: BattleSnapshot.Capture(defender)));
+        }
+
+        if (contact && defender.Ability is "Weak Armor")
+        {
+            ApplyStageDown(defender, StatKind.Def, 1);
+            RaiseStat(defender, StatKind.Spe, 2);
+            Log.Enqueue(new BattleMessage($"{defender.Name}'s Weak Armor shifted its stats!", BattleCue.Buff,
+                defender, stateAfter: BattleSnapshot.Capture(defender)));
+        }
+
+        // Contact-triggered status from the defender's body onto the attacker (30%).
+        if (contact && !moldBreaker && !attacker.Fainted && rng.Next(10) < 3)
+        {
+            switch (defender.Ability)
+            {
+                case "Static": TryInflict(attacker, Status.Paralysis, defender); break;
+                case "Flame Body": TryInflict(attacker, Status.Burn, defender); break;
+                case "Poison Point": TryInflict(attacker, Status.Poison, defender); break;
+                case "Effect Spore":
+                    TryInflict(attacker, rng.Next(2) == 0 ? Status.Poison : Status.Paralysis, defender);
+                    break;
+            }
+        }
+
+        // The attacker's own contact/hit abilities onto the defender.
+        if (!attacker.Fainted)
+        {
+            if (contact && attacker.Ability is "Poison Touch" && rng.Next(10) < 3)
+            {
+                TryInflict(defender, Status.Poison, attacker);
+            }
+
+            if (attacker.Ability is "Stench" && !defender.Fainted && rng.Next(10) < 1)
+            {
+                defender.Flinched = true;
+            }
+        }
+    }
+
+    // Applies a status with type/ability immunity checks and Synchronize reflection. Returns success.
+    private bool TryInflict(MonsterInstance target, Status status, MonsterInstance? source)
+    {
+        if (target.Fainted || target.Status != Status.None || status == Status.None ||
+            TypeImmuneToStatus(target, status))
+        {
+            return false;
+        }
+
+        var abilityImmune = target.Ability switch
+        {
+            "Immunity" => status == Status.Poison,
+            "Limber" => status == Status.Paralysis,
+            "Water Veil" => status == Status.Burn,
+            _ => false,
+        };
+        if (abilityImmune)
+        {
+            return false;
+        }
+
+        target.Status = status;
+        Log.Enqueue(new BattleMessage(StatusInflictText(target, status), BattleCue.Buff, target,
+            stateAfter: BattleSnapshot.Capture(target)));
+
+        if (target.Ability is "Synchronize" && source is not null && !ReferenceEquals(source, target) &&
+            source.Status == Status.None && status is Status.Burn or Status.Poison or Status.Paralysis &&
+            !TypeImmuneToStatus(source, status))
+        {
+            source.Status = status;
+            Log.Enqueue(new BattleMessage($"{target.Name}'s Synchronize passed the condition to {source.Name}!",
+                BattleCue.Buff, source, stateAfter: BattleSnapshot.Capture(source)));
+        }
+
+        return true;
+    }
+
+    private static bool TypeImmuneToStatus(MonsterInstance m, Status status) => status switch
+    {
+        Status.Burn => m.HasType(Element.Fire),
+        Status.Freeze => m.HasType(Element.Ice),
+        Status.Paralysis => m.HasType(Element.Electric),
+        Status.Poison => m.HasType(Element.Poison) || m.HasType(Element.Steel),
+        _ => false,
+    };
+
+    private static string StatusInflictText(MonsterInstance m, Status status) => status switch
+    {
+        Status.Burn => $"{m.Name} was scorched!",
+        Status.Freeze => $"{m.Name} was frozen solid!",
+        Status.Paralysis => $"{m.Name} was paralyzed!",
+        Status.Poison => $"{m.Name} was poisoned!",
+        _ => $"{m.Name} was afflicted!",
+    };
+
+    private void RaiseStat(MonsterInstance m, StatKind k, int amount)
+    {
+        switch (k)
+        {
+            case StatKind.Atk: m.AtkStage = Math.Min(6, m.AtkStage + amount); break;
+            case StatKind.Def: m.DefStage = Math.Min(6, m.DefStage + amount); break;
+            case StatKind.SpA: m.SpAtkStage = Math.Min(6, m.SpAtkStage + amount); break;
+            case StatKind.SpD: m.SpDefStage = Math.Min(6, m.SpDefStage + amount); break;
+            case StatKind.Spe: m.SpdStage = Math.Min(6, m.SpdStage + amount); break;
+            case StatKind.Acc: m.AccuracyStage = Math.Min(6, m.AccuracyStage + amount); break;
+            case StatKind.Eva: m.EvasionStage = Math.Min(6, m.EvasionStage + amount); break;
+        }
+    }
+
+    private static void ApplyStageDown(MonsterInstance m, StatKind k, int amount)
+    {
+        switch (k)
+        {
+            case StatKind.Atk: m.AtkStage = Math.Max(-6, m.AtkStage - amount); break;
+            case StatKind.Def: m.DefStage = Math.Max(-6, m.DefStage - amount); break;
+            case StatKind.SpA: m.SpAtkStage = Math.Max(-6, m.SpAtkStage - amount); break;
+            case StatKind.SpD: m.SpDefStage = Math.Max(-6, m.SpDefStage - amount); break;
+            case StatKind.Spe: m.SpdStage = Math.Max(-6, m.SpdStage - amount); break;
+            case StatKind.Acc: m.AccuracyStage = Math.Max(-6, m.AccuracyStage - amount); break;
+            case StatKind.Eva: m.EvasionStage = Math.Max(-6, m.EvasionStage - amount); break;
+        }
+    }
+
+    private static bool StatDropBlocked(MonsterInstance t, StatKind k) => t.Ability switch
+    {
+        "Clear Body" or "White Smoke" or "Full Metal Body" => true,
+        "Hyper Cutter" => k == StatKind.Atk,
+        "Big Pecks" => k == StatKind.Def,
+        "Keen Eye" or "Illuminate" => k == StatKind.Acc,
+        _ => false,
+    };
+
+    // Lowers a stat inflicted by the foe (Growl, Intimidate, secondary drops). Honours the
+    // stat-drop-prevention abilities and triggers Defiant/Competitive. Returns true if it landed.
+    private bool LowerStatByFoe(MonsterInstance target, StatKind k, int amount, string statName, string? prefix = null)
+    {
+        if (target.Fainted)
+        {
+            return false;
+        }
+
+        if (StatDropBlocked(target, k))
+        {
+            Log.Enqueue(new BattleMessage($"{target.Name}'s {statName} wasn't lowered ({target.Ability})!",
+                BattleCue.Info, target));
+            return false;
+        }
+
+        ApplyStageDown(target, k, amount);
+        var lead = prefix is null ? $"{target.Name}'s {statName}" : $"{prefix} cut {target.Name}'s {statName}";
+        Log.Enqueue(new BattleMessage($"{lead} fell!", BattleCue.Buff, target,
+            stateAfter: BattleSnapshot.Capture(target)));
+
+        if (target.Ability is "Defiant")
+        {
+            RaiseStat(target, StatKind.Atk, 2);
+            Log.Enqueue(new BattleMessage($"{target.Name}'s Defiant sharply raised its Attack!", BattleCue.Buff,
+                target, stateAfter: BattleSnapshot.Capture(target)));
+        }
+        else if (target.Ability is "Competitive")
+        {
+            RaiseStat(target, StatKind.SpA, 2);
+            Log.Enqueue(new BattleMessage($"{target.Name}'s Competitive sharply raised its Sp. Atk!", BattleCue.Buff,
+                target, stateAfter: BattleSnapshot.Capture(target)));
+        }
+
+        return true;
+    }
+
+    private void IndirectDamage(MonsterInstance m, int amount, string sourceLabel)
+    {
+        if (m.Ability is "Magic Guard" || m.Fainted)
+        {
+            return;
+        }
+
+        var dmg = Math.Min(m.CurrentHp, Math.Max(1, amount));
+        m.CurrentHp -= dmg;
+        var cue = ReferenceEquals(m, Wild) ? BattleCue.WildHurt : BattleCue.PlayerHurt;
+        Log.Enqueue(new BattleMessage($"{m.Name} was hurt by {sourceLabel}! ({dmg})", cue, m, m.CurrentHp,
+            stateAfter: BattleSnapshot.Capture(m)));
+    }
+
+    // Speed Boost / Shed Skin at the end of each turn.
+    private void EndOfTurnAbilities(MonsterInstance m)
+    {
+        if (m.Fainted)
+        {
+            return;
+        }
+
+        if (m.Ability is "Speed Boost" && m.SpdStage < 6)
+        {
+            m.SpdStage++;
+            Log.Enqueue(new BattleMessage($"{m.Name}'s Speed Boost raised its Speed!", BattleCue.Buff, m,
+                stateAfter: BattleSnapshot.Capture(m)));
+        }
+
+        if (m.Ability is "Shed Skin" && m.Status != Status.None && rng.Next(10) < 3)
+        {
+            m.Status = Status.None;
+            Log.Enqueue(new BattleMessage($"{m.Name}'s Shed Skin cured its status!", BattleCue.Buff, m,
+                stateAfter: BattleSnapshot.Capture(m)));
+        }
+    }
+
+    // Natural Cure / Regenerator when leaving the field.
+    private void OnSwitchOut(MonsterInstance m)
+    {
+        if (m.Fainted)
+        {
+            return;
+        }
+
+        if (m.Ability is "Natural Cure")
+        {
+            m.Status = Status.None;
+        }
+
+        if (m.Ability is "Regenerator" && m.CurrentHp < m.MaxHp)
+        {
+            m.Heal(m.MaxHp / 3);
+        }
     }
 
     private MoveDef ChooseWildMove()
@@ -603,13 +1022,20 @@ internal sealed class Battle
     {
         Log.Enqueue(new BattleMessage($"{attacker.Name} used {move.Name}!", attackCue, attacker, move: move));
 
-        if (move.Accuracy > 0)
+        // No Guard makes moves involving it always connect.
+        var noGuard = attacker.Ability is "No Guard" || defender.Ability is "No Guard";
+        if (move.Accuracy > 0 && !noGuard)
         {
             // Accuracy is scaled by the attacker's accuracy stage vs the defender's evasion stage
-            // (Sand Attack, Double Team, etc.), using the standard 3/(3±n) stage ratio.
+            // (Sand Attack, Double Team, etc.), using the standard 3/(3±n) stage ratio, then by
+            // Compound Eyes / Hustle / Wonder Skin.
             var stage = Math.Clamp(attacker.AccuracyStage - defender.EvasionStage, -6, 6);
             var stageMul = stage >= 0 ? (3f + stage) / 3f : 3f / (3f - stage);
-            if (rng.NextDouble() * 100f >= move.Accuracy * stageMul)
+            var acc = move.Accuracy * stageMul;
+            if (attacker.Ability is "Compound Eyes") acc *= 1.3f;
+            if (attacker.Ability is "Hustle" && move.Category == MoveCategory.Physical) acc *= 0.8f;
+            if (move.IsStatus && defender.Ability is "Wonder Skin") acc *= 0.5f;
+            if (rng.NextDouble() * 100f >= acc)
             {
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s attack missed!", BattleCue.Info));
                 return;
@@ -619,8 +1045,17 @@ internal sealed class Battle
         if (!move.IsStatus)
         {
             var isStruggle = ReferenceEquals(move, Moves.Struggle);
-            var effectiveness = isStruggle ? 1f :
-                Elements.Effectiveness(move.Element, defender.Element, defender.SecondaryElement);
+            // Mold Breaker ignores the target's defensive/immunity abilities.
+            var moldBreaker = attacker.Ability is "Mold Breaker";
+            var defAb = moldBreaker ? string.Empty : defender.Ability;
+
+            // Type-immunity / absorption abilities (Levitate, Volt Absorb, Flash Fire, ...).
+            if (!moldBreaker && AbsorbByAbility(attacker, defender, move))
+            {
+                return;
+            }
+
+            var effectiveness = isStruggle ? 1f : EffectivenessWith(attacker, defender, move);
             if (effectiveness <= 0f)
             {
                 Log.Enqueue(new BattleMessage($"It doesn't affect {defender.Name}...", BattleCue.Info, defender,
@@ -628,30 +1063,97 @@ internal sealed class Battle
                 return;
             }
 
-            var stab = !isStruggle && attacker.HasType(move.Element) ? 1.5f : 1f;
-            var crit = rng.Next(24) == 0 ? 1.5f : 1f;
+            // Crit: blocked by Battle/Shell Armor, boosted by Super Luck (rate) and Sniper (damage).
+            var noCrit = defAb is "Battle Armor" or "Shell Armor";
+            var critRate = attacker.Ability is "Super Luck" ? 8 : 24;
+            var isCritical = !noCrit && rng.Next(critRate) == 0;
+            var crit = isCritical ? (attacker.Ability is "Sniper" ? 2.25f : 1.5f) : 1f;
+
+            var stab = !isStruggle && attacker.HasType(move.Element)
+                ? (attacker.Ability is "Adaptability" ? 2f : 1.5f) : 1f;
             var variance = 0.85f + (float)rng.NextDouble() * 0.15f;
-            var isCritical = crit > 1f;
             var attack = attacker.OffensiveStat(move.Category, isCritical);
             var defense = defender.DefensiveStat(move.Category, isCritical);
-            var burn = attacker.Status == Status.Burn && move.Category == MoveCategory.Physical ? 0.5f : 1f;
-            var raw = ((2f * attacker.Level / 5f + 2f) * move.Power * attack /
-                Math.Max(1, defense) / 50f) + 2f;
-            var damage = Math.Max(1, (int)(raw * effectiveness * stab * crit * variance * burn));
+            var attackerStatused = attacker.Status != Status.None;
+
+            // Attack / Defense stat multipliers from abilities.
+            var atkMul = 1f;
+            if (move.Category == MoveCategory.Physical)
+            {
+                if (attacker.Ability is "Guts" && attackerStatused) atkMul *= 1.5f;
+                if (attacker.Ability is "Hustle") atkMul *= 1.5f;
+            }
+
+            var defMul = 1f;
+            if (defAb is "Marvel Scale" && defender.Status != Status.None) defMul *= 1.5f;
+
+            // Move-power multipliers.
+            var powerMul = PinchAbilityBoost(attacker, move.Element);
+            if (attacker.Ability is "Technician" && move.Power <= 60) powerMul *= 1.5f;
+            if (attacker.Ability is "Reckless" && move.Effect == MoveEffect.RecoilQuarterMax) powerMul *= 1.2f;
+            var sheerForce = attacker.Ability is "Sheer Force" && HasSecondary(move);
+            if (sheerForce) powerMul *= 1.3f;
+            if (attacker.Ability is "Rivalry" && attacker.Gender != Gender.Genderless &&
+                defender.Gender != Gender.Genderless)
+            {
+                powerMul *= attacker.Gender == defender.Gender ? 1.25f : 0.75f;
+            }
+
+            if (attacker.FlashFireActive && move.Element == Element.Fire) powerMul *= 1.5f;
+
+            // Effectiveness-based modifiers.
+            var effMul = 1f;
+            if (attacker.Ability is "Tinted Lens" && effectiveness < 1f) effMul *= 2f;
+            if (effectiveness > 1f && defAb is "Filter" or "Solid Rock") effMul *= 0.75f;
+            if (defAb is "Thick Fat" && move.Element is Element.Fire or Element.Ice) effMul *= 0.5f;
+            if (defAb is "Heatproof" && move.Element == Element.Fire) effMul *= 0.5f;
+            if (defAb is "Dry Skin" && move.Element == Element.Fire) effMul *= 1.25f;
+            if (defAb is "Multiscale" && defender.CurrentHp == defender.MaxHp) effMul *= 0.5f;
+
+            var burn = attacker.Status == Status.Burn && move.Category == MoveCategory.Physical &&
+                attacker.Ability is not "Guts" ? 0.5f : 1f;
+
+            var effectiveDefense = Math.Max(1, (int)(defense * defMul));
+            var raw = ((2f * attacker.Level / 5f + 2f) * move.Power * attack * atkMul / effectiveDefense / 50f) + 2f;
+            var damage = Math.Max(1, (int)(raw * effectiveness * stab * crit * variance * burn * powerMul * effMul));
             var appliedDamage = Math.Min(defender.CurrentHp, damage);
+
+            // Sturdy: survive a would-be OHKO from full HP with 1 HP left.
+            var sturdy = defAb is "Sturdy" && defender.CurrentHp == defender.MaxHp &&
+                appliedDamage >= defender.CurrentHp;
+            if (sturdy)
+            {
+                appliedDamage = defender.CurrentHp - 1;
+            }
+
             defender.CurrentHp -= appliedDamage;
             if (!ReferenceEquals(attacker, Wild))
             {
                 attacker.RecordDamage(appliedDamage);
             }
-            Log.Enqueue(new BattleMessage(DamageText(defender, appliedDamage, effectiveness, crit > 1f), hurtCue,
-                defender, defender.CurrentHp, crit > 1f, effectiveness, move,
+
+            Log.Enqueue(new BattleMessage(DamageText(defender, appliedDamage, effectiveness, isCritical), hurtCue,
+                defender, defender.CurrentHp, isCritical, effectiveness, move,
                 stateAfter: BattleSnapshot.Capture(defender)));
+            if (sturdy)
+            {
+                Log.Enqueue(new BattleMessage($"{defender.Name} endured the hit with Sturdy!", BattleCue.Buff,
+                    defender, defender.CurrentHp, stateAfter: BattleSnapshot.Capture(defender)));
+            }
+
             if (!defender.Fainted && defender.Status == Status.Freeze && move.Element == Element.Fire)
             {
                 defender.Status = Status.None;
                 Log.Enqueue(new BattleMessage($"{defender.Name} thawed out!", BattleCue.Buff, defender,
                     stateAfter: BattleSnapshot.Capture(defender)));
+            }
+
+            HandleOnHit(attacker, defender, move, isCritical, moldBreaker);
+
+            // Sheer Force trades the move's secondary effect for the power boost above.
+            if (sheerForce)
+            {
+                return;
             }
         }
 
@@ -665,7 +1167,18 @@ internal sealed class Battle
             return;
         }
 
-        if (!move.IsStatus && move.EffectChance > 0 && rng.NextDouble() * 100f > move.EffectChance)
+        if (!move.IsStatus && move.EffectChance > 0)
+        {
+            // Serene Grace doubles secondary-effect chances.
+            var chance = move.EffectChance * (attacker.Ability is "Serene Grace" ? 2 : 1);
+            if (rng.NextDouble() * 100f > chance)
+            {
+                return;
+            }
+        }
+
+        // Shield Dust blocks the added effects of damaging moves that target its holder.
+        if (!move.IsStatus && defender.Ability is "Shield Dust" && IsDefenderEffect(move.Effect))
         {
             return;
         }
@@ -673,52 +1186,40 @@ internal sealed class Battle
         switch (move.Effect)
         {
             case MoveEffect.RaiseAtk:
-                attacker.AtkStage = Math.Min(6, attacker.AtkStage + move.StageChange);
+                RaiseStat(attacker, StatKind.Atk, move.StageChange);
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s attack rose!", BattleCue.Buff, attacker,
                     stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
             case MoveEffect.RaiseDef:
-                attacker.DefStage = Math.Min(6, attacker.DefStage + move.StageChange);
+                RaiseStat(attacker, StatKind.Def, move.StageChange);
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s defense rose!", BattleCue.Buff, attacker,
                     stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
             case MoveEffect.RaiseSpd:
-                attacker.SpdStage = Math.Min(6, attacker.SpdStage + move.StageChange);
+                RaiseStat(attacker, StatKind.Spe, move.StageChange);
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s speed rose!", BattleCue.Buff, attacker,
                     stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
             case MoveEffect.LowerTargetAtk:
-                defender.AtkStage = Math.Max(-6, defender.AtkStage - move.StageChange);
-                Log.Enqueue(new BattleMessage($"{defender.Name}'s attack fell!", BattleCue.Buff, defender,
-                    stateAfter: BattleSnapshot.Capture(defender)));
+                LowerStatByFoe(defender, StatKind.Atk, move.StageChange, "Attack");
                 break;
             case MoveEffect.LowerTargetSpd:
-                defender.SpdStage = Math.Max(-6, defender.SpdStage - move.StageChange);
-                Log.Enqueue(new BattleMessage($"{defender.Name}'s speed fell!", BattleCue.Buff, defender,
-                    stateAfter: BattleSnapshot.Capture(defender)));
+                LowerStatByFoe(defender, StatKind.Spe, move.StageChange, "Speed");
                 break;
             case MoveEffect.LowerTargetDef:
-                defender.DefStage = Math.Max(-6, defender.DefStage - move.StageChange);
-                Log.Enqueue(new BattleMessage($"{defender.Name}'s defense fell!", BattleCue.Buff, defender,
-                    stateAfter: BattleSnapshot.Capture(defender)));
+                LowerStatByFoe(defender, StatKind.Def, move.StageChange, "Defense");
                 break;
             case MoveEffect.LowerTargetSpAtk:
-                defender.SpAtkStage = Math.Max(-6, defender.SpAtkStage - move.StageChange);
-                Log.Enqueue(new BattleMessage($"{defender.Name}'s Sp. Atk fell!", BattleCue.Buff, defender,
-                    stateAfter: BattleSnapshot.Capture(defender)));
+                LowerStatByFoe(defender, StatKind.SpA, move.StageChange, "Sp. Atk");
                 break;
             case MoveEffect.LowerTargetSpDef:
-                defender.SpDefStage = Math.Max(-6, defender.SpDefStage - move.StageChange);
-                Log.Enqueue(new BattleMessage($"{defender.Name}'s Sp. Def fell!", BattleCue.Buff, defender,
-                    stateAfter: BattleSnapshot.Capture(defender)));
+                LowerStatByFoe(defender, StatKind.SpD, move.StageChange, "Sp. Def");
                 break;
             case MoveEffect.LowerTargetAccuracy:
-                defender.AccuracyStage = Math.Max(-6, defender.AccuracyStage - move.StageChange);
-                Log.Enqueue(new BattleMessage($"{defender.Name}'s accuracy fell!", BattleCue.Buff, defender,
-                    stateAfter: BattleSnapshot.Capture(defender)));
+                LowerStatByFoe(defender, StatKind.Acc, move.StageChange, "accuracy");
                 break;
             case MoveEffect.RaiseEvasion:
-                attacker.EvasionStage = Math.Min(6, attacker.EvasionStage + move.StageChange);
+                RaiseStat(attacker, StatKind.Eva, move.StageChange);
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s evasiveness rose!", BattleCue.Buff, attacker,
                     stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
@@ -728,65 +1229,53 @@ internal sealed class Battle
                     attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
             case MoveEffect.Burn:
-                if (defender.Status == Status.None && !defender.HasType(Element.Fire) && !defender.Fainted)
-                {
-                    defender.Status = Status.Burn;
-                    Log.Enqueue(new BattleMessage($"{defender.Name} was scorched!", BattleCue.Buff, defender,
-                        stateAfter: BattleSnapshot.Capture(defender)));
-                }
-
+                TryInflict(defender, Status.Burn, attacker);
                 break;
             case MoveEffect.Freeze:
-                if (defender.Status == Status.None && !defender.HasType(Element.Ice) && !defender.Fainted)
-                {
-                    defender.Status = Status.Freeze;
-                    Log.Enqueue(new BattleMessage($"{defender.Name} was frozen solid!", BattleCue.Buff, defender,
-                        stateAfter: BattleSnapshot.Capture(defender)));
-                }
-
+                TryInflict(defender, Status.Freeze, attacker);
                 break;
             case MoveEffect.Paralyze:
-                if (defender.Status == Status.None && !defender.HasType(Element.Electric) && !defender.Fainted)
-                {
-                    defender.Status = Status.Paralysis;
-                    Log.Enqueue(new BattleMessage($"{defender.Name} was paralyzed!", BattleCue.Buff, defender,
-                        stateAfter: BattleSnapshot.Capture(defender)));
-                }
-
+                TryInflict(defender, Status.Paralysis, attacker);
                 break;
             case MoveEffect.Poison:
-                if (defender.Status == Status.None && !defender.HasType(Element.Poison) &&
-                    !defender.HasType(Element.Steel) && !defender.Fainted)
-                {
-                    defender.Status = Status.Poison;
-                    Log.Enqueue(new BattleMessage($"{defender.Name} was poisoned!", BattleCue.Buff, defender,
-                        stateAfter: BattleSnapshot.Capture(defender)));
-                }
-
+                TryInflict(defender, Status.Poison, attacker);
                 break;
             case MoveEffect.Flinch:
-                if (!defender.Fainted)
+                if (!defender.Fainted && defender.Ability is not "Inner Focus")
                 {
                     defender.Flinched = true;
+                    if (defender.Ability is "Steadfast")
+                    {
+                        RaiseStat(defender, StatKind.Spe, 1);
+                        Log.Enqueue(new BattleMessage($"{defender.Name}'s Steadfast raised its Speed!",
+                            BattleCue.Buff, defender, stateAfter: BattleSnapshot.Capture(defender)));
+                    }
                 }
 
                 break;
             case MoveEffect.RecoilQuarterMax:
-                if (!attacker.Fainted)
+                if (!attacker.Fainted && attacker.Ability is not "Rock Head")
                 {
-                    var recoil = Math.Min(attacker.CurrentHp, Math.Max(1, attacker.MaxHp / 4));
-                    attacker.CurrentHp -= recoil;
-                    var recoilCue = ReferenceEquals(attacker, Wild) ? BattleCue.WildHurt : BattleCue.PlayerHurt;
-                    Log.Enqueue(new BattleMessage($"{attacker.Name} was damaged by recoil. ({recoil})", recoilCue,
-                        attacker, attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
+                    IndirectDamage(attacker, attacker.MaxHp / 4, "recoil");
                 }
 
                 break;
             case MoveEffect.Confuse:
-                if (!defender.Fainted && defender.ConfusionTurns <= 0)
+                if (!defender.Fainted && defender.ConfusionTurns <= 0 && defender.Ability is not "Own Tempo")
                 {
                     defender.ConfusionTurns = rng.Next(2, 6);
                     Log.Enqueue(new BattleMessage($"{defender.Name} became confused!", BattleCue.Buff, defender));
+                }
+
+                break;
+            case MoveEffect.Transform:
+                if (!attacker.Fainted && !defender.Fainted && !attacker.IsTransformed && !defender.IsTransformed)
+                {
+                    var who = attacker.Name;
+                    var into = defender.Species.Name;
+                    attacker.Transform(defender);
+                    Log.Enqueue(new BattleMessage($"{who} transformed into {into}!", BattleCue.Buff, attacker,
+                        attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
                 }
 
                 break;
@@ -862,6 +1351,7 @@ internal sealed class Battle
                 continue;
             }
 
+            m.GainEvs(Wild.Species); // EV yield from the defeated species (its top base stats)
             var learned = m.GainXp(gain, out var pendingMoves, out var evolutions);
             if (active)
             {
@@ -925,12 +1415,18 @@ internal sealed class Battle
         }
 
         PoisonTick(Wild, BattleCue.WildHurt);
-        WildDown();
+        if (WildDown())
+        {
+            return;
+        }
+
+        EndOfTurnAbilities(Active);
+        EndOfTurnAbilities(Wild);
     }
 
     private void BurnTick(MonsterInstance monster, BattleCue hurtCue)
     {
-        if (monster.Status != Status.Burn || monster.Fainted)
+        if (monster.Status != Status.Burn || monster.Fainted || monster.Ability is "Magic Guard")
         {
             return;
         }
@@ -944,6 +1440,24 @@ internal sealed class Battle
     private void PoisonTick(MonsterInstance monster, BattleCue hurtCue)
     {
         if (monster.Status != Status.Poison || monster.Fainted)
+        {
+            return;
+        }
+
+        // Poison Heal restores HP instead of taking poison damage.
+        if (monster.Ability is "Poison Heal")
+        {
+            if (monster.CurrentHp < monster.MaxHp)
+            {
+                monster.Heal(Math.Max(1, monster.MaxHp / 8));
+                Log.Enqueue(new BattleMessage($"{monster.Name} restored HP with Poison Heal!", BattleCue.Heal,
+                    monster, monster.CurrentHp, stateAfter: BattleSnapshot.Capture(monster)));
+            }
+
+            return;
+        }
+
+        if (monster.Ability is "Magic Guard")
         {
             return;
         }

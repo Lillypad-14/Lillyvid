@@ -126,6 +126,22 @@ internal sealed partial class LillypadGoApp
 
     // ---- Shared widgets -------------------------------------------------------------
 
+    private static string GenderRatioText(MonsterSpecies species)
+    {
+        if (species.Genderless)
+        {
+            return "Genderless";
+        }
+
+        var male = (int)MathF.Round(species.MaleRatio * 100f);
+        return male switch
+        {
+            100 => "♂ only",
+            0 => "♀ only",
+            _ => $"♂ {male}% ♀ {100 - male}%",
+        };
+    }
+
     private static string EvolutionSummary(MonsterSpecies species)
     {
         if (Dex.EvolutionOf(species) is not { } evo)

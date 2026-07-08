@@ -483,12 +483,17 @@ internal sealed partial class LillypadGoApp
     {
         var enabled = battle!.CanUseItem(item);
         var tint = LgUi.ItemTint(item.Category);
-        if (LgUi.Button(rect, item.Name, enabled ? tint : GamePalette.CellSunken, theme, enabled,
+        // Leave room on the left for the item sprite, mirroring the bag layout.
+        if (LgUi.Button(rect, "      " + item.Name, enabled ? tint : GamePalette.CellSunken, theme, enabled,
                 BattleItemSub(item, count)))
         {
             battle.UseItem(item);
             menu = Menu.Root;
         }
+
+        var drawList = ImGui.GetWindowDrawList();
+        var iconCenter = new Vector2(rect.Min.X + rect.Height * 0.55f, rect.Center.Y);
+        LgUi.ItemIcon(drawList, iconCenter, rect.Height * 0.7f, item);
 
         if (LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max))
         {
@@ -526,7 +531,7 @@ internal sealed partial class LillypadGoApp
                 : $"{battle.Active.Name} has no matching condition to cure.",
             _ => item.Description,
         };
-        return $"{item.Name}\n{item.Description}\n\n{line}\nUsing an item takes your turn.";
+        return $"{item.Name}\n{ItemStatsLine(item)}\n\n{item.Description}\n\n{line}\nUsing an item takes your turn.";
     }
 
     private static string StatusWord(Status status) => status switch
@@ -716,9 +721,11 @@ internal sealed partial class LillypadGoApp
 
         pendingGymIndex = -1;
 
-        // A creature may have evolved mid-battle — make sure its new form is registered as seen.
+        // Undo any Transform (Ditto) so nothing is stored as its copied form, and register evolved
+        // forms as seen.
         foreach (var m in State.Party)
         {
+            m.RevertTransform();
             State.Seen.Add(m.Species.Id);
         }
 
