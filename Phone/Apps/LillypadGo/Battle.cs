@@ -209,6 +209,7 @@ internal sealed class Battle
     public BattleTerrain Terrain { get; private set; }
     public MonsterInstance? Captured { get; private set; }
     public int PrizeMoney { get; private set; }
+    public int XpGained { get; private set; } // XP the active creature earned across the battle
     public string? TrainerName { get; }
     public bool IsTrainerBattle => enemyTeam is not null;
     public bool CanCatch => enemyTeam is null;
@@ -2457,6 +2458,7 @@ internal sealed class Battle
             var learned = m.GainXp(gain, out var pendingMoves, out var evolutions);
             if (active)
             {
+                XpGained += gain;
                 Log.Enqueue(new BattleMessage($"{m.Name} gained {gain} XP.", BattleCue.XpGain, m,
                     stateAfter: BattleSnapshot.Capture(m)));
             }

@@ -704,140 +704,300 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    // The win / loss / forfeit screen, drawn inside the battle's bottom message box (not full-screen).
+    // The arena and creatures stay visible above; this panel replaces the action menu once the battle
+    // is decided. Emblems, lettering and reward icons are bundled art under Assets/pokemon/result.
     private void DrawResult(Rect panel, PhoneTheme theme, float scale)
     {
-        var drawList = ImGui.GetWindowDrawList();
-        var win = new Vector4(0.42f, 0.86f, 0.5f, 1f);
-        var gold = new Vector4(1f, 0.82f, 0.32f, 1f);
-        var gym = pendingGymIndex >= 0 ? Gyms.All[pendingGymIndex] : null;
+        var dl = ImGui.GetWindowDrawList();
+        var win = new Vector4(0.40f, 0.80f, 0.46f, 1f);
+        var gold = new Vector4(0.93f, 0.76f, 0.36f, 1f);
+        var xpBlue = new Vector4(0.44f, 0.70f, 0.95f, 1f);
+
         var outcome = battle!.Outcome;
-        var positive = outcome is BattleOutcome.Won or BattleOutcome.Captured;
-        var earnedBadge = outcome == BattleOutcome.Won && gym is not null && State.HasBadge(gym.Index);
+        var won = outcome == BattleOutcome.Won;
+        var captured = outcome == BattleOutcome.Captured;
+        var whiteout = outcome == BattleOutcome.Whiteout;
+        var forfeit = outcome == BattleOutcome.Fled && battle.IsTrainerBattle;
+        var escaped = outcome == BattleOutcome.Fled && !battle.IsTrainerBattle;
+        var positive = won || captured;
+        var defeated = whiteout || forfeit;
+        var accent = positive ? gold : defeated ? theme.Danger : new Vector4(0.62f, 0.64f, 0.72f, 1f);
 
-        var (title, color) = outcome switch
+        // Entrance: fade the contents in over a short beat.
+        if (resultShownAt < 0f)
         {
-            BattleOutcome.Captured when State.Party.Count >= LillypadGoState.PartyLimit =>
-                ($"{battle.Wild.Name} was caught!", win),
-            BattleOutcome.Captured => ($"{battle.Wild.Name} joined your team!", win),
-            BattleOutcome.Won when battle.IsTrainerBattle => ($"You defeated {battle.TrainerName}!", win),
-            BattleOutcome.Won => ("You won the battle!", win),
-            BattleOutcome.Fled when battle.IsTrainerBattle => ("You forfeited the battle.", theme.Danger),
-            BattleOutcome.Fled => ("Got away safely.", theme.TextStrong with { W = 0.85f }),
-            BattleOutcome.Whiteout => ("Your team was wiped out!", theme.Danger),
-            _ => ("…", theme.TextStrong),
-        };
+            resultShownAt = time;
+        }
 
-        // Celebratory wash + sparkles behind a positive result.
+        var ease = 1f - MathF.Pow(1f - Math.Clamp((time - resultShownAt) / 0.3f, 0f, 1f), 3f);
+
+        var w = panel.Width;
+        var h = panel.Height;
+        var pad = 8f * scale;
+        float Y(float f) => panel.Min.Y + h * f;
+
+        // Panel surface, tinted by outcome.
+        Elevation.Draw(dl, panel.Min, panel.Max, 14f * scale, scale, 13f, -4f, 0.3f);
+        Squircle.FillVerticalGradient(dl, panel.Min, panel.Max, 14f * scale,
+            ImGui.GetColorU32(GamePalette.Lighten(GamePalette.Board, 0.05f) with { W = 0.97f }),
+            ImGui.GetColorU32(GamePalette.Darken(GamePalette.Board, 0.16f) with { W = 0.97f }));
+        ResultTintWash(dl, panel, accent, Y(0.6f), positive ? 0.16f : 0.12f);
+        Squircle.Stroke(dl, panel.Min, panel.Max, 14f * scale, ImGui.GetColorU32(accent with { W = 0.5f }),
+            1.3f * scale);
+        dl.AddLine(new Vector2(panel.Min.X + 14f * scale, panel.Min.Y + 1f * scale),
+            new Vector2(panel.Max.X - 14f * scale, panel.Min.Y + 1f * scale),
+            ImGui.GetColorU32(accent with { W = 0.45f }), 1f * scale);
+        DrawResultCorners(dl, panel, ImGui.GetColorU32(accent with { W = 0.8f }), 16f * scale, 2f * scale,
+            8f * scale);
+
+        // Sparkles behind a win.
         if (positive)
         {
-            Squircle.FillVerticalGradient(drawList, panel.Min, panel.Max, 14f * scale,
-                ImGui.GetColorU32(win with { W = 0.14f }), ImGui.GetColorU32(win with { W = 0.02f }));
             for (var i = 0; i < 12; i++)
             {
                 var ph = time * 1.4f + i * 2.61f;
-                var sx = panel.Min.X + (0.1f + 0.8f * ((i * 0.137f + time * 0.05f) % 1f)) * panel.Width;
-                var sy = panel.Min.Y + panel.Height * (0.16f + 0.62f * ((i * 0.29f) % 1f));
+                var sx = panel.Min.X + (0.08f + 0.84f * ((i * 0.137f + time * 0.04f) % 1f)) * w;
+                var sy = Y(0.08f + 0.5f * ((i * 0.29f) % 1f));
                 var tw = 0.5f + 0.5f * MathF.Sin(ph);
-                drawList.AddCircleFilled(new Vector2(sx, sy), (1.2f + tw * 1.6f) * scale,
-                    ImGui.GetColorU32((i % 2 == 0 ? gold : win) with { W = 0.35f + tw * 0.4f }));
+                dl.AddCircleFilled(new Vector2(sx, sy), (0.8f + tw * 1.4f) * scale,
+                    ImGui.GetColorU32((i % 2 == 0 ? gold : win) with { W = (0.18f + tw * 0.32f) * ease }));
             }
         }
 
-        // Emblem medallion: the earned badge, the caught creature, a trophy, or a defeat mark.
-        var emblem = new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.25f);
-        var radius = panel.Height * 0.19f;
-        DrawResultEmblem(drawList, emblem, radius, outcome, gym, earnedBadge, gold, win, theme, scale);
+        var buttonCol = positive ? win : defeated ? theme.Danger : new Vector4(0.30f, 0.34f, 0.42f, 1f);
+        var button = CenteredAt(new Vector2(panel.Center.X, Y(0.82f)), new Vector2(w * 0.52f, h * 0.24f));
 
-        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.53f),
-            FitLabel(title, panel.Width - 24f * scale, TextStyles.Headline), color, TextStyles.Headline);
-
-        var detail = outcome switch
+        // A neutral wild escape gets a simple, centred treatment (no bundled "escaped" artwork).
+        if (escaped)
         {
-            BattleOutcome.Won when earnedBadge => $"You earned the {gym!.Badge}!",
-            BattleOutcome.Won => "Victory!",
-            BattleOutcome.Captured when State.Party.Count >= LillypadGoState.PartyLimit => "Sent safely to storage.",
-            BattleOutcome.Captured => "Added to your active team.",
-            BattleOutcome.Fled when battle.IsTrainerBattle => "No badge, money or spoils for forfeiting.",
-            BattleOutcome.Whiteout => "Revive your team at a town Marketboard.",
-            _ => string.Empty,
-        };
-
-        // Prize money as a coin pill for battle wins; the detail line otherwise.
-        var infoY = panel.Min.Y + panel.Height * 0.68f;
-        if (outcome == BattleOutcome.Won && battle.PrizeMoney > 0)
-        {
-            var pill = CenteredAt(new Vector2(panel.Center.X, infoY), new Vector2(panel.Width * 0.42f, 22f * scale));
-            Squircle.Fill(drawList, pill.Min, pill.Max, 11f * scale, ImGui.GetColorU32(gold with { W = 0.16f }));
-            Squircle.Stroke(drawList, pill.Min, pill.Max, 11f * scale, ImGui.GetColorU32(gold with { W = 0.6f }),
-                1f * scale);
-            ProgressRing.CenterIcon(drawList, new Vector2(pill.Min.X + 16f * scale, pill.Center.Y),
-                FontAwesomeIcon.Coins, gold, 12f * scale);
-            Typography.DrawCentered(new Vector2(pill.Center.X + 8f * scale, pill.Center.Y),
-                $"+{LgUi.Money(battle.PrizeMoney)}", gold, TextStyles.SubheadlineEmphasized);
-            if (earnedBadge)
+            ProgressRing.CenterIcon(dl, new Vector2(panel.Center.X, Y(0.24f)), FontAwesomeIcon.Walking,
+                accent with { W = ease }, h * 0.2f);
+            DrawResultHeadline(dl, new Vector2(panel.Center.X, Y(0.46f)), "Got away safely!", accent, TextStyles.Title2,
+                true, ease);
+            Typography.DrawCentered(new Vector2(panel.Center.X, Y(0.6f)),
+                FitLabel("You slipped out of the encounter.", w - 24f * scale, TextStyles.Callout),
+                theme.TextMuted with { W = theme.TextMuted.W * ease }, TextStyles.Callout);
+            if (LgUi.Button(button, "Continue", buttonCol, theme, true))
             {
-                Typography.DrawCentered(new Vector2(panel.Center.X, infoY + 18f * scale),
-                    detail, win with { W = 0.95f }, TextStyles.Caption2);
+                FinishBattle();
             }
-        }
-        else if (detail.Length > 0)
-        {
-            Typography.DrawCentered(new Vector2(panel.Center.X, infoY),
-                FitLabel(detail, panel.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted,
-                TextStyles.Caption1);
+
+            return;
         }
 
-        var continueButton = CenteredAt(new Vector2(panel.Center.X, panel.Max.Y - panel.Height * 0.16f),
-            new Vector2(panel.Width * 0.5f, panel.Height * 0.26f));
-        if (LgUi.Button(continueButton, "Continue", positive ? win : Accent, theme, true))
+        // Left column: the hero emblem. Right column: title, subtitle and rewards.
+        var emblemZone = new Rect(new Vector2(panel.Min.X + pad, Y(0.06f)),
+            new Vector2(panel.Min.X + w * 0.34f, Y(0.66f)));
+        if (won || defeated)
+        {
+            ResultAsset(dl, won ? "result/victory_emblem.png" : "result/defeat_emblem.png", emblemZone, ease);
+        }
+        else // captured — show the caught creature as the hero.
+        {
+            var caught = battle.Captured ?? battle.Wild;
+            var ec = emblemZone.Center;
+            ProgressRing.Glow(ec, emblemZone.Height * 0.46f, Elements.Color(caught.Element), 0.5f * ease);
+            MonsterArt.Draw(dl, ec, emblemZone.Height * 0.72f, caught.Species, 1f, MonsterPose.Idle(time));
+        }
+
+        var x0 = panel.Min.X + w * 0.37f;
+        var contentW = panel.Max.X - x0 - pad;
+
+        // Title: bundled lettering for a win or a true defeat; drawn text for a catch or a forfeit
+        // (which read differently from a loss and have no bundled artwork).
+        float titleBottom;
+        if (won)
+        {
+            titleBottom = ResultAsset(dl, "result/victory_title.png", x0, Y(0.1f), contentW, h * 0.3f, ease);
+        }
+        else if (whiteout)
+        {
+            titleBottom = ResultAsset(dl, "result/defeat_title.png", x0, Y(0.1f), contentW, h * 0.3f, ease);
+        }
+        else
+        {
+            titleBottom = Y(0.1f) + h * 0.26f;
+            var (word, wordCol) = forfeit ? ("Forfeit", accent) : ("Caught!", gold);
+            DrawResultHeadline(dl, new Vector2(x0, Y(0.1f) + h * 0.13f), word, wordCol, TextStyles.Title1, false, ease);
+        }
+
+        // Subtitle.
+        var subtitle = outcome switch
+        {
+            BattleOutcome.Captured when State.Party.Count >= LillypadGoState.PartyLimit =>
+                $"{battle.Wild.Name} was sent to storage.",
+            BattleOutcome.Captured => $"{battle.Wild.Name} joined your team!",
+            BattleOutcome.Won when battle.IsTrainerBattle => $"You defeated {battle.TrainerName}!",
+            BattleOutcome.Won => "",
+            BattleOutcome.Whiteout => "You were unable to win.",
+            _ => "You fled from the battle.",
+        };
+        var subY = titleBottom + 5f * scale;
+        Typography.Draw(new Vector2(x0, subY),
+            FitLabel(subtitle, contentW, TextStyles.Callout),
+            theme.TextStrong with { W = 0.9f * ease }, TextStyles.Callout);
+        subY += 17f * scale;
+        if (whiteout)
+        {
+            Typography.Draw(new Vector2(x0, subY), "But don't give up!",
+                accent with { W = 0.95f * ease }, TextStyles.FootnoteEmphasized);
+            subY += 16f * scale;
+        }
+
+        // Rewards row (wins) or a "no rewards" note (defeats / forfeits).
+        var rowY = subY + 12f * scale;
+        if (won)
+        {
+            var cx = x0;
+            if (battle.PrizeMoney > 0)
+            {
+                cx += ResultRewardChip(dl, cx, rowY, "result/coin.png", FontAwesomeIcon.Coins,
+                    LgUi.Money(battle.PrizeMoney), gold, theme, scale, ease) + 8f * scale;
+            }
+
+            if (battle.XpGained > 0)
+            {
+                ResultRewardChip(dl, cx, rowY, "result/star.png", FontAwesomeIcon.Star,
+                    $"+{battle.XpGained} XP", xpBlue, theme, scale, ease);
+            }
+        }
+        else if (defeated)
+        {
+            var sfBox = new Rect(new Vector2(x0, rowY - 11f * scale), new Vector2(x0 + 22f * scale, rowY + 11f * scale));
+            if (!ResultAsset(dl, "result/sadface.png", sfBox, ease))
+            {
+                ProgressRing.CenterIcon(dl, sfBox.Center, FontAwesomeIcon.HeartBroken, theme.TextMuted, 18f * scale);
+            }
+
+            Typography.Draw(new Vector2(x0 + 28f * scale, rowY - 7f * scale), "You received no rewards.",
+                theme.TextMuted, TextStyles.Caption1);
+        }
+        else if (captured)
+        {
+            ProgressRing.CenterIcon(dl, new Vector2(x0 + 10f * scale, rowY), FontAwesomeIcon.Check, win, 15f * scale);
+            Typography.Draw(new Vector2(x0 + 24f * scale, rowY - 7f * scale), "New teammate added.",
+                win with { W = 0.95f }, TextStyles.Caption1);
+        }
+
+        if (LgUi.Button(button, defeated ? "Retreat" : "Continue", buttonCol, theme, true))
         {
             FinishBattle();
         }
     }
 
-    // The medallion at the top of the result panel, chosen by outcome.
-    private void DrawResultEmblem(ImDrawListPtr drawList, Vector2 center, float radius, BattleOutcome outcome,
-        GymDef? gym, bool earnedBadge, Vector4 gold, Vector4 win, PhoneTheme theme, float scale)
+    // A downward accent wash from the top of the panel, faded out by `midY`.
+    private static void ResultTintWash(ImDrawListPtr dl, Rect panel, Vector4 accent, float midY, float strength)
     {
-        if (outcome == BattleOutcome.Won && gym is not null)
-        {
-            ProgressRing.Glow(center, radius * 1.15f, Elements.Color(gym.Type), 0.6f);
-            if (GymBadge(gym, out var badgeTex, out var badgeAspect))
-            {
-                var w = radius * 2f;
-                var h = w / MathF.Max(0.01f, badgeAspect);
-                drawList.AddImage(badgeTex, center - new Vector2(w * 0.5f, h * 0.5f),
-                    center + new Vector2(w * 0.5f, h * 0.5f), Vector2.Zero, Vector2.One,
-                    ImGui.GetColorU32(earnedBadge ? Vector4.One : new Vector4(1f, 1f, 1f, 0.85f)));
-            }
-
-            return;
-        }
-
-        if (outcome == BattleOutcome.Captured)
-        {
-            var caught = battle!.Captured ?? battle.Wild;
-            ProgressRing.Glow(center, radius * 1.1f, Elements.Color(caught.Element), 0.5f);
-            drawList.AddCircleFilled(center, radius, ImGui.GetColorU32(GamePalette.CellSunken));
-            MonsterArt.Draw(drawList, center, radius * 1.5f, caught.Species, 1f, MonsterPose.Idle(time));
-            return;
-        }
-
-        var (icon, tone) = outcome switch
-        {
-            BattleOutcome.Won => (FontAwesomeIcon.Trophy, gold),
-            BattleOutcome.Whiteout => (FontAwesomeIcon.HeartBroken, theme.Danger),
-            _ => (FontAwesomeIcon.FlagCheckered, theme.TextStrong with { W = 0.7f }),
-        };
-        if (outcome == BattleOutcome.Won)
-        {
-            ProgressRing.Glow(center, radius * 1.15f, gold, 0.6f);
-        }
-
-        drawList.AddCircleFilled(center, radius, ImGui.GetColorU32(GamePalette.CellSunken));
-        drawList.AddCircle(center, radius, ImGui.GetColorU32(tone with { W = 0.6f }), 28, 1.4f * scale);
-        ProgressRing.CenterIcon(drawList, center, icon, tone, radius * 1.1f);
+        var top = ImGui.GetColorU32(accent with { W = strength });
+        var clear = ImGui.GetColorU32(accent with { W = 0f });
+        dl.AddRectFilledMultiColor(panel.Min, new Vector2(panel.Max.X, midY), top, top, clear, clear);
     }
+
+    // Draws a bundled result texture centred and aspect-fit inside `box`. Returns false if not yet loaded.
+    private static bool ResultAsset(ImDrawListPtr dl, string path, Rect box, float alpha)
+    {
+        if (!AssetTextures.TryGet(path, out var tex, out var aspect))
+        {
+            return false;
+        }
+
+        var w = box.Width;
+        var hh = w / MathF.Max(0.01f, aspect);
+        if (hh > box.Height)
+        {
+            hh = box.Height;
+            w = hh * aspect;
+        }
+
+        var c = box.Center;
+        dl.AddImage(tex, new Vector2(c.X - w * 0.5f, c.Y - hh * 0.5f), new Vector2(c.X + w * 0.5f, c.Y + hh * 0.5f),
+            Vector2.Zero, Vector2.One, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, alpha)));
+        return true;
+    }
+
+    // Left-aligned, aspect-fit texture starting at (x, top). Returns the y just below it (reserving
+    // `maxH` until the texture streams in so the layout stays stable).
+    private static float ResultAsset(ImDrawListPtr dl, string path, float x, float top, float maxW, float maxH,
+        float alpha)
+    {
+        if (!AssetTextures.TryGet(path, out var tex, out var aspect))
+        {
+            return top + maxH;
+        }
+
+        var w = maxW;
+        var hh = w / MathF.Max(0.01f, aspect);
+        if (hh > maxH)
+        {
+            hh = maxH;
+            w = hh * aspect;
+        }
+
+        dl.AddImage(tex, new Vector2(x, top), new Vector2(x + w, top + hh), Vector2.Zero, Vector2.One,
+            ImGui.GetColorU32(new Vector4(1f, 1f, 1f, alpha)));
+        return top + hh;
+    }
+
+    // A reward pill: tinted icon (bundled art, else a glyph) beside its value. Returns the pill width.
+    private float ResultRewardChip(ImDrawListPtr dl, float x, float centerY, string iconPath,
+        FontAwesomeIcon fallback, string value, Vector4 tint, PhoneTheme theme, float scale, float alpha)
+    {
+        var chipH = 23f * scale;
+        var iconSz = 18f * scale;
+        var valSize = Typography.Measure(value, TextStyles.SubheadlineEmphasized);
+        var chipW = 8f * scale + iconSz + 5f * scale + valSize.X + 12f * scale;
+        var min = new Vector2(x, centerY - chipH * 0.5f);
+        var max = new Vector2(x + chipW, centerY + chipH * 0.5f);
+        Squircle.Fill(dl, min, max, chipH * 0.5f, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.06f)));
+        Squircle.Stroke(dl, min, max, chipH * 0.5f, ImGui.GetColorU32(tint with { W = 0.55f }), 1f * scale);
+        var iconBox = new Rect(new Vector2(min.X + 8f * scale, min.Y), new Vector2(min.X + 8f * scale + iconSz, max.Y));
+        if (!ResultAsset(dl, iconPath, iconBox, alpha))
+        {
+            ProgressRing.CenterIcon(dl, iconBox.Center, fallback, tint, iconSz * 0.9f);
+        }
+
+        Typography.Draw(new Vector2(iconBox.Max.X + 5f * scale, centerY - valSize.Y * 0.5f), value, theme.TextStrong,
+            TextStyles.SubheadlineEmphasized);
+        return chipW;
+    }
+
+    // A bold headline with a drop shadow; centred when `center` is true, else left-aligned at `pos`.
+    private static void DrawResultHeadline(ImDrawListPtr dl, Vector2 pos, string text, Vector4 color,
+        in TextStyle style, bool center, float alpha)
+    {
+        var shadow = new Vector4(0f, 0f, 0f, 0.5f * alpha);
+        var tint = color with { W = color.W * alpha };
+        if (center)
+        {
+            Typography.DrawCentered(pos + new Vector2(0f, 2f), text, shadow, style);
+            Typography.DrawCentered(pos, text, tint, style);
+        }
+        else
+        {
+            var half = Typography.Measure(text, style).Y * 0.5f;
+            Typography.Draw(new Vector2(pos.X + 1.5f, pos.Y - half + 2f), text, shadow, style);
+            Typography.Draw(new Vector2(pos.X, pos.Y - half), text, tint, style);
+        }
+    }
+
+    // Ornamental L-brackets in each corner of the result panel.
+    private static void DrawResultCorners(ImDrawListPtr dl, Rect r, uint col, float len, float thick, float inset)
+    {
+        var corners = new[]
+        {
+            (P: new Vector2(r.Min.X + inset, r.Min.Y + inset), Dx: 1f, Dy: 1f),
+            (P: new Vector2(r.Max.X - inset, r.Min.Y + inset), Dx: -1f, Dy: 1f),
+            (P: new Vector2(r.Min.X + inset, r.Max.Y - inset), Dx: 1f, Dy: -1f),
+            (P: new Vector2(r.Max.X - inset, r.Max.Y - inset), Dx: -1f, Dy: -1f),
+        };
+        foreach (var (p, dx, dy) in corners)
+        {
+            dl.AddLine(p, p + new Vector2(len * dx, 0f), col, thick);
+            dl.AddLine(p, p + new Vector2(0f, len * dy), col, thick);
+        }
+    }
+
 
     private void FinishBattle()
     {
@@ -883,6 +1043,7 @@ internal sealed partial class LillypadGoApp
         battlePopups.Clear();
         moveFx = null;
         awaitingResult = false;
+        resultShownAt = -1f;
         view = View.Map;
     }
 

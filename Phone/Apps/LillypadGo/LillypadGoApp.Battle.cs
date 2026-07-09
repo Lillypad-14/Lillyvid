@@ -238,6 +238,24 @@ internal sealed partial class LillypadGoApp
         DrawMoveFx(drawList, content, playerBase, wildBase, sceneMap, scale);
         DrawBattlePopups(wildPos, playerPos, theme, scale);
 
+        // Once the battle is decided, the Victory / Defeat / Forfeit screen takes over the bottom
+        // message box; the arena and creatures stay visible above it.
+        if (awaitingResult)
+        {
+            var resultTop = content.Max.Y - content.Height * 0.32f;
+            var resultPanel = new Rect(new Vector2(content.Min.X + 6f * scale, resultTop),
+                new Vector2(content.Max.X - 6f * scale, content.Max.Y - 6f * scale));
+            var prevResultInteractive = LgUi.Interactive;
+            if (time < suppressBattleButtonsUntil)
+            {
+                LgUi.Interactive = false;
+            }
+
+            DrawResult(resultPanel, theme, scale);
+            LgUi.Interactive = prevResultInteractive;
+            return;
+        }
+
         // Bottom panel: message, action menu, or result.
         var panelTop = content.Max.Y - content.Height * 0.32f;
         var panelMin = new Vector2(content.Min.X + 6f * scale, panelTop);
@@ -267,10 +285,6 @@ internal sealed partial class LillypadGoApp
         else if (battle.PendingMoveChoice is not null)
         {
             DrawMoveLearnMenu(panel, theme, scale);
-        }
-        else if (awaitingResult)
-        {
-            DrawResult(panel, theme, scale);
         }
         else
         {

@@ -49,7 +49,7 @@ internal sealed partial class LillypadGoApp
             Typography.DrawCentered(new Vector2(content.Center.X, content.Min.Y + 108f * scale),
                 FitLabel(arenaTab == 0
                     ? "Battle randomized trainers near your level to grind XP."
-                    : "Beat a gym leader to earn a badge and unlock the next training tier.",
+                    : "Beat a gym leader to earn a badge",
                     content.Width - 24f * scale, TextStyles.Caption1), theme.TextStrong with { W = 0.86f },
                 TextStyles.Caption1);
         }

@@ -156,6 +156,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private float messageTimer;
     private readonly List<BattleTextEntry> battleText = new();
     private bool awaitingResult;
+    private float resultShownAt = -1f; // when the result screen first appeared, for its entrance ease
     // Guards the battle action/menu buttons for a moment after any message so the click that
     // advances battle text can't also press Fight/Bag/Team/Run or a move-learn choice.
     private float suppressBattleButtonsUntil;

@@ -18,10 +18,21 @@ internal sealed partial class LillypadGoApp
     private float bagScroll;
     private int bagSortMode;  // 0 = Type, 1 = Name, 2 = Count
 
+    // The item awaiting a target choice: while set, the bag shows a "use on which creature?" picker.
+    private ItemDef? bagUseItem;
+
     private void DrawBag(Rect content, PhoneTheme theme)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
+
+        // Freeze the bag's own controls while the target picker is open so a tap only reaches the picker.
+        var pickerOpen = bagUseItem is not null;
+        var prevInteractive = LgUi.Interactive;
+        if (pickerOpen)
+        {
+            LgUi.Interactive = false;
+        }
         BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
         LgUi.Header(content, theme, Accent, "Bag", null, scale);
         DrawMoneyPill(content, theme, scale);
@@ -86,6 +97,12 @@ internal sealed partial class LillypadGoApp
             FitLabel(status, content.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted, TextStyles.Caption1);
 
         DrawNavigation(content, theme, scale);
+
+        LgUi.Interactive = prevInteractive;
+        if (pickerOpen)
+        {
+            DrawItemTargetPicker(content, theme, scale);
+        }
     }
 
     // The Poké Dollar balance, drawn as a pill just under the header on the Bag/Market screens.
@@ -137,7 +154,8 @@ internal sealed partial class LillypadGoApp
             ShowTooltip(BuildItemUseTooltip(item, target));
             if (usable && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             {
-                UseItemOverworld(item);
+                bagUseItem = item;
+                bagStatus = string.Empty;
             }
         }
     }
@@ -149,13 +167,13 @@ internal sealed partial class LillypadGoApp
             ItemCategory.Ball => "Poké Balls can only be thrown during a wild battle.",
             ItemCategory.Potion => target is null
                 ? "No creature needs healing right now."
-                : $"Tap to restore {(item.RestoresFullHp ? target.MaxHp - target.CurrentHp : Math.Min(item.HealAmount, target.MaxHp - target.CurrentHp))} HP to {target.Name}.",
+                : "Tap to choose which creature to heal.",
             ItemCategory.Revive => target is null
                 ? "No creature has fainted."
-                : $"Tap to revive {target.Name} to {(item.RevivesToFull ? target.MaxHp : Math.Max(1, target.MaxHp / 2))} HP.",
+                : "Tap to choose which creature to revive.",
             ItemCategory.StatusHeal => target is null
                 ? "No creature has a matching condition."
-                : $"Tap to cure {target.Name}.",
+                : "Tap to choose which creature to cure.",
             _ => string.Empty,
         };
         return $"{item.Name}  ·  {LgUi.Money(item.Price)}\n{ItemStatsLine(item)}\n\n{item.Description}\n\n{action}";
@@ -186,10 +204,18 @@ internal sealed partial class LillypadGoApp
         _ => null,
     };
 
-    private void UseItemOverworld(ItemDef item)
+    // Whether an out-of-battle item would do anything useful for a specific creature.
+    private static bool CanUseItemOn(ItemDef item, MonsterInstance mon) => item.Category switch
     {
-        var target = OverworldTarget(item);
-        if (target is null || !State.Bag.Consume(item.Id))
+        ItemCategory.Potion => !mon.Fainted && mon.CurrentHp < mon.MaxHp,
+        ItemCategory.Revive => mon.Fainted,
+        ItemCategory.StatusHeal => item.CuresAllStatus ? mon.Status != Status.None : mon.Status == item.CuresStatus,
+        _ => false,
+    };
+
+    private void UseItemOn(ItemDef item, MonsterInstance target)
+    {
+        if (!CanUseItemOn(item, target) || !State.Bag.Consume(item.Id))
         {
             return;
         }
@@ -212,5 +238,119 @@ internal sealed partial class LillypadGoApp
         }
 
         State.Save();
+
+        // Keep the picker open only while the item can still help another creature (and any remain).
+        if (!State.Bag.Has(item.Id) || !PickerTargets(item).Any(m => CanUseItemOn(item, m)))
+        {
+            bagUseItem = null;
+        }
+    }
+
+    // The creatures offered in the target picker for an item (party, plus fainted box members for
+    // Revives so a benched, downed creature can still be brought back).
+    private IEnumerable<MonsterInstance> PickerTargets(ItemDef item) => item.Category == ItemCategory.Revive
+        ? State.Party.Concat(State.Box.Where(m => m.Fainted))
+        : State.Party;
+
+    // Overlay that asks which creature to use the held item on. Eligible creatures are tappable;
+    // the rest are dimmed with a short reason.
+    private void DrawItemTargetPicker(Rect content, PhoneTheme theme, float scale)
+    {
+        var item = bagUseItem!;
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.55f)));
+
+        var targets = PickerTargets(item).ToList();
+        var tint = LgUi.ItemTint(item.Category);
+        var rowH = 44f * scale;
+        var rowGap = 6f * scale;
+        var headerH = 46f * scale;
+        var footerH = 44f * scale;
+        var cardW = MathF.Min(content.Width - 36f * scale, 320f * scale);
+        var wanted = headerH + targets.Count * (rowH + rowGap) + footerH;
+        var cardH = MathF.Min(wanted, content.Height - 36f * scale);
+        var card = CenteredAt(content.Center, new Vector2(cardW, cardH));
+
+        Elevation.Draw(drawList, card.Min, card.Max, 16f * scale, scale, 16f, 5f, 0.4f);
+        Squircle.FillVerticalGradient(drawList, card.Min, card.Max, 16f * scale,
+            ImGui.GetColorU32(GamePalette.Lighten(GamePalette.Board, 0.05f) with { W = 0.99f }),
+            ImGui.GetColorU32(GamePalette.Darken(GamePalette.Board, 0.16f) with { W = 0.99f }));
+        Squircle.Stroke(drawList, card.Min, card.Max, 16f * scale, ImGui.GetColorU32(tint with { W = 0.6f }),
+            1.4f * scale);
+
+        LgUi.ItemIcon(drawList, new Vector2(card.Min.X + 26f * scale, card.Min.Y + 23f * scale), 26f * scale, item);
+        Typography.Draw(new Vector2(card.Min.X + 46f * scale, card.Min.Y + 14f * scale),
+            FitLabel($"Use {item.Name} on…", cardW - 60f * scale, TextStyles.Headline), theme.TextStrong,
+            TextStyles.Headline);
+
+        var y = card.Min.Y + headerH;
+        foreach (var mon in targets)
+        {
+            var r = new Rect(new Vector2(card.Min.X + 10f * scale, y),
+                new Vector2(card.Max.X - 10f * scale, y + rowH));
+            DrawItemTargetRow(drawList, r, item, mon, theme, scale);
+            y += rowH + rowGap;
+        }
+
+        var cancel = CenteredAt(new Vector2(card.Center.X, card.Max.Y - 22f * scale),
+            new Vector2(cardW * 0.5f, 28f * scale));
+        if (LgUi.Button(cancel, "Cancel", GamePalette.Cell, theme, true))
+        {
+            bagUseItem = null;
+        }
+
+        // A tap anywhere off the card also dismisses the picker.
+        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) && !card.Contains(ImGui.GetMousePos()))
+        {
+            bagUseItem = null;
+        }
+    }
+
+    private void DrawItemTargetRow(ImDrawListPtr drawList, Rect r, ItemDef item, MonsterInstance mon, PhoneTheme theme,
+        float scale)
+    {
+        var eligible = CanUseItemOn(item, mon);
+        var hovered = eligible && ImGui.IsMouseHoveringRect(r.Min, r.Max);
+        LgUi.Card(drawList, r.Min, r.Max, 9f * scale, scale, hovered, !eligible);
+
+        var portrait = new Vector2(r.Min.X + r.Height * 0.5f, r.Center.Y);
+        MonsterArt.Draw(drawList, portrait, r.Height * 0.4f, mon.Species, 1f,
+            new MonsterPose(time, 0f, 0f, eligible ? 1f : 0.5f, mon.Fainted));
+
+        var tx = r.Min.X + r.Height + 4f * scale;
+        var nameCol = eligible ? theme.TextStrong : theme.TextMuted;
+        Typography.Draw(new Vector2(tx, r.Min.Y + 6f * scale),
+            FitLabel(mon.Name, r.Width - r.Height - 96f * scale, TextStyles.Subheadline), nameCol,
+            TextStyles.Subheadline);
+        Typography.Draw(new Vector2(tx, r.Min.Y + 24f * scale), $"Lv {mon.Level}",
+            theme.TextMuted, TextStyles.Caption2);
+        LgUi.HpBar(drawList, new Vector2(tx, r.Max.Y - 9f * scale),
+            new Vector2(r.Min.X + r.Width * 0.62f, r.Max.Y - 4f * scale), mon.HpFraction);
+
+        if (eligible)
+        {
+            Typography.DrawCentered(new Vector2(r.Max.X - 30f * scale, r.Center.Y), $"{mon.CurrentHp}/{mon.MaxHp}",
+                theme.TextStrong with { W = 0.8f }, TextStyles.Caption1);
+            if (hovered)
+            {
+                ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                {
+                    UseItemOn(item, mon);
+                }
+            }
+        }
+        else
+        {
+            var reason = item.Category switch
+            {
+                ItemCategory.Potion => mon.Fainted ? "Fainted" : "Full HP",
+                ItemCategory.Revive => "Healthy",
+                ItemCategory.StatusHeal => "No status",
+                _ => string.Empty,
+            };
+            Typography.DrawCentered(new Vector2(r.Max.X - 34f * scale, r.Center.Y), reason,
+                theme.TextMuted with { W = 0.7f }, TextStyles.Caption2);
+        }
     }
 }

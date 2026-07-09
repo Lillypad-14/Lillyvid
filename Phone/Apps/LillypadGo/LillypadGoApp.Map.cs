@@ -214,6 +214,7 @@ internal sealed partial class LillypadGoApp
         messageTimer = 0f;
         battleText.Clear();
         awaitingResult = false;
+        resultShownAt = -1f;
         battlePopups.Clear();
         captureFx = null;
         battleItemScroll = 0f;

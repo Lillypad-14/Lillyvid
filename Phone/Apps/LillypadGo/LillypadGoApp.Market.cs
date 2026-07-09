@@ -68,7 +68,7 @@ internal sealed partial class LillypadGoApp
             ? bagStatus
             : marketTab == 1
                 ? "Buy a TM here, then teach it from a creature's Moves screen if it can learn it."
-                : "Buy supplies, then use Poké Balls and potions from the Bag or in battle.";
+                : "Buy supplies";
         Typography.DrawCentered(new Vector2(content.Center.X, listBottom + 16f * scale),
             FitLabel(status, content.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted, TextStyles.Caption1);
 
@@ -93,7 +93,7 @@ internal sealed partial class LillypadGoApp
         Typography.Draw(new Vector2(min.X + 62f * scale, min.Y + 11f * scale), "Pokécenter", theme.TextStrong,
             TextStyles.Headline);
         Typography.Draw(new Vector2(min.X + 62f * scale, min.Y + 32f * scale),
-            FitLabel(wiped ? "Revive your fainted team, free of charge." : "Fully restore HP, PP and status — free.",
+            FitLabel(wiped ? "Revive your fainted team, free of charge." : "Fully restore HP",
                 max.X - min.X - 62f * scale - 96f * scale, TextStyles.Caption2),
             theme.TextMuted, TextStyles.Caption2);
 

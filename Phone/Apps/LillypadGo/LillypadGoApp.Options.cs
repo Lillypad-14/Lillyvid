@@ -14,6 +14,8 @@ internal sealed partial class LillypadGoApp
     private const float DefaultBattleEffectScale = 1.25f;
     private const float MaxBattleEffectScale = 2f;
 
+    private bool confirmingDeleteSave;
+
     private void DrawOptions(Rect content, PhoneTheme theme)
     {
         var scale = ImGuiHelpers.GlobalScale;
@@ -74,7 +76,61 @@ internal sealed partial class LillypadGoApp
             State.Save();
         }
 
+        // Save data: wipe progress and return to starter selection. Two taps to confirm the wipe.
+        // Kept as a compact row (not a full card) so it always clears the bottom navigation dock.
+        var saveTop = cardMax.Y + 14f * scale;
+        Typography.Draw(new Vector2(content.Min.X + 14f * scale, saveTop),
+            FitLabel(confirmingDeleteSave
+                    ? "Erase your team, items and progress? This cannot be undone."
+                    : "Save data · erase all progress and restart.",
+                content.Width - 28f * scale, TextStyles.Caption1),
+            confirmingDeleteSave ? theme.Danger : theme.TextMuted, TextStyles.Caption1);
+
+        var deleteRect = new Rect(new Vector2(content.Min.X + 14f * scale, saveTop + 20f * scale),
+            new Vector2(content.Min.X + 168f * scale, saveTop + 46f * scale));
+        if (LgUi.Button(deleteRect, confirmingDeleteSave ? "Confirm delete" : "Delete save", theme.Danger, theme, true))
+        {
+            if (confirmingDeleteSave)
+            {
+                DeleteSaveAndReturnToStarter();
+            }
+            else
+            {
+                confirmingDeleteSave = true;
+            }
+        }
+
+        if (confirmingDeleteSave)
+        {
+            var cancelRect = new Rect(new Vector2(deleteRect.Max.X + 10f * scale, deleteRect.Min.Y),
+                new Vector2(deleteRect.Max.X + 94f * scale, deleteRect.Max.Y));
+            if (LgUi.Button(cancelRect, "Cancel", GamePalette.Cell, theme, true))
+            {
+                confirmingDeleteSave = false;
+            }
+        }
+
         DrawNavigation(content, theme, scale);
+    }
+
+    // Wipes the save and resets every screen's transient state so the app cleanly re-enters starter
+    // selection as if freshly installed.
+    private void DeleteSaveAndReturnToStarter()
+    {
+        State.DeleteSaveAndReset();
+        battle = null;
+        displayedPlayer = null;
+        awaitingResult = false;
+        resultShownAt = -1f;
+        captureFx = null;
+        menu = Menu.Root;
+        confirmingRun = false;
+        pendingGymIndex = -1;
+        starterCandidate = null;
+        bagUseItem = null;
+        bagStatus = string.Empty;
+        confirmingDeleteSave = false;
+        view = View.Starter;
     }
 
     private bool DrawCheckboxRow(Rect rect, PhoneTheme theme, float scale, ref bool value, string label)

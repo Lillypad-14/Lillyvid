@@ -121,6 +121,49 @@ internal sealed class LillypadGoState
         Save();
     }
 
+    // Wipes all saved progress (party, box, bag, dex, badges, money, options) and deletes the save
+    // file, returning the trainer to a brand-new game. The caller drops the app back to starter
+    // selection. The state instance is reset in place so long-lived references (e.g. the encounter
+    // service) keep pointing at it.
+    public void DeleteSaveAndReset()
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, "Lillypad Go: failed to delete save file.");
+        }
+
+        Party.Clear();
+        Box.Clear();
+        Seen.Clear();
+        Badges.Clear();
+        OwnedTms.Clear();
+        Bag.Clear();
+        trainingMin = null;
+        trainingMax = null;
+
+        Money = 0;
+        TotalSteps = 0;
+        BattlesWon = 0;
+        Captures = 0;
+        StarterChosen = false;
+        BattleEffectScale = 1.25f;
+        BackgroundTrackingEnabled = true;
+
+        Pending = null;
+        InBattle = false;
+        StepProgress = 0f;
+        ZoneWeather = default;
+
+        SeedNewGame();
+    }
+
     public void AddCaught(MonsterInstance monster)
     {
         Seen.Add(monster.Species.Id);
