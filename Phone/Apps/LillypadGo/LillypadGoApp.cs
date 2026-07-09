@@ -31,6 +31,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         Arena,
         Options,
         Detail,
+        MoveRelearn,
     }
 
     private enum Menu
@@ -43,19 +44,8 @@ internal sealed partial class LillypadGoApp : IPhoneApp
 
     private enum DexSort
     {
-        Progression,
         Region,
-        Missing,
         National,
-    }
-
-    private enum TeamSort
-    {
-        Caught,
-        Level,
-        Type,
-        Dex,
-        Name,
     }
 
     private struct Anim
@@ -152,12 +142,11 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     // Guards the battle action/menu buttons for a moment after any message so the click that
     // advances battle text can't also press Fight/Bag/Team/Run or a move-learn choice.
     private float suppressBattleButtonsUntil;
-    private bool teamShowingStorage;
-    private TeamSort teamSort;
-    private int teamPage;
+    private int boxPage; // current storage-box page on the Roster/Box screen
+    private int boxSort; // 0 Dex, 1 Level, 2 Type, 3 Name — cycled by the Sort button
+    private string boxSearch = string.Empty; // filters the box grid by name
     private float time;
     private float navIndicator = -1f;
-    private float teamTabIndicator = -1f;
     private float dexSortIndicator = -1f;
     private bool effectScaleSliderActive;
     private DexSort dexSort = DexSort.Region;
@@ -175,6 +164,12 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private float dexEntryScroll;
     private int dexLearnFilter; // Learnset filter: 0 = All, 1 = Level-Up, 2 = TM
     private float dexLearnFilterIndicator = -1f;
+    private int relearnTab; // Move Relearner: 0 = Level-Up, 1 = TMs
+    private float relearnTabIndicator = -1f;
+    private float relearnScroll;
+    private MoveDef? draggingLearnMove; // a learnset move being dragged onto a move slot
+    private Vector2 learnDragOrigin;
+    private bool learnDragMoved;
     private View lastDrawnView;
     private float viewAnim = 1f;
     private const float ViewTransitionSeconds = 0.18f;
@@ -275,6 +270,9 @@ internal sealed partial class LillypadGoApp : IPhoneApp
                 break;
             case View.Detail:
                 DrawDetail(content, theme);
+                break;
+            case View.MoveRelearn:
+                DrawMoveRelearn(content, theme);
                 break;
         }
     }

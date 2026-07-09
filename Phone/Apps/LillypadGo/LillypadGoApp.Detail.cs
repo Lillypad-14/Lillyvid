@@ -24,26 +24,26 @@ internal sealed partial class LillypadGoApp
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
         BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
-        var back = CenteredAt(new Vector2(content.Min.X + 38f * scale, content.Min.Y + 20f * scale),
-            new Vector2(62f * scale, 26f * scale));
+        var back = CenteredAt(new Vector2(content.Min.X + 40f * scale, content.Min.Y + 21f * scale),
+            new Vector2(64f * scale, 30f * scale));
         if (LgUi.Button(back, "Back", GamePalette.Cell, theme, true))
         {
             view = detailReturnView;
             return;
         }
 
-        var learnset = CenteredAt(new Vector2(content.Max.X - 122f * scale, content.Min.Y + 20f * scale),
-            new Vector2(70f * scale, 26f * scale));
+        var learnset = CenteredAt(new Vector2(content.Max.X - 137f * scale, content.Min.Y + 21f * scale),
+            new Vector2(80f * scale, 30f * scale));
         if (LgUi.Button(learnset, "Moves", Accent, theme, true))
         {
-            dexEntrySpecies = monster.Species;
             learnsetMonster = monster;
             teachPendingMove = null;
-            dexEntryTab = 1;
-            dexEntryTabIndicator = -1f;
-            dexEntryScroll = 0f;
-            dexEntryReturnView = View.Detail;
-            view = View.DexEntry;
+            relearnTab = 0;
+            relearnTabIndicator = -1f;
+            relearnScroll = 0f;
+            draggingMoveIndex = -1;
+            draggingLearnMove = null;
+            view = View.MoveRelearn;
             return;
         }
 
@@ -52,8 +52,8 @@ internal sealed partial class LillypadGoApp
             ShowTooltip($"View {monster.Species.Name}'s learnset and customise its moves.");
         }
 
-        var releaseRect = CenteredAt(new Vector2(content.Max.X - 45f * scale, content.Min.Y + 20f * scale),
-            new Vector2(62f * scale, 26f * scale));
+        var releaseRect = CenteredAt(new Vector2(content.Max.X - 50f * scale, content.Min.Y + 21f * scale),
+            new Vector2(88f * scale, 30f * scale));
         if (LgUi.Button(releaseRect, "Release", theme.Danger, theme, true))
         {
             releaseConfirm = true;

@@ -13,330 +13,352 @@ namespace VideoSyncPrototype.Phone.Apps.LillypadGo;
 
 internal sealed partial class LillypadGoApp
 {
-    // ---- Team / Bag -----------------------------------------------------------------
+    // ---- Roster / Storage --------------------------------------------------------------
+    // A box-storage screen laid out like the mainline games: the Party column on the left (top slot
+    // is the lead) and a paged Box grid on the right. Everything is drag-and-drop — reorder within
+    // the party or box, and drag between them to withdraw/deposit. A tap (no drag) opens the detail
+    // screen.
 
     private void DrawTeam(Rect content, PhoneTheme theme)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
         BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
-        LgUi.Header(content, theme, Accent,"Roster", null, scale);
+        LgUi.Header(content, theme, Accent, "Roster & Box",
+            $"Party {State.Party.Count}/{LillypadGoState.PartyLimit}   ·   Stored {State.Box.Count}", scale);
 
-        var segBounds = CenteredAt(new Vector2(content.Center.X, content.Min.Y + 52f * scale),
-            new Vector2(232f * scale, 30f * scale));
-        var tabs = new[] { $"Team {State.Party.Count}/6", $"Storage {State.Box.Count}" };
-        var pickedTab = LgUi.Segmented(segBounds, tabs, teamShowingStorage ? 1 : 0, Accent, theme, scale,
-            ref teamTabIndicator);
-        if (pickedTab >= 0)
-        {
-            teamShowingStorage = pickedTab == 1;
-            teamPage = 0;
-            draggingRosterMon = null;
-        }
-
-        var all = teamShowingStorage ? State.Box : State.Party;
-
-        // Sort control (cycles): Caught order / Level / Type / Dex # / Name.
-        var sortRect = CenteredAt(new Vector2(content.Min.X + 92f * scale, content.Min.Y + 84f * scale),
-            new Vector2(160f * scale, 24f * scale));
-        if (LgUi.Button(sortRect, $"Sort: {TeamSortLabel(teamSort)}", GamePalette.Cell, theme, true))
-        {
-            teamSort = (TeamSort)(((int)teamSort + 1) % 5);
-            teamPage = 0;
-        }
-
-        if (ImGui.IsMouseHoveringRect(sortRect.Min, sortRect.Max))
-        {
-            ShowTooltip("Tap to change how this list is ordered.");
-        }
-
-        var sorted = SortedTeamView(all, teamSort);
-        var top = content.Min.Y + 102f * scale;
-        var bottom = content.Max.Y - 52f * scale;
-        var rowH = 62f * scale;
-        var rowsPerPage = Math.Max(1, (int)((bottom - top) / rowH));
-        var pageCount = Math.Max(1, (sorted.Count + rowsPerPage - 1) / rowsPerPage);
-        teamPage = Math.Clamp(teamPage, 0, pageCount - 1);
-        var start = teamPage * rowsPerPage;
-        var visible = Math.Min(rowsPerPage, sorted.Count - start);
         var mouse = ImGui.GetMousePos();
-        var dragActive = !teamShowingStorage && draggingRosterMon is not null &&
-            State.Party.Contains(draggingRosterMon);
-        var dropRow = -1; // visible row the cursor is over while dragging (insertion target)
-
-        for (var row = 0; row < visible; row++)
+        var dragging = draggingRosterMon is not null;
+        if (dragging && !State.Party.Contains(draggingRosterMon!) && !State.Box.Contains(draggingRosterMon!))
         {
-            var (m, index) = sorted[start + row];
-            var min = new Vector2(content.Min.X + 12f * scale, top + row * rowH + 4f * scale);
-            var max = new Vector2(content.Max.X - 12f * scale, top + (row + 1) * rowH - 4f * scale);
-            var rowRect = new Rect(min, max);
-            var isDragged = dragActive && ReferenceEquals(m, draggingRosterMon);
-            if (dragActive && rowRect.Contains(mouse))
+            draggingRosterMon = null;
+            dragging = false;
+        }
+
+        // ---- Geometry ----
+        var top = content.Min.Y + 60f * scale;
+        var bottom = content.Max.Y - 50f * scale;
+        var partyX = content.Min.X + 10f * scale;
+        var partyW = MathF.Max(96f * scale, content.Width * 0.30f);
+        var boxX = partyX + partyW + 8f * scale;
+        var boxRight = content.Max.X - 8f * scale;
+        var boxW = boxRight - boxX;
+
+        var slotTop = top + 18f * scale;
+        var slotH = (bottom - slotTop) / LillypadGoState.PartyLimit;
+
+        var gridTop = top + 30f * scale;
+        var gridBottom = bottom - 30f * scale; // leave a row for the Box List / Search controls
+        const int cols = 5;
+        var gap = 4f * scale;
+        var cellW = (boxW - gap * (cols - 1)) / cols;
+        var rows = Math.Max(1, (int)((gridBottom - gridTop + gap) / (cellW + gap)));
+        var perPage = cols * rows;
+        var numPages = Math.Max(1, (State.Box.Count + perPage) / perPage);
+        boxPage = Math.Clamp(boxPage, 0, numPages - 1);
+        var searching = boxSearch.Trim().Length > 0;
+
+        // ---- Party column ----
+        Typography.Draw(new Vector2(partyX + 4f * scale, top), "PARTY", Accent with { W = 0.95f },
+            TextStyles.Caption2);
+        for (var i = 0; i < LillypadGoState.PartyLimit; i++)
+        {
+            var r = new Rect(new Vector2(partyX, slotTop + i * slotH + 2f * scale),
+                new Vector2(boxX - 8f * scale, slotTop + (i + 1) * slotH - 2f * scale));
+            var mon = i < State.Party.Count ? State.Party[i] : null;
+            var isDragged = dragging && ReferenceEquals(mon, draggingRosterMon);
+            var over = dragging && r.Contains(mouse);
+            var hovered = !dragging && mon is not null && r.Contains(mouse);
+            LgUi.Card(drawList, r.Min, r.Max, 10f * scale, scale, hovered, sunken: mon is null);
+            if (i == 0)
             {
-                dropRow = row;
+                drawList.AddRectFilled(r.Min, new Vector2(r.Min.X + 4f * scale, r.Max.Y),
+                    ImGui.GetColorU32(Accent with { W = mon is not null ? 0.9f : 0.35f }), 3f * scale);
             }
 
-            var rowHovered = !dragActive && ImGui.IsMouseHoveringRect(min, max);
-            LgUi.Card(drawList, min, max, 12f * scale, scale, rowHovered, sunken: isDragged);
-
-            // The lead slot gets an accent rail so it reads as the team leader at a glance.
-            if (!teamShowingStorage && index == 0 && !isDragged)
+            if (over && !isDragged)
             {
-                drawList.AddRectFilled(min, new Vector2(min.X + 4f * scale, max.Y),
-                    ImGui.GetColorU32(Accent with { W = 0.9f }), 3f * scale);
+                Squircle.Stroke(drawList, r.Min, r.Max, 10f * scale, ImGui.GetColorU32(Accent with { W = 0.9f }),
+                    2f * scale);
             }
 
-            if (isDragged)
+            if (mon is not null && !isDragged)
             {
-                // Empty slot placeholder; the lifted card follows the cursor (drawn after the loop).
-                continue;
-            }
-
-            DrawRosterRowContents(drawList, min, max, m, index, rowH, theme, scale);
-
-            if (!dragActive && rowRect.Contains(mouse))
-            {
-                ShowTooltip(BuildMonsterTooltip(m, teamShowingStorage
-                    ? "Stored creature. Add it to the team or swap it with the last team slot."
-                    : index == 0 ? "Current lead creature. Drag rows to reorder your team."
-                        : "Team creature. Drag onto the top slot to make it your leader."));
-            }
-
-            if (teamShowingStorage)
-            {
-                var detailRect = new Rect(min, new Vector2(max.X - 70f * scale, max.Y));
-                if (detailRect.Contains(mouse))
+                DrawPartySlot(drawList, r, mon, i, theme, scale);
+                if (hovered)
                 {
                     ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    ShowTooltip(BuildMonsterTooltip(mon,
+                        i == 0 ? "Lead creature. Drag to reorder or deposit." : "Drag to reorder, deposit, or tap."));
                     if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                     {
-                        OpenDetail(m, View.Team);
-                        return;
+                        BeginRosterDrag(mon, mouse);
                     }
-                }
-
-                var action = State.Party.Count < LillypadGoState.PartyLimit ? "Add" : "Swap";
-                if (LgUi.Button(CenteredAt(new Vector2(max.X - 34f * scale, (min.Y + max.Y) * 0.5f),
-                        new Vector2(58f * scale, 26f * scale)), action, Accent, theme, true))
-                {
-                    MoveStoredToTeam(index);
-                    return;
                 }
             }
-            else
+            else if (mon is null)
             {
-                // Left area: a tap opens the detail screen; a press-and-drag reorders the party.
-                var dragZone = new Rect(min, new Vector2(max.X - 70f * scale, max.Y));
-                if (!dragActive && dragZone.Contains(mouse))
-                {
-                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-                    {
-                        if (State.Party.Count > 1)
-                        {
-                            // Reordering is WYSIWYG only in caught order, so drop back to it on grab.
-                            if (teamSort != TeamSort.Caught)
-                            {
-                                teamSort = TeamSort.Caught;
-                                teamPage = 0;
-                            }
+                Typography.DrawCentered(r.Center, i == 0 ? "LEAD" : "empty",
+                    theme.TextStrong with { W = 0.4f }, TextStyles.Caption2);
+            }
+        }
 
-                            draggingRosterMon = m;
-                            rosterDragOrigin = mouse;
-                            rosterDragMoved = false;
-                        }
-                        else
-                        {
-                            OpenDetail(m, View.Team);
-                            return;
-                        }
-                    }
+        // ---- Box header: page arrows (left) + Sort button (right) ----
+        var navRight = boxX + boxW * 0.50f;
+        var arrowSize = new Vector2(20f * scale, 22f * scale);
+        var prev = CenteredAt(new Vector2(boxX + 13f * scale, top + 11f * scale), arrowSize);
+        var next = CenteredAt(new Vector2(navRight - 13f * scale, top + 11f * scale), arrowSize);
+        if (LgUi.Button(prev, "<", GamePalette.Cell, theme, boxPage > 0))
+        {
+            boxPage--;
+        }
+
+        if (LgUi.Button(next, ">", GamePalette.Cell, theme, boxPage < numPages - 1))
+        {
+            boxPage++;
+        }
+
+        Typography.DrawCentered(new Vector2((boxX + navRight) * 0.5f, top + 11f * scale),
+            $"Box {boxPage + 1}/{numPages}", theme.TextStrong, TextStyles.SubheadlineEmphasized);
+
+        var sortRect = new Rect(new Vector2(navRight + 6f * scale, top),
+            new Vector2(boxRight, top + 23f * scale));
+        if (LgUi.Button(sortRect, $"Sort {BoxSortLabel(boxSort)}", GamePalette.Cell, theme, State.Box.Count > 1))
+        {
+            SortBox();
+            boxSort = (boxSort + 1) % 4;
+        }
+
+        if (!dragging && ImGui.IsMouseHoveringRect(sortRect.Min, sortRect.Max))
+        {
+            ShowTooltip("Sort the box by Dex number, level, type, then name.");
+        }
+
+        // ---- Box grid ----
+        for (var row = 0; row < rows; row++)
+        {
+            for (var col = 0; col < cols; col++)
+            {
+                var idx = boxPage * perPage + row * cols + col;
+                var min = new Vector2(boxX + col * (cellW + gap), gridTop + row * (cellW + gap));
+                var r = new Rect(min, min + new Vector2(cellW, cellW));
+                if (r.Max.Y > bottom + 2f * scale)
+                {
+                    continue;
                 }
 
-                var storeRect = CenteredAt(new Vector2(max.X - 34f * scale, (min.Y + max.Y) * 0.5f),
-                    new Vector2(58f * scale, 26f * scale));
-                var canStore = State.Party.Count > 1 && !dragActive;
-                if (LgUi.Button(storeRect, "Store", canStore ? GamePalette.Cell : GamePalette.CellSunken, theme,
-                        canStore))
+                var mon = idx < State.Box.Count ? State.Box[idx] : null;
+                var match = mon is null || !searching ||
+                    mon.Name.Contains(boxSearch.Trim(), StringComparison.OrdinalIgnoreCase);
+                var isDragged = dragging && ReferenceEquals(mon, draggingRosterMon);
+                var over = dragging && r.Contains(mouse);
+                var hovered = !dragging && match && mon is not null && r.Contains(mouse);
+                LgUi.Card(drawList, r.Min, r.Max, 8f * scale, scale, hovered, sunken: mon is null || !match);
+                if (over && !isDragged)
                 {
-                    MoveTeamToStorage(index);
-                    return;
+                    Squircle.Stroke(drawList, r.Min, r.Max, 8f * scale, ImGui.GetColorU32(Accent with { W = 0.9f }),
+                        2f * scale);
+                }
+
+                if (mon is not null && !isDragged)
+                {
+                    MonsterArt.Draw(drawList, r.Center, cellW * 0.42f, mon.Species, 1f,
+                        new MonsterPose(time + idx * 0.3f, 0f, 0f, match ? 1f : 0.28f, mon.Fainted));
+                    if (mon.IsFavorite && match)
+                    {
+                        drawList.AddCircle(r.Center, cellW * 0.46f, ImGui.GetColorU32(Accent with { W = 0.85f }), 24,
+                            1.4f * scale);
+                    }
+
+                    if (hovered)
+                    {
+                        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                        ShowTooltip(BuildMonsterTooltip(mon, "Stored. Drag to your party or reorder, or tap."));
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        {
+                            BeginRosterDrag(mon, mouse);
+                        }
+                    }
                 }
             }
         }
 
-        // Draw the lifted roster card following the cursor and resolve the drop on release.
-        if (dragActive)
+        if (State.Box.Count == 0 && !dragging)
+        {
+            Typography.DrawCentered(new Vector2((boxX + boxRight) * 0.5f, (gridTop + gridBottom) * 0.5f),
+                "Box is empty — drag a party member here to store it.", theme.TextStrong with { W = 0.55f },
+                TextStyles.Caption2);
+        }
+
+        // ---- Box List + Search row ----
+        var ctrlY = gridBottom + 5f * scale;
+        var boxListRect = new Rect(new Vector2(boxX, ctrlY), new Vector2(boxX + boxW * 0.30f, ctrlY + 24f * scale));
+        if (LgUi.Button(boxListRect, "Boxes", GamePalette.Cell, theme, numPages > 1))
+        {
+            boxPage = 0;
+        }
+
+        var searchLeft = boxX + boxW * 0.34f;
+        ProgressRing.CenterIcon(drawList, new Vector2(searchLeft + 8f * scale, ctrlY + 12f * scale),
+            FontAwesomeIcon.Search, theme.TextMuted, 12f * scale);
+        var searchRight = searching ? boxRight - 24f * scale : boxRight;
+        LgUi.Input(new Rect(new Vector2(searchLeft + 18f * scale, ctrlY), new Vector2(searchRight, ctrlY + 24f * scale)),
+            "##boxsearch", ref boxSearch, 16, theme, scale);
+        if (searching)
+        {
+            var clearRect = new Rect(new Vector2(searchRight + 2f * scale, ctrlY),
+                new Vector2(boxRight, ctrlY + 24f * scale));
+            if (LgUi.Button(clearRect, "x", GamePalette.Cell, theme, true))
+            {
+                boxSearch = string.Empty;
+            }
+        }
+
+        // ---- Active drag: floating sprite + drop resolution ----
+        if (dragging)
         {
             if (!rosterDragMoved && Vector2.Distance(mouse, rosterDragOrigin) > 6f * scale)
             {
                 rosterDragMoved = true;
             }
 
-            var halfH = (rowH - 8f * scale) * 0.5f;
-            var centerY = rosterDragMoved ? mouse.Y : rosterDragOrigin.Y;
-            var floatMin = new Vector2(content.Min.X + 12f * scale, centerY - halfH);
-            var floatMax = new Vector2(content.Max.X - 12f * scale, centerY + halfH);
-            LgUi.Card(drawList, floatMin, floatMax, 12f * scale, scale, true);
-            var realIdx = State.Party.IndexOf(draggingRosterMon!);
-            DrawRosterRowContents(drawList, floatMin, floatMax, draggingRosterMon!, Math.Max(0, realIdx), rowH,
-                theme, scale);
+            MonsterArt.Draw(drawList, mouse, cellW * 0.5f, draggingRosterMon!.Species, 1f,
+                MonsterPose.Idle(time));
 
             if (!ImGui.IsMouseDown(ImGuiMouseButton.Left))
             {
-                if (rosterDragMoved && dropRow >= 0 && start + dropRow < sorted.Count)
+                var mon = draggingRosterMon!;
+                draggingRosterMon = null;
+                if (!rosterDragMoved)
                 {
-                    var target = sorted[start + dropRow].Mon;
-                    if (!ReferenceEquals(target, draggingRosterMon))
-                    {
-                        ReorderParty(draggingRosterMon!, target);
-                    }
-
-                    draggingRosterMon = null;
-                }
-                else if (!rosterDragMoved)
-                {
-                    var mon = draggingRosterMon!;
-                    draggingRosterMon = null;
                     OpenDetail(mon, View.Team);
                     return;
                 }
-                else
+
+                var inParty = mouse.X < boxX - 4f * scale && mouse.Y >= slotTop - slotH * 0.5f && mouse.Y <= bottom;
+                var inBox = mouse.X >= boxX && mouse.X <= boxRight && mouse.Y >= gridTop - gap && mouse.Y <= bottom;
+                if (inParty)
                 {
-                    draggingRosterMon = null;
+                    var slot = Math.Clamp((int)MathF.Floor((mouse.Y - slotTop) / slotH), 0, State.Party.Count);
+                    DropOnParty(mon, slot);
                 }
-            }
-        }
-
-        if (all.Count == 0)
-        {
-            LgUi.EmptyState(new Vector2(content.Center.X, content.Center.Y),
-                teamShowingStorage ? FontAwesomeIcon.BoxOpen : FontAwesomeIcon.Paw,
-                teamShowingStorage ? "Storage is empty." : "Your team is empty.", theme, scale);
-        }
-
-        if (pageCount > 1)
-        {
-            var pagerY = content.Max.Y - 56f * scale;
-            if (teamPage > 0 && LgUi.Button(CenteredAt(new Vector2(content.Center.X - 68f * scale, pagerY),
-                    new Vector2(70f * scale, 24f * scale)), "Previous", GamePalette.Cell, theme, true))
-            {
-                teamPage--;
-            }
-
-            Typography.DrawCentered(new Vector2(content.Center.X, pagerY), $"{teamPage + 1}/{pageCount}",
-                theme.TextMuted, TextStyles.Caption1);
-            if (teamPage + 1 < pageCount && LgUi.Button(CenteredAt(new Vector2(content.Center.X + 68f * scale, pagerY),
-                    new Vector2(70f * scale, 24f * scale)), "Next", GamePalette.Cell, theme, true))
-            {
-                teamPage++;
+                else if (inBox)
+                {
+                    var col = Math.Clamp((int)((mouse.X - boxX) / (cellW + gap)), 0, cols - 1);
+                    var row = Math.Clamp((int)((mouse.Y - gridTop) / (cellW + gap)), 0, rows - 1);
+                    DropOnBox(mon, Math.Clamp(boxPage * perPage + row * cols + col, 0, State.Box.Count));
+                }
             }
         }
 
         DrawNavigation(content, theme, scale);
     }
 
-    // Paints a roster row's contents (portrait, name, type chips, HP) into the given rect. Shared by
-    // the list rows and the lifted card that follows the cursor while dragging to reorder.
-    private void DrawRosterRowContents(ImDrawListPtr drawList, Vector2 min, Vector2 max, MonsterInstance m, int index,
-        float rowH, PhoneTheme theme, float scale)
+    private void BeginRosterDrag(MonsterInstance mon, Vector2 mouse)
     {
-        var portrait = new Vector2(min.X + rowH * 0.5f, (min.Y + max.Y) * 0.5f);
-        MonsterArt.Draw(drawList, portrait, rowH * 0.28f, m.Species, 1f,
+        draggingRosterMon = mon;
+        rosterDragOrigin = mouse;
+        rosterDragMoved = false;
+    }
+
+    private void DrawPartySlot(ImDrawListPtr drawList, Rect r, MonsterInstance m, int index, PhoneTheme theme,
+        float scale)
+    {
+        var portrait = new Vector2(r.Min.X + r.Height * 0.5f, r.Center.Y);
+        MonsterArt.Draw(drawList, portrait, r.Height * 0.36f, m.Species, 1f,
             new MonsterPose(time + index, 0f, 0f, 1f, m.Fainted));
         if (m.IsFavorite)
         {
-            drawList.AddCircle(portrait, rowH * 0.34f, ImGui.GetColorU32(Accent with { W = 0.9f }), 28, 1.8f * scale);
+            drawList.AddCircle(portrait, r.Height * 0.42f, ImGui.GetColorU32(Accent with { W = 0.85f }), 24,
+                1.4f * scale);
         }
 
-        var rosterName = FitLabel($"{m.Name}   Lv {m.Level}", max.X - min.X - rowH * 0.95f - 76f * scale,
-            TextStyles.Headline);
-        Typography.Draw(new Vector2(min.X + rowH * 0.95f, min.Y + 6f * scale), rosterName, theme.TextStrong,
-            TextStyles.Headline);
-        LgUi.TypeChips(drawList, new Vector2(min.X + rowH * 0.95f, min.Y + 25f * scale), m.Element,
-            m.SecondaryElement, scale);
-        LgUi.HpBar(drawList, new Vector2(min.X + rowH * 0.95f, max.Y - 9f * scale),
-            new Vector2(max.X - 72f * scale, max.Y - 4f * scale), m.HpFraction);
+        var tx = r.Min.X + r.Height + 2f * scale;
+        var textWidth = r.Max.X - tx - 6f * scale;
+        Typography.Draw(new Vector2(tx, r.Min.Y + 7f * scale), FitLabel(m.Name, textWidth, TextStyles.Subheadline),
+            theme.TextStrong, TextStyles.Subheadline);
+        Typography.Draw(new Vector2(tx, r.Min.Y + 25f * scale), $"Lv {m.Level}",
+            theme.TextStrong with { W = 0.82f }, TextStyles.Caption2);
+        LgUi.HpBar(drawList, new Vector2(tx, r.Max.Y - 9f * scale),
+            new Vector2(r.Max.X - 6f * scale, r.Max.Y - 4f * scale), m.HpFraction);
     }
 
-    // Moves a party member into another member's slot (shifting the rest). Dropping onto slot 0 makes
-    // the dragged creature the team leader.
-    private void ReorderParty(MonsterInstance mon, MonsterInstance target)
+    // Drops a creature onto a party slot: reorder within the party, or withdraw from the box (swapping
+    // with the slot's occupant when the party is already full).
+    private void DropOnParty(MonsterInstance mon, int slot)
     {
-        var fromIdx = State.Party.IndexOf(mon);
-        var toIdx = State.Party.IndexOf(target);
-        if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx)
+        if (State.Party.Contains(mon))
         {
-            return;
+            State.Party.Remove(mon);
+            State.Party.Insert(Math.Clamp(slot, 0, State.Party.Count), mon);
+        }
+        else if (State.Box.Contains(mon))
+        {
+            if (State.Party.Count < LillypadGoState.PartyLimit)
+            {
+                State.Box.Remove(mon);
+                State.Party.Insert(Math.Clamp(slot, 0, State.Party.Count), mon);
+            }
+            else
+            {
+                var target = Math.Clamp(slot, 0, State.Party.Count - 1);
+                var displaced = State.Party[target];
+                State.Box.Remove(mon);
+                State.Party[target] = mon;
+                State.Box.Add(displaced);
+            }
         }
 
-        State.Party.RemoveAt(fromIdx);
-        State.Party.Insert(toIdx, mon);
+        State.Save();
+    }
+
+    // Drops a creature onto a box cell: reorder within the box, or deposit from the party (never the
+    // last remaining party member).
+    private void DropOnBox(MonsterInstance mon, int idx)
+    {
+        if (State.Box.Contains(mon))
+        {
+            State.Box.Remove(mon);
+            State.Box.Insert(Math.Clamp(idx, 0, State.Box.Count), mon);
+        }
+        else if (State.Party.Contains(mon))
+        {
+            if (State.Party.Count <= 1)
+            {
+                return; // never empty the party
+            }
+
+            State.Party.Remove(mon);
+            State.Box.Insert(Math.Clamp(idx, 0, State.Box.Count), mon);
+        }
+
+        State.Save();
+    }
+
+    private static string BoxSortLabel(int sort) => sort switch
+    {
+        1 => "Lvl",
+        2 => "Type",
+        3 => "Name",
+        _ => "Dex",
+    };
+
+    // Reorders the whole box by the current criterion (Dex number, level, type, or name).
+    private void SortBox()
+    {
+        Comparison<MonsterInstance> cmp = boxSort switch
+        {
+            1 => (a, b) => b.Level.CompareTo(a.Level),
+            2 => (a, b) => ((int)a.Element).CompareTo((int)b.Element),
+            3 => (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase),
+            _ => (a, b) => a.Species.DexNumber.CompareTo(b.Species.DexNumber),
+        };
+        State.Box.Sort(cmp);
+        boxPage = 0;
         State.Save();
     }
 
     private static Rect CenteredAt(Vector2 center, Vector2 size) => new(center - size * 0.5f, center + size * 0.5f);
-
-    // A sorted VIEW over the party/box that preserves each creature's real index (so the row
-    // actions still target the right slot in the underlying list).
-    private static List<(MonsterInstance Mon, int Index)> SortedTeamView(List<MonsterInstance> list, TeamSort sort)
-    {
-        var indexed = list.Select((m, i) => (Mon: m, Index: i));
-        var ordered = sort switch
-        {
-            TeamSort.Level => indexed.OrderByDescending(e => e.Mon.Level).ThenBy(e => e.Index),
-            TeamSort.Type => indexed.OrderBy(e => (int)e.Mon.Element).ThenByDescending(e => e.Mon.Level),
-            TeamSort.Dex => indexed.OrderBy(e => e.Mon.Species.DexNumber),
-            TeamSort.Name => indexed.OrderBy(e => e.Mon.Name, StringComparer.OrdinalIgnoreCase),
-            _ => indexed,
-        };
-        return ordered.ToList();
-    }
-
-    private static string TeamSortLabel(TeamSort sort) => sort switch
-    {
-        TeamSort.Level => "Level",
-        TeamSort.Type => "Type",
-        TeamSort.Dex => "Dex #",
-        TeamSort.Name => "Name",
-        _ => "Caught",
-    };
-
-    private void MoveStoredToTeam(int boxIndex)
-    {
-        if (boxIndex < 0 || boxIndex >= State.Box.Count)
-        {
-            return;
-        }
-
-        var incoming = State.Box[boxIndex];
-        State.Box.RemoveAt(boxIndex);
-        if (State.Party.Count < LillypadGoState.PartyLimit)
-        {
-            State.Party.Add(incoming);
-        }
-        else
-        {
-            var outgoing = State.Party[^1];
-            State.Party[^1] = incoming;
-            State.Box.Add(outgoing);
-        }
-
-        State.Save();
-    }
-
-    private static void MoveTeamToStorage(int partyIndex)
-    {
-        if (State.Party.Count <= 1 || partyIndex < 0 || partyIndex >= State.Party.Count)
-        {
-            return;
-        }
-
-        var outgoing = State.Party[partyIndex];
-        State.Party.RemoveAt(partyIndex);
-        State.Box.Add(outgoing);
-        State.Save();
-    }
 
     private void OpenDetail(MonsterInstance monster, View returnView)
     {
@@ -367,5 +389,4 @@ internal sealed partial class LillypadGoApp
         State.Save();
         view = detailReturnView;
     }
-
 }

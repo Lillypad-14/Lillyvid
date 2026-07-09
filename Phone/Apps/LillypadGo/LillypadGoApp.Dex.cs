@@ -22,7 +22,7 @@ internal sealed partial class LillypadGoApp
         InitializeDexExpansion();
         var sortBounds = new Rect(new Vector2(content.Min.X + 12f * scale, content.Min.Y + 66f * scale),
             new Vector2(content.Max.X - 12f * scale, content.Min.Y + 96f * scale));
-        var changedSort = LgUi.Segmented(sortBounds, new[] { "Progress", "Region", "Missing", "National" },
+        var changedSort = LgUi.Segmented(sortBounds, new[] { "Region", "National" },
             (int)dexSort, Accent, theme, scale, ref dexSortIndicator);
         if (changedSort >= 0)
         {
@@ -47,20 +47,13 @@ internal sealed partial class LillypadGoApp
         {
             DrawDexNational(list, caughtIds, ref y, theme, scale);
         }
-        else if (dexSort == DexSort.Region)
+        else
         {
             foreach (var region in ArrZones.All.GroupBy(zone => new { zone.Region, zone.RegionOrder })
                          .OrderBy(group => group.Key.RegionOrder))
             {
                 DrawDexRegion(region.Key.Region, region.OrderBy(zone => zone.ProgressionOrder).ToArray(), list,
                     caughtIds, ref y, theme, scale);
-            }
-        }
-        else
-        {
-            foreach (var zone in SortedDexZones(caughtIds))
-            {
-                DrawDexZone(zone, list, caughtIds, ref y, theme, scale, false);
             }
         }
         drawList.PopClipRect();
@@ -87,13 +80,6 @@ internal sealed partial class LillypadGoApp
         expandedDexRegions.Add(current.Region);
         expandedDexZones.Add(current.TerritoryId);
     }
-
-    private IEnumerable<ZoneDefinition> SortedDexZones(HashSet<string> caughtIds) => dexSort switch
-    {
-        DexSort.Missing => ArrZones.All.OrderBy(zone => DexCaughtCount(zone, caughtIds))
-            .ThenBy(zone => zone.ProgressionOrder),
-        _ => ArrZones.All.OrderBy(zone => zone.ProgressionOrder),
-    };
 
     private void DrawDexRegion(string region, ZoneDefinition[] zones, Rect clip, HashSet<string> caughtIds,
         ref float y, PhoneTheme theme, float scale)

@@ -96,7 +96,7 @@ internal sealed partial class LillypadGoApp
         var textSize = Typography.Measure(text, TextStyles.Caption1);
         var innerWidth = 18f * scale + textSize.X;
         var padX = 10f * scale;
-        var max = new Vector2(content.Max.X - 14f * scale, content.Min.Y + 50f * scale);
+        var max = new Vector2(content.Max.X - 14f * scale, content.Min.Y + 62f * scale);
         var min = new Vector2(max.X - innerWidth - padX * 2f, max.Y - 21f * scale);
         var radius = (max.Y - min.Y) * 0.5f;
         Squircle.Fill(drawList, min, max, radius, ImGui.GetColorU32(new Vector4(0.02f, 0.025f, 0.035f, 0.55f)));
