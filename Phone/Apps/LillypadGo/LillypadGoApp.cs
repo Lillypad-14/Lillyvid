@@ -90,6 +90,23 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         public MoveAnimPlayback? Playback; // traced Showdown choreography, when available
     }
 
+    // Drives the throw-and-catch animation: the ball arcs in, the wild is drawn inside, the ball drops
+    // and shakes, then either clicks shut (success) or bursts open (break free).
+    private sealed class CaptureFx
+    {
+        public enum Stage { Throw, Wait, Success, Break }
+
+        public Stage Phase = Stage.Throw;
+        public string BallId = "pokeball";
+        public float Age;         // seconds since the throw began
+        public float StageAge;    // seconds since the Success/Break stage began
+        public float LastShake = -10f; // Age at which the most recent shake started
+        public int Shakes;
+    }
+
+    private CaptureFx? captureFx;
+    private string pendingCaptureBallId = "pokeball";
+
     private static readonly string[] StarterIds = { "bulbasaur", "charmander", "squirtle" };
 
     private readonly Random rng = new();

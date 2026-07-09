@@ -534,6 +534,11 @@ internal sealed partial class LillypadGoApp
         if (LgUi.Button(rect, "      " + item.Name, enabled ? tint : GamePalette.CellSunken, theme, enabled,
                 BattleItemSub(item, count)))
         {
+            if (item.Category == ItemCategory.Ball)
+            {
+                pendingCaptureBallId = item.Id; // remembered so the throw animation shows the right ball
+            }
+
             battle.UseItem(item);
             menu = Menu.Root;
         }

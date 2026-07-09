@@ -87,10 +87,88 @@ internal sealed partial class LillypadGoApp
         var wildAnimPose = MonAnimPose(false, sceneMap);
         var wildPos = wildBase + wildAnimPose.Offset;
         DrawGroundShadow(drawList, wildBase + new Vector2(wildAnimPose.Offset.X, 32f * scale), 40f * scale);
+
+        // Capture animation: while the wild is inside the ball it fades out and shrinks toward it.
+        var capWildAlpha = 1f;
+        var capWildScale = 1f;
+        var capWildPos = wildPos;
+        var ballPos = Vector2.Zero;
+        var ballAngle = 0f;
+        var ballFlash = 0f;
+        var ballVisible = false;
+        if (captureFx is { } cap)
+        {
+            cap.Age += dt;
+            if (cap.Phase is CaptureFx.Stage.Success or CaptureFx.Stage.Break)
+            {
+                cap.StageAge += dt;
+            }
+
+            var ground = wildBase + new Vector2(-4f * scale, 20f * scale);
+            var throwStart = playerBase + new Vector2(-6f * scale, -30f * scale);
+            switch (cap.Phase)
+            {
+                case CaptureFx.Stage.Throw:
+                    ballVisible = true;
+                    if (cap.Age < 0.45f)
+                    {
+                        var t = cap.Age / 0.45f;
+                        ballPos = Vector2.Lerp(throwStart, wildPos, t) -
+                            new Vector2(0f, MathF.Sin(t * MathF.PI) * 64f * scale);
+                        ballAngle = t * 9f;
+                    }
+                    else if (cap.Age < 0.95f)
+                    {
+                        ballPos = wildPos;
+                        ballFlash = 1f - (cap.Age - 0.45f) / 0.5f;
+                        var t = Math.Clamp((cap.Age - 0.52f) / 0.42f, 0f, 1f);
+                        capWildAlpha = 1f - t;
+                        capWildScale = 1f - t * 0.9f;
+                        capWildPos = Vector2.Lerp(wildPos, ballPos, t);
+                    }
+                    else
+                    {
+                        var t = Math.Clamp((cap.Age - 0.95f) / 0.32f, 0f, 1f);
+                        ballPos = Vector2.Lerp(wildPos, ground, t * t); // fall with a little gravity
+                        capWildAlpha = 0f;
+                    }
+
+                    break;
+                case CaptureFx.Stage.Wait:
+                    ballVisible = true;
+                    ballPos = ground;
+                    capWildAlpha = 0f;
+                    var wa = cap.Age - cap.LastShake;
+                    if (wa is >= 0f and < 0.5f)
+                    {
+                        ballAngle = MathF.Sin(wa * 20f) * 0.6f * MathF.Exp(-wa * 4.5f);
+                    }
+
+                    break;
+                case CaptureFx.Stage.Success:
+                    ballVisible = true;
+                    ballPos = ground;
+                    capWildAlpha = 0f;
+                    break;
+                default: // Break free
+                    ballVisible = cap.StageAge < 0.22f;
+                    ballPos = ground;
+                    ballFlash = Math.Clamp(1f - cap.StageAge / 0.3f, 0f, 1f);
+                    capWildAlpha = Math.Clamp(cap.StageAge / 0.32f, 0f, 1f);
+                    if (cap.StageAge > 0.6f)
+                    {
+                        captureFx = null;
+                    }
+
+                    break;
+            }
+        }
+
         var wildHidden = battle.Wild.SemiInvulnerable ? 0.2f : 1f; // underground / in the air during a charge
-        MonsterArt.Draw(drawList, wildPos, 42f * scale * wildAnimPose.ScaleMul, battle.Wild.Species, -1f,
-            new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt, wildAnim.Alpha * wildAnimPose.Alpha * wildHidden,
-                displayedWildHp <= 0));
+        MonsterArt.Draw(drawList, capWildPos, 42f * scale * wildAnimPose.ScaleMul * capWildScale,
+            battle.Wild.Species, -1f,
+            new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt,
+                wildAnim.Alpha * wildAnimPose.Alpha * wildHidden * capWildAlpha, displayedWildHp <= 0));
         DrawStatusFx(drawList, wildPos, displayedWildStatus, time, scale);
         if (battle.Wild.ConfusionTurns > 0 && displayedWildHp > 0)
         {
@@ -149,6 +227,11 @@ internal sealed partial class LillypadGoApp
         {
             ShowTooltip(BuildMonsterTooltip(player, "Your active creature." + BattleWeatherNote(player),
                 displayedPlayerHp));
+        }
+
+        if (ballVisible && captureFx is { } capDraw)
+        {
+            DrawCaptureBall(drawList, ballPos, ballAngle, ballFlash, capDraw, scale);
         }
 
         DrawWeatherChip(content, theme, scale);
@@ -233,9 +316,12 @@ internal sealed partial class LillypadGoApp
             ApplyCue(msg);
             message = msg.Text;
             AddBattleText(msg);
-            messageTimer = msg.Cue == BattleCue.CaptureShake
-                ? 0.45f
-                : Math.Clamp(0.9f + msg.Text.Length * 0.025f, 1.15f, 2.4f);
+            messageTimer = msg.Cue switch
+            {
+                BattleCue.CaptureThrow => 1.7f,  // ball arcs in, opens, the wild is drawn in, ball drops
+                BattleCue.CaptureShake => 0.75f, // a dramatic beat between each shake
+                _ => Math.Clamp(0.9f + msg.Text.Length * 0.025f, 1.15f, 2.4f),
+            };
             return;
         }
 
@@ -359,8 +445,34 @@ internal sealed partial class LillypadGoApp
                 animatedWildHp = displayedWildHp;
                 wildAnim.Reset();
                 break;
+            case BattleCue.CaptureThrow:
+                captureFx = new CaptureFx { BallId = pendingCaptureBallId };
+                break;
+            case BattleCue.CaptureShake:
+                if (captureFx is { } shakeFx)
+                {
+                    shakeFx.Phase = CaptureFx.Stage.Wait;
+                    shakeFx.LastShake = shakeFx.Age;
+                    shakeFx.Shakes++;
+                }
+
+                break;
             case BattleCue.Captured:
                 wildAnim.AlphaTarget = 0f;
+                if (captureFx is { } caughtFx)
+                {
+                    caughtFx.Phase = CaptureFx.Stage.Success;
+                    caughtFx.StageAge = 0f;
+                }
+
+                break;
+            case BattleCue.CaptureFail:
+                if (captureFx is { } freeFx)
+                {
+                    freeFx.Phase = CaptureFx.Stage.Break;
+                    freeFx.StageAge = 0f;
+                }
+
                 break;
         }
 

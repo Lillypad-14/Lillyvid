@@ -215,6 +215,7 @@ internal sealed partial class LillypadGoApp
         battleText.Clear();
         awaitingResult = false;
         battlePopups.Clear();
+        captureFx = null;
         battleItemScroll = 0f;
         confirmingRun = false;
         moveFx = null;

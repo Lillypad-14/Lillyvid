@@ -36,6 +36,69 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    // Draws the capture ball at its current position, with an opening flash, wobble rotation, and —
+    // on a successful catch — a click ring and expanding sparkles.
+    private void DrawCaptureBall(ImDrawListPtr dl, Vector2 pos, float angle, float flash, CaptureFx cap, float scale)
+    {
+        var size = 24f * scale;
+
+        // Soft ground shadow while the ball rests.
+        if (cap.Phase is CaptureFx.Stage.Wait or CaptureFx.Stage.Success)
+        {
+            dl.AddCircleFilled(pos + new Vector2(0f, size * 0.6f), size * 0.55f,
+                ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.25f)));
+        }
+
+        // Opening flash at the hit / burst on break free.
+        if (flash > 0.01f)
+        {
+            dl.AddCircleFilled(pos, size * (0.5f + flash * 1.3f),
+                ImGui.GetColorU32(new Vector4(1f, 1f, 0.92f, flash * 0.65f)));
+        }
+
+        // Successful catch: a click ring and a ring of sparkles.
+        if (cap.Phase == CaptureFx.Stage.Success)
+        {
+            var t = cap.StageAge;
+            if (t < 0.35f)
+            {
+                dl.AddCircle(pos, size * (0.7f + t * 5f),
+                    ImGui.GetColorU32(new Vector4(1f, 0.9f, 0.45f, Math.Clamp(1f - t / 0.35f, 0f, 1f))), 24,
+                    2f * scale);
+            }
+
+            for (var i = 0; i < 4; i++)
+            {
+                var a = t * 2.5f + i * MathF.PI * 0.5f;
+                var r = (10f + t * 26f) * scale;
+                var sp = pos + new Vector2(MathF.Cos(a) * r, MathF.Sin(a) * r - 8f * scale);
+                dl.AddCircleFilled(sp, 2.2f * scale,
+                    ImGui.GetColorU32(new Vector4(1f, 0.95f, 0.55f, Math.Clamp(1f - t / 0.8f, 0f, 1f))));
+            }
+        }
+
+        if (AssetTextures.TryGet($"items/{cap.BallId}.png", out var tex, out var aspect))
+        {
+            DrawRotatedImage(dl, tex, pos, new Vector2(size * MathF.Max(0.3f, aspect), size), angle);
+        }
+        else
+        {
+            dl.AddCircleFilled(pos, size * 0.5f, ImGui.GetColorU32(new Vector4(0.86f, 0.22f, 0.22f, 1f)));
+        }
+    }
+
+    private static void DrawRotatedImage(ImDrawListPtr dl, ImTextureID tex, Vector2 center, Vector2 size, float angle)
+    {
+        var c = MathF.Cos(angle);
+        var s = MathF.Sin(angle);
+        var hx = size.X * 0.5f;
+        var hy = size.Y * 0.5f;
+        Vector2 R(float x, float y) => center + new Vector2(x * c - y * s, x * s + y * c);
+        dl.AddImageQuad(tex, R(-hx, -hy), R(hx, -hy), R(hx, hy), R(-hx, hy),
+            new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f),
+            ImGui.GetColorU32(Vector4.One));
+    }
+
     private static void DrawTerrainOverlay(ImDrawListPtr dl, Rect arena, BattleTerrain terrain, float clock,
         float scale)
     {

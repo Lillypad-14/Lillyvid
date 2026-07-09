@@ -13,6 +13,7 @@ internal enum BattleCue : byte
     EnemySwitch,
     Buff,
     Heal,
+    CaptureThrow,
     CaptureShake,
     Captured,
     CaptureFail,
@@ -467,7 +468,7 @@ internal sealed class Battle
         }
 
         bag.Consume(ball.Id);
-        Log.Enqueue(new BattleMessage($"You used one {ball.Name}!", BattleCue.Info));
+        Log.Enqueue(new BattleMessage($"You used one {ball.Name}!", BattleCue.CaptureThrow));
 
         var rate = CaptureCheckChance(ball.CatchBonus);
         var shakes = 0;
