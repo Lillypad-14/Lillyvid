@@ -43,6 +43,11 @@ internal static class Training
             team.Add(new MonsterInstance(pick, level));
         }
 
+        // Held items get commoner as the tiers climb: a Novice's pair rarely carries anything, a
+        // Champion's six usually do. The item never enters the player's bag — trainer creatures
+        // cannot be caught — so this is purely a difficulty dial.
+        HeldItems.GiveTrainerItems(team, rng, 0.20f + 0.10f * (tier.Index - 1));
+
         var name = Titles[rng.Next(Titles.Length)];
         var prize = team.Sum(monster => monster.Level) * 10 + tier.Index * 30;
         return new Battle(party, team, name, prize, bag, rng, weather);

@@ -515,6 +515,59 @@ internal static class HeldItems
         return items;
     }
 
+    // ---- Trainer loadouts ---------------------------------------------------------------------------
+
+    // Items an AI trainer should never be handed. The orbs and the barb are pure self-harm without the
+    // ability that pays for them (Guts, Poison Heal); the weights are drawbacks the AI cannot exploit;
+    // Berry Juice and Leppa only matter over a long fight the AI will not survive.
+    private static readonly HashSet<string> NeverGiveToTrainers = new(StringComparer.Ordinal)
+    {
+        "toxicorb", "flameorb", "stickybarb", "ironball", "machobrace", "laggingtail", "leppaberry",
+    };
+
+    // Would this item do anything at all for this creature? Mirrors the checks ActiveSpec makes at
+    // battle time, so a trainer is never handed a Light Ball for a Geodude or an Eviolite for a
+    // fully-evolved mon — items that would sit inert all fight.
+    private static bool SuitsHolder(MonsterInstance holder, string itemId)
+    {
+        if (SpecFor(itemId) is not { } spec)
+        {
+            return true; // purely reactive items (berries, Rocky Helmet) suit anything
+        }
+
+        if (spec.SpeciesLock is { } species && Array.IndexOf(species, holder.Species.Id) < 0)
+        {
+            return false;
+        }
+
+        if (spec.OnlyIfUnevolved && Dex.EvolutionOf(holder.Species) is null)
+        {
+            return false;
+        }
+
+        // An Assault Vest on a creature with nothing but status moves leaves it Struggling.
+        return !spec.BlocksStatusMoves || holder.Moves.Any(move => !move.IsStatus);
+    }
+
+    // Pick a held item an AI trainer's creature could plausibly be carrying, or null if none fits.
+    public static string? RollTrainerItem(MonsterInstance holder, Random rng)
+    {
+        var pool = All.Where(item => !NeverGiveToTrainers.Contains(item.Id) && SuitsHolder(holder, item.Id)).ToList();
+        return pool.Count == 0 ? null : pool[rng.Next(pool.Count)].Id;
+    }
+
+    // Roll each member of an AI team for a held item. `chance` is the per-creature probability.
+    public static void GiveTrainerItems(IEnumerable<MonsterInstance> team, Random rng, float chance)
+    {
+        foreach (var monster in team)
+        {
+            if (rng.NextDouble() < chance && RollTrainerItem(monster, rng) is { } item)
+            {
+                monster.HeldItem = item;
+            }
+        }
+    }
+
     private static readonly HashSet<string> BerryIds = All
         .Where(item => item.Id.EndsWith("berry", StringComparison.Ordinal))
         .Select(item => item.Id)

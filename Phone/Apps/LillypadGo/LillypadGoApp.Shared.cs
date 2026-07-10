@@ -277,15 +277,20 @@ internal sealed partial class LillypadGoApp
         if (monster.ConfusionTurns > 0) volatileState.Add($"Confusion {monster.ConfusionTurns} turns");
         if (monster.HealBlockTurns > 0) volatileState.Add($"Heal Block {monster.HealBlockTurns} turns");
         var volatileText = volatileState.Count == 0 ? "None" : string.Join(", ", volatileState);
-        var held = string.IsNullOrWhiteSpace(monster.HeldItem)
-            ? "None"
-            : Items.Find(monster.HeldItem)?.Name ?? monster.HeldItem;
+        // Held item reads like the ability above it: the name, then what it actually does — so a
+        // trainer's Choice Scarf or Focus Sash is legible from the health bar rather than a surprise.
+        var heldDef = string.IsNullOrWhiteSpace(monster.HeldItem) ? null : Items.Find(monster.HeldItem);
+        var heldLine = string.IsNullOrWhiteSpace(monster.HeldItem)
+            ? "Held item: None"
+            : heldDef is null
+                ? $"Held item: {monster.HeldItem}"
+                : $"Held item: {heldDef.Name}\n{heldDef.Blurb}";
         return $"{monster.Name}  Lv {monster.Level}\n{Elements.Format(monster.Element, monster.SecondaryElement)}\n\n" +
                $"HP {hpOverride ?? monster.CurrentHp}/{monster.MaxHp}\nATK {monster.Atk}    DEF {monster.Def}    SPD {monster.Spd}\n" +
                $"SP. ATK {monster.SpAtk}    SP. DEF {monster.SpDef}\n" +
                $"XP {xp}    Status: {status}\nEffects: {volatileText}\n" +
                $"Ability: {monster.Ability}\n{AbilityInfo.Describe(monster.Ability)}\n" +
-               $"Held item: {held}\nMoves: {moves}\n\n{note}";
+               $"{heldLine}\nMoves: {moves}\n\n{note}";
     }
 
     private static List<string> WrapText(string text, float maxWidth, in TextStyle style)

@@ -69,6 +69,11 @@ internal static class Gyms
         var team = gym.Team
             .Select(entry => new MonsterInstance(Dex.Find(entry.Species)!, entry.Level))
             .ToList();
+
+        // Leaders equip more readily than the training trainers, and the later gyms more than the
+        // early ones — Merlwyb's first two rarely hold anything, Midgardsormr's usually do.
+        HeldItems.GiveTrainerItems(team, rng, 0.30f + 0.07f * gym.Index);
+
         var prize = team.Sum(monster => monster.Level) * 20 + 500;
         return new Battle(party, team, $"Leader {gym.Leader}", prize, bag, rng);
     }
