@@ -1,6 +1,7 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
+using VideoSyncPrototype.Phone.Apps.Games.Framework;
 using VideoSyncPrototype.Phone.Core;
 using VideoSyncPrototype.Phone.Core.Theme;
 using VideoSyncPrototype.Phone.Windows.Components;
@@ -13,17 +14,29 @@ internal sealed partial class LillypadGoApp
     {
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
-        BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
+        drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(RosterUi.NavyBottom));
         var species = Dex.All.OrderBy(monster => monster.Name).ToArray();
         var caughtIds = State.Party.Concat(State.Box).Select(monster => monster.Species.Id).ToHashSet();
-        LgUi.Header(content, theme, Accent, "Field Guide",
-            $"{caughtIds.Count}/{species.Length} caught  |  {State.Seen.Count}/{species.Length} seen", scale);
+        var headerBottom = RosterUi.ScreenHeader(content, "FIELD GUIDE", "nav_dex", new[]
+        {
+            ($"{caughtIds.Count}/{species.Length}", RosterUi.CountGreen),
+            ("caught", new Vector4(1f, 1f, 1f, 1f)),
+            ("|", RosterUi.NavyLine),
+            ($"{State.Seen.Count}/{species.Length}", RosterUi.CountBlue),
+            ("seen", new Vector4(1f, 1f, 1f, 1f)),
+        }, scale);
 
         InitializeDexExpansion();
-        var sortBounds = new Rect(new Vector2(content.Min.X + 12f * scale, content.Min.Y + 66f * scale),
-            new Vector2(content.Max.X - 12f * scale, content.Min.Y + 96f * scale));
-        var changedSort = LgUi.Segmented(sortBounds, new[] { "Region", "National" },
-            (int)dexSort, Accent, theme, scale, ref dexSortIndicator);
+
+        // Cream panel first so the folder tabs can sit on its top edge (like the Arena).
+        var navTop = content.Max.Y - NavBarHeight * scale;
+        var panel = new Rect(new Vector2(content.Min.X + 7f * scale, headerBottom + 32f * scale),
+            new Vector2(content.Max.X - 7f * scale, navTop - 7f * scale));
+        RosterUi.CreamPanel(drawList, panel, scale);
+
+        var sortBounds = new Rect(new Vector2(content.Min.X + 12f * scale, headerBottom + 8f * scale),
+            new Vector2(content.Max.X - 12f * scale, headerBottom + 36f * scale));
+        var changedSort = RosterUi.FolderTabs(sortBounds, new[] { "REGION", "NATIONAL" }, (int)dexSort, scale);
         if (changedSort >= 0)
         {
             dexSort = (DexSort)changedSort;
@@ -31,8 +44,8 @@ internal sealed partial class LillypadGoApp
             dexMaxScroll = 0f;
         }
 
-        var list = new Rect(new Vector2(content.Min.X + 4f * scale, content.Min.Y + 104f * scale),
-            new Vector2(content.Max.X - 9f * scale, content.Max.Y - 48f * scale));
+        var list = new Rect(new Vector2(panel.Min.X + 3f * scale, panel.Min.Y + 8f * scale),
+            new Vector2(panel.Max.X - 4f * scale, panel.Max.Y - 8f * scale));
         dexMaxScroll = MathF.Max(0f, MeasureDexContentHeight(scale) - list.Height);
         dexScroll = Math.Clamp(dexScroll, 0f, dexMaxScroll);
         var mouse = ImGui.GetMousePos();
@@ -62,9 +75,9 @@ internal sealed partial class LillypadGoApp
         var maxScroll = MathF.Max(0f, contentHeight - list.Height);
         dexMaxScroll = maxScroll;
         dexScroll = Math.Clamp(dexScroll, 0f, maxScroll);
-        LgUi.Scrollbar(new Rect(new Vector2(content.Max.X - 6f * scale, list.Min.Y),
-                new Vector2(content.Max.X - 3f * scale, list.Max.Y)), dexScroll, maxScroll,
-            list.Height / MathF.Max(list.Height, contentHeight), Accent, scale);
+        LgUi.Scrollbar(new Rect(new Vector2(panel.Max.X - 6f * scale, list.Min.Y),
+                new Vector2(panel.Max.X - 3f * scale, list.Max.Y)), dexScroll, maxScroll,
+            list.Height / MathF.Max(list.Height, contentHeight), RosterUi.Blue, scale);
         DrawNavigation(content, theme, scale);
     }
 
@@ -160,7 +173,8 @@ internal sealed partial class LillypadGoApp
         if (RowVisible(rect, clip))
         {
             var hovered = clip.Contains(ImGui.GetMousePos()) && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
-            LgUi.Card(ImGui.GetWindowDrawList(), rect.Min, rect.Max, 8f * scale, scale, hovered, !seen);
+            RosterUi.DarkCard(ImGui.GetWindowDrawList(), rect, 8f * scale, scale, hovered, !seen,
+                accent: seen ? Elements.Color(species.Element) : null);
             var portrait = new Vector2(rect.Min.X + 24f * scale, rect.Center.Y);
             if (seen)
             {
@@ -169,14 +183,14 @@ internal sealed partial class LillypadGoApp
             }
             else
             {
-                Typography.DrawCentered(portrait, "?", theme.TextMuted, TextStyles.Title3);
+                Typography.DrawCentered(portrait, "?", RosterUi.CardMuted, TextStyles.Title3);
             }
 
             var rightReserve = 66f * scale;
             var name = FitLabel(seen ? species.Name : "Undiscovered",
                 rect.Max.X - (rect.Min.X + 48f * scale) - rightReserve, TextStyles.SubheadlineEmphasized);
             Typography.Draw(new Vector2(rect.Min.X + 48f * scale, rect.Min.Y + 6f * scale), name,
-                seen ? theme.TextStrong : theme.TextMuted, TextStyles.SubheadlineEmphasized);
+                seen ? RosterUi.CardInk : RosterUi.CardMuted, TextStyles.SubheadlineEmphasized);
             if (seen)
             {
                 LgUi.TypeChips(ImGui.GetWindowDrawList(),
@@ -184,11 +198,12 @@ internal sealed partial class LillypadGoApp
                     species.SecondaryElement, scale);
             }
             Typography.DrawCentered(new Vector2(rect.Max.X - 31f * scale, rect.Min.Y + 14f * scale),
-                caught ? "Caught" : seen ? "Seen" : "---", caught ? Accent : theme.TextMuted, TextStyles.Caption1);
+                caught ? "Caught" : seen ? "Seen" : "---",
+                caught ? RosterUi.CountGreen : RosterUi.CardMuted, TextStyles.Caption1);
             var exclusive = ArrZones.IsExclusiveTo(zone, species.Id);
             Typography.DrawCentered(new Vector2(rect.Max.X - 31f * scale, rect.Min.Y + 33f * scale),
                 exclusive ? "EXCLUSIVE" : $"Lv {encounter.MinLevel}-{encounter.MaxLevel}",
-                exclusive ? Accent : theme.TextMuted, TextStyles.Caption2);
+                exclusive ? RosterUi.Gold : RosterUi.CardMuted, TextStyles.Caption2);
 
             if (hovered)
             {
@@ -204,7 +219,6 @@ internal sealed partial class LillypadGoApp
                         learnsetMonster = null;
                         teachPendingMove = null;
                         dexEntryTab = 0;
-                        dexEntryTabIndicator = -1f;
                         dexEntryScroll = 0f;
                         dexEntryReturnView = View.Dex;
                         view = View.DexEntry;
@@ -215,17 +229,42 @@ internal sealed partial class LillypadGoApp
         y += height + 4f * scale;
     }
 
+    // A tan chunky disclosure row (regions and zones): arrow, title, right-aligned summary, and a
+    // green edge bar when it marks the player's current region/zone.
     private bool DrawDexDisclosure(Rect rect, string title, string trailing, bool expanded, PhoneTheme theme,
         float scale, bool emphasized, Rect clip)
     {
-        var interactive = LgUi.Interactive;
-        if (!clip.Contains(ImGui.GetMousePos()))
+        var drawList = ImGui.GetWindowDrawList();
+        var interactive = LgUi.Interactive && clip.Contains(ImGui.GetMousePos());
+        var hovered = interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
+        var radius = 8f * scale;
+        RosterUi.ChunkyCard(drawList, rect.Min, rect.Max, radius, scale, RosterUi.TanTop, RosterUi.TanBottom,
+            RosterUi.TanEdge, hovered);
+        if (emphasized)
         {
-            LgUi.Interactive = false;
+            drawList.PushClipRect(rect.Min, new Vector2(rect.Min.X + 5f * scale, rect.Max.Y), true);
+            Squircle.Fill(drawList, rect.Min, rect.Max, radius, ImGui.GetColorU32(RosterUi.Green));
+            drawList.PopClipRect();
         }
-        var clicked = LgUi.Disclosure(rect, title, trailing, expanded, Accent, theme, scale, emphasized);
-        LgUi.Interactive = interactive;
-        return clicked;
+
+        Typography.DrawCentered(new Vector2(rect.Min.X + 17f * scale, rect.Center.Y), expanded ? "v" : ">",
+            emphasized ? GamePalette.Darken(RosterUi.Green, 0.15f) : RosterUi.InkTan,
+            TextStyles.SubheadlineEmphasized);
+        Typography.Draw(new Vector2(rect.Min.X + 31f * scale, rect.Center.Y - 8f * scale), title,
+            RosterUi.InkNavy, TextStyles.SubheadlineEmphasized);
+        if (!string.IsNullOrEmpty(trailing))
+        {
+            var size = Typography.Measure(trailing, TextStyles.Caption1);
+            Typography.Draw(new Vector2(rect.Max.X - size.X - 10f * scale, rect.Center.Y - 7f * scale), trailing,
+                RosterUi.InkTan, TextStyles.Caption1);
+        }
+
+        if (hovered)
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+        }
+
+        return hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left);
     }
 
     private static bool RowVisible(Rect row, Rect clip) => row.Max.Y >= clip.Min.Y && row.Min.Y <= clip.Max.Y;
@@ -257,10 +296,10 @@ internal sealed partial class LillypadGoApp
             var seen = State.Seen.Contains(species.Id);
             var caught = caughtIds.Contains(species.Id);
             var hovered = clip.Contains(mouse) && ImGui.IsMouseHoveringRect(min, max);
-            LgUi.Card(drawList, min, max, 8f * scale, scale, hovered, !seen);
+            RosterUi.DarkCard(drawList, rect, 8f * scale, scale, hovered, !seen);
 
             Typography.Draw(new Vector2(min.X + 8f * scale, min.Y + 6f * scale),
-                $"#{species.DexNumber:D3}", theme.TextMuted, TextStyles.Caption2);
+                $"#{species.DexNumber:D3}", RosterUi.CardMuted, TextStyles.Caption2);
             var portrait = new Vector2(min.X + 24f * scale, max.Y - 17f * scale);
             if (seen)
             {
@@ -269,17 +308,17 @@ internal sealed partial class LillypadGoApp
             }
             else
             {
-                Typography.DrawCentered(portrait, "?", theme.TextMuted, TextStyles.Title3);
+                Typography.DrawCentered(portrait, "?", RosterUi.CardMuted, TextStyles.Title3);
             }
 
             var name = FitLabel(seen ? species.Name : "----", max.X - (min.X + 44f * scale) - 8f * scale,
                 TextStyles.SubheadlineEmphasized);
             Typography.Draw(new Vector2(min.X + 44f * scale, min.Y + 22f * scale), name,
-                seen ? theme.TextStrong : theme.TextMuted, TextStyles.SubheadlineEmphasized);
+                seen ? RosterUi.CardInk : RosterUi.CardMuted, TextStyles.SubheadlineEmphasized);
             if (caught)
             {
                 var dot = new Vector2(max.X - 12f * scale, min.Y + 12f * scale);
-                drawList.AddCircleFilled(dot, 4f * scale, ImGui.GetColorU32(Accent));
+                drawList.AddCircleFilled(dot, 4f * scale, ImGui.GetColorU32(RosterUi.CountGreen));
             }
 
             if (hovered && seen)
@@ -294,7 +333,6 @@ internal sealed partial class LillypadGoApp
                         learnsetMonster = null;
                         teachPendingMove = null;
                         dexEntryTab = 0;
-                        dexEntryTabIndicator = -1f;
                         dexEntryScroll = 0f;
                         dexEntryReturnView = View.Dex;
                         view = View.DexEntry;

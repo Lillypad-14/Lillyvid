@@ -14,16 +14,16 @@ namespace VideoSyncPrototype.Phone.Apps.LillypadGo;
 internal sealed partial class LillypadGoApp
 {
     // ---- Marketboard (town-only shop + Pokécenter) ----------------------------------
+    // Navy/cream chrome per Ideas/UI Update/Marketboard.png: the Pokécenter heal card up top, then
+    // Items/TMs folder tabs over a navy shop list with purple price buttons.
 
     private float marketScroll;
     private int marketTab; // 0 = Items, 1 = TMs
-    private float marketTabIndicator = -1f;
 
     private void DrawMarket(Rect content, PhoneTheme theme)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
-        BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
 
         // The Marketboard only exists in town — if the player wanders off, fall back to the Bag.
         if (!State.InTown)
@@ -32,26 +32,33 @@ internal sealed partial class LillypadGoApp
             return;
         }
 
-        LgUi.Header(content, theme, Accent, "Marketboard", null, scale);
-        DrawMoneyPill(content, theme, scale);
+        drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(RosterUi.NavyBottom));
+        var headerBottom = RosterUi.ScreenHeader(content, "MARKETBOARD", "box_cube", null, scale);
+        DrawMoneyPill(content, scale);
 
-        DrawPokecenterCard(content, theme, scale);
+        var navTop = content.Max.Y - NavBarHeight * scale;
+        var panel = new Rect(new Vector2(content.Min.X + 7f * scale, headerBottom + 6f * scale),
+            new Vector2(content.Max.X - 7f * scale, navTop - 7f * scale));
+        RosterUi.CreamPanel(drawList, panel, scale);
+        var left = panel.Min.X + 9f * scale;
+        var right = panel.Max.X - 9f * scale;
+
+        var pokecenter = new Rect(new Vector2(left, panel.Min.Y + 8f * scale),
+            new Vector2(right, panel.Min.Y + 66f * scale));
+        DrawPokecenterCard(pokecenter, scale);
 
         // Items vs. Gen-IX TMs.
-        var tabBounds = new Rect(new Vector2(content.Min.X + 14f * scale, content.Min.Y + 134f * scale),
-            new Vector2(content.Max.X - 14f * scale, content.Min.Y + 160f * scale));
-        var tabClicked = LgUi.Segmented(tabBounds, new[] { "Items", "TMs" }, marketTab, Accent, theme, scale,
-            ref marketTabIndicator);
+        var tabBounds = new Rect(new Vector2(left, pokecenter.Max.Y + 8f * scale),
+            new Vector2(right, pokecenter.Max.Y + 34f * scale));
+        var tabClicked = RosterUi.FolderTabs(tabBounds, new[] { "Items", "TMs" }, marketTab, scale);
         if (tabClicked >= 0 && tabClicked != marketTab)
         {
             marketTab = tabClicked;
             marketScroll = 0f;
         }
 
-        var listTop = content.Min.Y + 172f * scale;
-        var listBottom = content.Max.Y - 62f * scale;
-        var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, listTop),
-            new Vector2(content.Max.X - 12f * scale, listBottom));
+        var listArea = new Rect(new Vector2(left, tabBounds.Max.Y + 8f * scale),
+            new Vector2(right + 1f * scale, panel.Max.Y - 26f * scale));
 
         if (marketTab == 1)
         {
@@ -69,39 +76,36 @@ internal sealed partial class LillypadGoApp
             : marketTab == 1
                 ? "Buy a TM here, then teach it from a creature's Moves screen if it can learn it."
                 : "Buy supplies";
-        Typography.DrawCentered(new Vector2(content.Center.X, listBottom + 16f * scale),
-            FitLabel(status, content.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted, TextStyles.Caption1);
+        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Max.Y - 14f * scale),
+            FitLabel(status, panel.Width - 24f * scale, TextStyles.Caption1), RosterUi.InkTan, TextStyles.Caption1);
 
         DrawNavigation(content, theme, scale);
     }
 
-    private void DrawPokecenterCard(Rect content, PhoneTheme theme, float scale)
+    private void DrawPokecenterCard(Rect card, float scale)
     {
         var drawList = ImGui.GetWindowDrawList();
-        var green = new Vector4(0.40f, 0.82f, 0.52f, 1f);
-        var min = new Vector2(content.Min.X + 12f * scale, content.Min.Y + 60f * scale);
-        var max = new Vector2(content.Max.X - 12f * scale, content.Min.Y + 124f * scale);
-        LgUi.Card(drawList, min, max, 12f * scale, scale);
-        Squircle.Stroke(drawList, min, max, 12f * scale, ImGui.GetColorU32(green with { W = 0.5f }), 1.2f * scale);
+        var green = RosterUi.Green;
+        RosterUi.DarkCard(drawList, card, 10f * scale, scale, accent: RosterUi.GreenBright);
 
-        var iconCenter = new Vector2(min.X + 34f * scale, (min.Y + max.Y) * 0.5f);
-        drawList.AddCircleFilled(iconCenter, 17f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
-        drawList.AddCircle(iconCenter, 17f * scale, ImGui.GetColorU32(green with { W = 0.6f }), 24, 1f * scale);
-        ProgressRing.CenterIcon(drawList, iconCenter, FontAwesomeIcon.HandHoldingHeart, green, 16f * scale);
+        var iconCenter = new Vector2(card.Min.X + 32f * scale, card.Center.Y);
+        RosterUi.IconTile(drawList, iconCenter, 38f * scale, scale, RosterUi.GreenBright with { W = 0.6f });
+        ProgressRing.CenterIcon(drawList, iconCenter, FontAwesomeIcon.HandHoldingHeart,
+            RosterUi.GreenBright, 16f * scale);
 
         var wiped = State.AllMonstersFainted;
-        Typography.Draw(new Vector2(min.X + 62f * scale, min.Y + 11f * scale), "Pokécenter", theme.TextStrong,
-            TextStyles.Headline);
-        Typography.Draw(new Vector2(min.X + 62f * scale, min.Y + 32f * scale),
-            FitLabel(wiped ? "Revive your fainted team, free of charge." : "Fully restore HP",
-                max.X - min.X - 62f * scale - 96f * scale, TextStyles.Caption2),
-            theme.TextMuted, TextStyles.Caption2);
+        Typography.Draw(new Vector2(card.Min.X + 60f * scale, card.Min.Y + 10f * scale), "Pokécenter",
+            RosterUi.CardInk, TextStyles.Headline);
+        Typography.Draw(new Vector2(card.Min.X + 60f * scale, card.Min.Y + 31f * scale),
+            FitLabel(wiped ? "Revive your team for free." : "Restores your team to full health.",
+                card.Width - 60f * scale - 100f * scale, TextStyles.Caption2),
+            RosterUi.CardMuted, TextStyles.Caption2);
 
         var needsCare = State.Party.Concat(State.Box)
             .Any(m => m.Fainted || m.CurrentHp < m.MaxHp || m.Status != Status.None);
-        var healRect = CenteredAt(new Vector2(max.X - 54f * scale, (min.Y + max.Y) * 0.5f),
-            new Vector2(88f * scale, 32f * scale));
-        if (LgUi.Button(healRect, wiped ? "Revive" : "Heal", green, theme, needsCare))
+        var healRect = CenteredAt(new Vector2(card.Max.X - 52f * scale, card.Center.Y),
+            new Vector2(84f * scale, 30f * scale));
+        if (RosterUi.ColorButton(healRect, wiped ? "Revive" : "Heal", green, scale, needsCare))
         {
             State.HealAllMonsters();
             bagStatus = "Your team was fully restored. Thank you for waiting!";
@@ -121,27 +125,23 @@ internal sealed partial class LillypadGoApp
         var canAfford = State.Money >= item.Price;
         var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
         var tint = LgUi.ItemTint(item.Category);
-        LgUi.Card(drawList, rect.Min, rect.Max, 11f * scale, scale, hovered);
-        drawList.AddRectFilled(rect.Min, new Vector2(rect.Min.X + 4f * scale, rect.Max.Y),
-            ImGui.GetColorU32(tint with { W = 0.8f }), 3f * scale);
+        RosterUi.DarkCard(drawList, rect, 10f * scale, scale, hovered, accent: tint);
 
         var iconCenter = new Vector2(rect.Min.X + 30f * scale, rect.Center.Y);
-        drawList.AddCircleFilled(iconCenter, 17f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
-        drawList.AddCircle(iconCenter, 17f * scale, ImGui.GetColorU32(tint with { W = 0.5f }), 24, 1f * scale);
+        RosterUi.IconTile(drawList, iconCenter, 36f * scale, scale);
         LgUi.ItemIcon(drawList, iconCenter, 28f * scale, item);
 
         var owned = State.Bag.Count(item.Id);
         var name = owned > 0 ? $"{item.Name}  (x{owned})" : item.Name;
-        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 8f * scale), name, theme.TextStrong,
-            TextStyles.Headline);
-        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 29f * scale),
-            FitLabel(item.Blurb, rect.Width - 148f * scale, TextStyles.Caption2),
-            theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
+        Typography.Draw(new Vector2(rect.Min.X + 56f * scale, rect.Min.Y + 8f * scale),
+            FitLabel(name, rect.Width - 150f * scale, TextStyles.Headline), RosterUi.CardInk, TextStyles.Headline);
+        Typography.Draw(new Vector2(rect.Min.X + 56f * scale, rect.Min.Y + 29f * scale),
+            FitLabel(item.Blurb, rect.Width - 150f * scale, TextStyles.Caption2),
+            RosterUi.CardMuted, TextStyles.Caption2);
 
         var buyRect = CenteredAt(new Vector2(rect.Max.X - 46f * scale, rect.Center.Y),
             new Vector2(80f * scale, 30f * scale));
-        if (LgUi.Button(buyRect, LgUi.Money(item.Price), canAfford ? theme.Accent : GamePalette.CellSunken, theme,
-                canAfford))
+        if (RosterUi.ColorButton(buyRect, LgUi.Money(item.Price), RosterUi.Purple, scale, canAfford))
         {
             State.Money -= item.Price;
             State.Bag.Add(item.Id, 1);
@@ -162,32 +162,29 @@ internal sealed partial class LillypadGoApp
         var canAfford = State.Money >= tm.Price;
         var tint = Elements.Color(tm.Move.Element);
         var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
-        LgUi.Card(drawList, rect.Min, rect.Max, 11f * scale, scale, hovered);
-        drawList.AddRectFilled(rect.Min, new Vector2(rect.Min.X + 4f * scale, rect.Max.Y),
-            ImGui.GetColorU32(tint with { W = 0.85f }), 3f * scale);
+        RosterUi.DarkCard(drawList, rect, 10f * scale, scale, hovered, accent: tint);
 
         // Disc badge with the TM number.
         var iconCenter = new Vector2(rect.Min.X + 30f * scale, rect.Center.Y);
-        drawList.AddCircleFilled(iconCenter, 17f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
-        drawList.AddCircle(iconCenter, 17f * scale, ImGui.GetColorU32(tint with { W = 0.6f }), 24, 1.4f * scale);
-        Typography.DrawCentered(iconCenter, tm.Number.ToString(), tint, TextStyles.Caption1);
+        RosterUi.IconTile(drawList, iconCenter, 36f * scale, scale, GamePalette.Lighten(tint, 0.1f) with { W = 0.8f });
+        Typography.DrawCentered(iconCenter, tm.Number.ToString(), GamePalette.Lighten(tint, 0.25f),
+            TextStyles.Caption1);
 
-        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 7f * scale),
-            FitLabel($"{Tms.Label(tm.Number)}  {tm.Move.Name}", rect.Width - 150f * scale, TextStyles.Headline),
-            theme.TextStrong, TextStyles.Headline);
+        Typography.Draw(new Vector2(rect.Min.X + 56f * scale, rect.Min.Y + 7f * scale),
+            FitLabel($"{Tms.Label(tm.Number)}  {tm.Move.Name}", rect.Width - 152f * scale, TextStyles.Headline),
+            RosterUi.CardInk, TextStyles.Headline);
         var power = tm.Move.IsStatus ? "Status" : $"Pow {tm.Move.Power}";
-        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 29f * scale),
-            FitLabel($"{Elements.Name(tm.Move.Element)}  ·  {power}  ·  {tm.Move.Pp} PP", rect.Width - 150f * scale,
-                TextStyles.Caption2), theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
+        Typography.Draw(new Vector2(rect.Min.X + 56f * scale, rect.Min.Y + 29f * scale),
+            FitLabel($"{Elements.Name(tm.Move.Element)}  ·  {power}  ·  {tm.Move.Pp} PP", rect.Width - 152f * scale,
+                TextStyles.Caption2), RosterUi.CardMuted, TextStyles.Caption2);
 
         var buyRect = CenteredAt(new Vector2(rect.Max.X - 46f * scale, rect.Center.Y),
             new Vector2(80f * scale, 30f * scale));
         if (owned)
         {
-            Typography.DrawCentered(buyRect.Center, "Owned", tint, TextStyles.Caption1);
+            Typography.DrawCentered(buyRect.Center, "Owned", RosterUi.CountGreen, TextStyles.Caption1);
         }
-        else if (LgUi.Button(buyRect, LgUi.Money(tm.Price), canAfford ? theme.Accent : GamePalette.CellSunken, theme,
-                     canAfford))
+        else if (RosterUi.ColorButton(buyRect, LgUi.Money(tm.Price), RosterUi.Purple, scale, canAfford))
         {
             State.Money -= tm.Price;
             State.OwnedTms.Add(tm.MoveId);

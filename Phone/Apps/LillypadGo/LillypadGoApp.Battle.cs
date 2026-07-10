@@ -256,19 +256,11 @@ internal sealed partial class LillypadGoApp
             return;
         }
 
-        // Bottom panel: message, action menu, or result.
+        // Bottom panel: message, action menu, or result — the navy combat box from the UI Update kit.
         var panelTop = content.Max.Y - content.Height * 0.32f;
         var panelMin = new Vector2(content.Min.X + 6f * scale, panelTop);
         var panelMax = new Vector2(content.Max.X - 6f * scale, content.Max.Y - 6f * scale);
-        Elevation.Draw(drawList, panelMin, panelMax, 14f * scale, scale, 14f, -5f, 0.26f);
-        Squircle.FillVerticalGradient(drawList, panelMin, panelMax, 14f * scale,
-            ImGui.GetColorU32(GamePalette.Lighten(GamePalette.Board, 0.05f) with { W = 0.94f }),
-            ImGui.GetColorU32(GamePalette.Darken(GamePalette.Board, 0.16f) with { W = 0.94f }));
-        Squircle.Stroke(drawList, panelMin, panelMax, 14f * scale,
-            ImGui.GetColorU32(Accent with { W = 0.24f }), 1.2f * scale);
-        drawList.AddLine(new Vector2(panelMin.X + 16f * scale, panelMin.Y + 1f * scale),
-            new Vector2(panelMax.X - 16f * scale, panelMin.Y + 1f * scale),
-            ImGui.GetColorU32(Accent with { W = 0.4f }), 1.5f * scale);
+        DrawCombatBox(drawList, panelMin, panelMax, scale);
         var panel = new Rect(panelMin, panelMax);
 
         // Freeze the panel's buttons briefly after each message (see suppressBattleButtonsUntil).
@@ -292,6 +284,24 @@ internal sealed partial class LillypadGoApp
         }
 
         LgUi.Interactive = prevInteractive;
+    }
+
+    // The battle's bottom box: navy gradient, dark outline, light inner hairline and a top shine,
+    // matching the app-wide header/nav chrome.
+    private static void DrawCombatBox(ImDrawListPtr drawList, Vector2 min, Vector2 max, float scale)
+    {
+        var radius = 12f * scale;
+        drawList.AddRectFilled(min + new Vector2(0f, 2.5f * scale), max + new Vector2(0f, 2.5f * scale),
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.25f)), radius);
+        Squircle.FillVerticalGradient(drawList, min, max, radius,
+            ImGui.GetColorU32(RosterUi.NavyTop with { W = 0.97f }),
+            ImGui.GetColorU32(RosterUi.NavyBottom with { W = 0.97f }));
+        Squircle.Stroke(drawList, min, max, radius, ImGui.GetColorU32(RosterUi.NavyEdge), 2f * scale);
+        Squircle.Stroke(drawList, min + new Vector2(2f, 2f) * scale, max - new Vector2(2f, 2f) * scale,
+            radius - 2f * scale, ImGui.GetColorU32(RosterUi.NavyLine with { W = 0.35f }), 1f * scale);
+        drawList.AddLine(new Vector2(min.X + radius, min.Y + 2f * scale),
+            new Vector2(max.X - radius, min.Y + 2f * scale),
+            ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.18f)), 1.2f * scale);
     }
 
     private void AdvancePlayback(float dt)
@@ -638,7 +648,7 @@ internal sealed partial class LillypadGoApp
             var h = content.Height * 0.6f;
             var max = new Vector2(content.Max.X - 16f * scale + offX, content.Max.Y - 16f * scale + bob);
             var min = new Vector2(max.X - w, max.Y - h);
-            LgUi.Card(drawList, min, max, 16f * scale, scale);
+            RosterUi.DarkCard(drawList, new Rect(min, max), 16f * scale, scale);
             Squircle.Stroke(drawList, min, max, 16f * scale, ImGui.GetColorU32(typeColor with { W = 0.6f }),
                 2f * scale);
             var c = new Vector2((min.X + max.X) * 0.5f, (min.Y + max.Y) * 0.5f);
@@ -649,20 +659,18 @@ internal sealed partial class LillypadGoApp
         var plateX = content.Min.X + 14f * scale - (1f - plateIn) * content.Width * 0.5f;
         var plateMin = new Vector2(plateX, content.Min.Y + content.Height * 0.30f);
         var plateMax = new Vector2(plateX + content.Width * 0.62f, plateMin.Y + 96f * scale);
-        LgUi.Card(drawList, plateMin, plateMax, 12f * scale, scale);
-        drawList.AddRectFilled(plateMin, new Vector2(plateMin.X + 5f * scale, plateMax.Y),
-            ImGui.GetColorU32(typeColor with { W = 0.9f }), 4f * scale);
+        RosterUi.DarkCard(drawList, new Rect(plateMin, plateMax), 12f * scale, scale, accent: typeColor);
         var innerX = plateMin.X + 16f * scale;
-        Typography.Draw(new Vector2(innerX, plateMin.Y + 10f * scale), "GYM LEADER", typeColor with { W = 0.95f },
-            TextStyles.Caption2);
+        Typography.Draw(new Vector2(innerX, plateMin.Y + 10f * scale), "GYM LEADER",
+            GamePalette.Lighten(typeColor, 0.2f), TextStyles.Caption2);
         Typography.Draw(new Vector2(innerX, plateMin.Y + 26f * scale),
-            FitLabel(gym.Leader, plateMax.X - innerX - 48f * scale, TextStyles.Title2), theme.TextStrong,
+            FitLabel(gym.Leader, plateMax.X - innerX - 48f * scale, TextStyles.Title2), RosterUi.CardInk,
             TextStyles.Title2);
         Typography.Draw(new Vector2(innerX, plateMin.Y + 58f * scale),
             FitLabel($"{gym.City}  ·  {Elements.Name(gym.Type)} Gym", plateMax.X - innerX - 48f * scale,
-                TextStyles.Caption1), theme.TextStrong with { W = 0.82f }, TextStyles.Caption1);
+                TextStyles.Caption1), RosterUi.CardMuted, TextStyles.Caption1);
         Typography.Draw(new Vector2(innerX, plateMax.Y - 20f * scale), "wants to battle!",
-            theme.TextStrong with { W = 0.9f }, TextStyles.Caption1);
+            RosterUi.CardInk with { W = 0.9f }, TextStyles.Caption1);
 
         // The leader's actual gym badge on the plate.
         if (GymBadge(gym, out var badgeTex, out var badgeAspect))

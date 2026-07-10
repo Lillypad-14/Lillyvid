@@ -125,8 +125,11 @@ encounter lists are generated from `tools/emit.js` (via `tpl/Biome.cs.tpl` and
 2. Create `LillypadGoApp.MyView.cs` — copy the header of any existing partial file (usings +
    `namespace …;` + `internal sealed partial class LillypadGoApp {`), then write `DrawMyView`
    inside it. It can freely use any field or helper (it's the same class).
-3. In `DrawMyView`, start with `LgUi.Header(...)`, build the body from `LgUi` components, and end
-   with `DrawNavigation(content, theme, scale)` if it should show the bottom tab bar.
+3. In `DrawMyView`, follow the app-wide navy/cream chrome: fill the backdrop with
+   `RosterUi.NavyBottom`, start with `RosterUi.ScreenHeader(...)`, lay a `RosterUi.CreamPanel`
+   under it, build rows/buttons from `RosterUi` components (`DarkCard`, `ColorButton`,
+   `FolderTabs`, `Pill`, ...), and end with `DrawNavigation(content, theme, scale)` if it should
+   show the bottom tab bar. (`LgUi` still hosts the lower-level bars/chips/inputs.)
 4. Route to it by setting `view = View.MyView;` (the transition is automatic).
 
 ### Add a new UI component

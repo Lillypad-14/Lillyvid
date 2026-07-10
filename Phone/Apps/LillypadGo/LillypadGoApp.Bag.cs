@@ -33,9 +33,15 @@ internal sealed partial class LillypadGoApp
         {
             LgUi.Interactive = false;
         }
-        BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
-        LgUi.Header(content, theme, Accent, "Bag", null, scale);
-        DrawMoneyPill(content, theme, scale);
+
+        drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(RosterUi.NavyBottom));
+        var headerBottom = RosterUi.ScreenHeader(content, "BAG", "nav_bag", null, scale);
+        DrawMoneyPill(content, scale);
+
+        var navTop = content.Max.Y - NavBarHeight * scale;
+        var panel = new Rect(new Vector2(content.Min.X + 7f * scale, headerBottom + 6f * scale),
+            new Vector2(content.Max.X - 7f * scale, navTop - 7f * scale));
+        RosterUi.CreamPanel(drawList, panel, scale);
 
         var owned = State.Bag.Contents().ToList();
         owned = bagSortMode switch
@@ -45,22 +51,28 @@ internal sealed partial class LillypadGoApp
             _ => owned, // Type = catalogue order (already category-grouped)
         };
 
+        var listTop = panel.Min.Y + 8f * scale;
         if (owned.Count > 0)
         {
-            var sortRect = CenteredAt(new Vector2(content.Min.X + 70f * scale, content.Min.Y + 44f * scale),
-                new Vector2(116f * scale, 22f * scale));
-            if (LgUi.Button(sortRect, $"Sort: {new[] { "Type", "Name", "Count" }[bagSortMode]}", GamePalette.Cell,
-                    theme, true))
+            var sortRect = new Rect(new Vector2(panel.Min.X + 9f * scale, listTop),
+                new Vector2(panel.Min.X + 125f * scale, listTop + 24f * scale));
+            if (RosterUi.BlueButton(sortRect,
+                    $"SORT: {new[] { "TYPE", "NAME", "COUNT" }[bagSortMode]}", scale, true))
             {
                 bagSortMode = (bagSortMode + 1) % 3;
                 bagScroll = 0f;
             }
+
+            listTop += 32f * scale;
         }
 
-        var listTop = content.Min.Y + 74f * scale;
-        var listBottom = content.Max.Y - 104f * scale;
-        var listArea = new Rect(new Vector2(content.Min.X + 12f * scale, listTop),
-            new Vector2(content.Max.X - 12f * scale, listBottom));
+        // The Marketboard button doubles as the stats strip: wins/captures (or the latest item
+        // message) ride along as its sub-line, like the reference mockup.
+        var inTown = State.InTown;
+        var marketRect = CenteredAt(new Vector2(panel.Center.X, panel.Max.Y - 29f * scale),
+            new Vector2(MathF.Min(238f * scale, panel.Width - 40f * scale), 40f * scale));
+        var listArea = new Rect(new Vector2(panel.Min.X + 9f * scale, listTop),
+            new Vector2(panel.Max.X - 8f * scale, marketRect.Min.Y - 8f * scale));
 
         if (owned.Count == 0)
         {
@@ -73,10 +85,10 @@ internal sealed partial class LillypadGoApp
                 (i, rowRect) => DrawBagItemRow(owned[i].Def, owned[i].Count, rowRect, theme, scale));
         }
 
-        var inTown = State.InTown;
-        var marketRect = CenteredAt(new Vector2(content.Center.X, listBottom + 20f * scale),
-            new Vector2(224f * scale, 32f * scale));
-        if (LgUi.Button(marketRect, "Open Marketboard", inTown ? theme.Accent : GamePalette.CellSunken, theme, inTown))
+        var sub = bagStatus.Length > 0 ? bagStatus : $"{State.BattlesWon} wins  ·  {State.Captures} captures";
+        if (RosterUi.ColorButton(marketRect, "Open Marketboard", inTown ? RosterUi.Blue : RosterUi.NavyInset, scale,
+                inTown, "box_cube", FitLabel(sub, marketRect.Max.X - marketRect.Min.X - 24f * scale,
+                    TextStyles.Caption2)))
         {
             bagStatus = string.Empty;
             marketScroll = 0f;
@@ -90,12 +102,6 @@ internal sealed partial class LillypadGoApp
                 : "Travel to a town (any aetheryte city) to reach a Marketboard.");
         }
 
-        var status = bagStatus.Length > 0
-            ? bagStatus
-            : $"{State.BattlesWon} wins  ·  {State.Captures} captures";
-        Typography.DrawCentered(new Vector2(content.Center.X, listBottom + 44f * scale),
-            FitLabel(status, content.Width - 24f * scale, TextStyles.Caption1), theme.TextMuted, TextStyles.Caption1);
-
         DrawNavigation(content, theme, scale);
 
         LgUi.Interactive = prevInteractive;
@@ -105,23 +111,24 @@ internal sealed partial class LillypadGoApp
         }
     }
 
-    // The Poké Dollar balance, drawn as a pill just under the header on the Bag/Market screens.
-    private void DrawMoneyPill(Rect content, PhoneTheme theme, float scale)
+    // The Poké Dollar balance, an inset navy pill on the header's right (Bag/Market screens).
+    private void DrawMoneyPill(Rect content, float scale)
     {
         var drawList = ImGui.GetWindowDrawList();
         var text = LgUi.Money(State.Money);
-        var textSize = Typography.Measure(text, TextStyles.Caption1);
-        var innerWidth = 18f * scale + textSize.X;
-        var padX = 10f * scale;
-        var max = new Vector2(content.Max.X - 14f * scale, content.Min.Y + 62f * scale);
-        var min = new Vector2(max.X - innerWidth - padX * 2f, max.Y - 21f * scale);
+        var style = TextStyles.FootnoteEmphasized;
+        var textSize = Typography.Measure(text, style);
+        var max = new Vector2(content.Max.X - 12f * scale, content.Min.Y + 33f * scale);
+        // Keep the balance compact so it does not collide with the screen title.
+        var min = new Vector2(max.X - textSize.X - 30f * scale, content.Min.Y + 13f * scale);
         var radius = (max.Y - min.Y) * 0.5f;
-        Squircle.Fill(drawList, min, max, radius, ImGui.GetColorU32(new Vector4(0.02f, 0.025f, 0.035f, 0.55f)));
-        Squircle.Stroke(drawList, min, max, radius, ImGui.GetColorU32(Accent with { W = 0.5f }), 1f * scale);
-        ProgressRing.CenterIcon(drawList, new Vector2(min.X + padX + 5f * scale, (min.Y + max.Y) * 0.5f),
-            FontAwesomeIcon.Coins, Accent, 10f * scale);
-        Typography.Draw(new Vector2(min.X + padX + 16f * scale, (min.Y + max.Y) * 0.5f - 8f * scale), text,
-            theme.TextStrong, TextStyles.Caption1);
+        Squircle.Fill(drawList, min, max, radius, ImGui.GetColorU32(RosterUi.NavyInset));
+        Squircle.Stroke(drawList, min, max, radius, ImGui.GetColorU32(RosterUi.NavyLine with { W = 0.45f }),
+            1f * scale);
+        ProgressRing.CenterIcon(drawList, new Vector2(min.X + 14f * scale, (min.Y + max.Y) * 0.5f),
+            FontAwesomeIcon.Coins, RosterUi.Gold, 10f * scale);
+        Typography.Draw(new Vector2(min.X + 26f * scale, (min.Y + max.Y) * 0.5f - 8f * scale), text,
+            new Vector4(1f, 1f, 1f, 0.97f), style);
     }
 
     private void DrawBagItemRow(ItemDef item, int count, Rect rect, PhoneTheme theme, float scale)
@@ -131,22 +138,19 @@ internal sealed partial class LillypadGoApp
         var usable = target is not null && State.Bag.Has(item.Id);
         var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
         var tint = LgUi.ItemTint(item.Category);
-        LgUi.Card(drawList, rect.Min, rect.Max, 11f * scale, scale, hovered && usable);
-        drawList.AddRectFilled(rect.Min, new Vector2(rect.Min.X + 4f * scale, rect.Max.Y),
-            ImGui.GetColorU32(tint with { W = 0.8f }), 3f * scale);
+        RosterUi.DarkCard(drawList, rect, 10f * scale, scale, hovered && usable, accent: tint);
 
         var iconCenter = new Vector2(rect.Min.X + 30f * scale, rect.Center.Y);
-        drawList.AddCircleFilled(iconCenter, 17f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
-        drawList.AddCircle(iconCenter, 17f * scale, ImGui.GetColorU32(tint with { W = 0.5f }), 24, 1f * scale);
+        RosterUi.IconTile(drawList, iconCenter, 36f * scale, scale);
         LgUi.ItemIcon(drawList, iconCenter, 28f * scale, item);
 
-        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 8f * scale), item.Name, theme.TextStrong,
+        Typography.Draw(new Vector2(rect.Min.X + 56f * scale, rect.Min.Y + 8f * scale), item.Name, RosterUi.CardInk,
             TextStyles.Headline);
-        Typography.Draw(new Vector2(rect.Min.X + 54f * scale, rect.Min.Y + 29f * scale),
-            FitLabel(item.Blurb, rect.Width - 108f * scale, TextStyles.Caption2),
-            theme.TextStrong with { W = 0.78f }, TextStyles.Caption2);
-        Typography.DrawCentered(new Vector2(rect.Max.X - 24f * scale, rect.Center.Y), "x" + count, tint,
-            TextStyles.Title3);
+        Typography.Draw(new Vector2(rect.Min.X + 56f * scale, rect.Min.Y + 29f * scale),
+            FitLabel(item.Blurb, rect.Width - 110f * scale, TextStyles.Caption2),
+            RosterUi.CardMuted, TextStyles.Caption2);
+        Typography.DrawCentered(new Vector2(rect.Max.X - 24f * scale, rect.Center.Y), "x" + count,
+            RosterUi.CountGreen, TextStyles.Title3);
 
         if (hovered)
         {
@@ -261,7 +265,6 @@ internal sealed partial class LillypadGoApp
         drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.55f)));
 
         var targets = PickerTargets(item).ToList();
-        var tint = LgUi.ItemTint(item.Category);
         var rowH = 44f * scale;
         var rowGap = 6f * scale;
         var headerH = 46f * scale;
@@ -271,16 +274,12 @@ internal sealed partial class LillypadGoApp
         var cardH = MathF.Min(wanted, content.Height - 36f * scale);
         var card = CenteredAt(content.Center, new Vector2(cardW, cardH));
 
-        Elevation.Draw(drawList, card.Min, card.Max, 16f * scale, scale, 16f, 5f, 0.4f);
-        Squircle.FillVerticalGradient(drawList, card.Min, card.Max, 16f * scale,
-            ImGui.GetColorU32(GamePalette.Lighten(GamePalette.Board, 0.05f) with { W = 0.99f }),
-            ImGui.GetColorU32(GamePalette.Darken(GamePalette.Board, 0.16f) with { W = 0.99f }));
-        Squircle.Stroke(drawList, card.Min, card.Max, 16f * scale, ImGui.GetColorU32(tint with { W = 0.6f }),
-            1.4f * scale);
+        RosterUi.ChunkyCard(drawList, card.Min, card.Max, 14f * scale, scale, RosterUi.Cream, RosterUi.CreamShade,
+            RosterUi.NavyEdge);
 
         LgUi.ItemIcon(drawList, new Vector2(card.Min.X + 26f * scale, card.Min.Y + 23f * scale), 26f * scale, item);
         Typography.Draw(new Vector2(card.Min.X + 46f * scale, card.Min.Y + 14f * scale),
-            FitLabel($"Use {item.Name} on…", cardW - 60f * scale, TextStyles.Headline), theme.TextStrong,
+            FitLabel($"Use {item.Name} on…", cardW - 60f * scale, TextStyles.Headline), RosterUi.InkNavy,
             TextStyles.Headline);
 
         var y = card.Min.Y + headerH;
@@ -294,7 +293,7 @@ internal sealed partial class LillypadGoApp
 
         var cancel = CenteredAt(new Vector2(card.Center.X, card.Max.Y - 22f * scale),
             new Vector2(cardW * 0.5f, 28f * scale));
-        if (LgUi.Button(cancel, "Cancel", GamePalette.Cell, theme, true))
+        if (RosterUi.BlueButton(cancel, "CANCEL", scale, true))
         {
             bagUseItem = null;
         }
@@ -311,26 +310,26 @@ internal sealed partial class LillypadGoApp
     {
         var eligible = CanUseItemOn(item, mon);
         var hovered = eligible && ImGui.IsMouseHoveringRect(r.Min, r.Max);
-        LgUi.Card(drawList, r.Min, r.Max, 9f * scale, scale, hovered, !eligible);
+        RosterUi.DarkCard(drawList, r, 9f * scale, scale, hovered, !eligible);
 
         var portrait = new Vector2(r.Min.X + r.Height * 0.5f, r.Center.Y);
         MonsterArt.Draw(drawList, portrait, r.Height * 0.4f, mon.Species, 1f,
             new MonsterPose(time, 0f, 0f, eligible ? 1f : 0.5f, mon.Fainted));
 
         var tx = r.Min.X + r.Height + 4f * scale;
-        var nameCol = eligible ? theme.TextStrong : theme.TextMuted;
+        var nameCol = eligible ? RosterUi.CardInk : RosterUi.CardMuted;
         Typography.Draw(new Vector2(tx, r.Min.Y + 6f * scale),
             FitLabel(mon.Name, r.Width - r.Height - 96f * scale, TextStyles.Subheadline), nameCol,
             TextStyles.Subheadline);
         Typography.Draw(new Vector2(tx, r.Min.Y + 24f * scale), $"Lv {mon.Level}",
-            theme.TextMuted, TextStyles.Caption2);
+            RosterUi.CardMuted, TextStyles.Caption2);
         LgUi.HpBar(drawList, new Vector2(tx, r.Max.Y - 9f * scale),
             new Vector2(r.Min.X + r.Width * 0.62f, r.Max.Y - 4f * scale), mon.HpFraction);
 
         if (eligible)
         {
             Typography.DrawCentered(new Vector2(r.Max.X - 30f * scale, r.Center.Y), $"{mon.CurrentHp}/{mon.MaxHp}",
-                theme.TextStrong with { W = 0.8f }, TextStyles.Caption1);
+                RosterUi.CardInk with { W = 0.85f }, TextStyles.Caption1);
             if (hovered)
             {
                 ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
@@ -350,7 +349,7 @@ internal sealed partial class LillypadGoApp
                 _ => string.Empty,
             };
             Typography.DrawCentered(new Vector2(r.Max.X - 34f * scale, r.Center.Y), reason,
-                theme.TextMuted with { W = 0.7f }, TextStyles.Caption2);
+                RosterUi.CardMuted with { W = 0.7f }, TextStyles.Caption2);
         }
     }
 }

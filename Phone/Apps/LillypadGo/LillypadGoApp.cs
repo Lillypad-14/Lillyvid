@@ -165,7 +165,6 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private string boxSearch = string.Empty; // filters the box grid by name
     private float time;
     private float navIndicator = -1f;
-    private float dexSortIndicator = -1f;
     private bool effectScaleSliderActive;
     private DexSort dexSort = DexSort.Region;
     private readonly HashSet<uint> expandedDexZones = new();
@@ -178,12 +177,9 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private MoveDef? teachPendingMove; // a move awaiting a slot choice when the moveset is full
     private View dexEntryReturnView = View.Dex;
     private int dexEntryTab;
-    private float dexEntryTabIndicator = -1f;
     private float dexEntryScroll;
     private int dexLearnFilter; // Learnset filter: 0 = All, 1 = Level-Up, 2 = TM
-    private float dexLearnFilterIndicator = -1f;
     private int relearnTab; // Move Relearner: 0 = Level-Up, 1 = TMs
-    private float relearnTabIndicator = -1f;
     private float relearnScroll;
     private MoveDef? draggingLearnMove; // a learnset move being dragged onto a move slot
     private Vector2 learnDragOrigin;

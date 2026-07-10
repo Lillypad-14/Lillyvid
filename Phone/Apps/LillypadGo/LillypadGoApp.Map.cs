@@ -21,9 +21,16 @@ internal sealed partial class LillypadGoApp
         var drawList = ImGui.GetWindowDrawList();
         BiomeBackdrop.Draw(drawList, content, State.CurrentBiome, time, false);
         var zone = ArrZones.Find(State.Territory);
-        var location = zone is null ? Biomes.Name(State.CurrentBiome) : $"{zone.Name}  |  {zone.LevelLabel}";
-        LgUi.Header(content, theme, Accent, "Lillypad Go",
-            FitLabel(location, content.Width - 24f * scale, TextStyles.Caption1), scale);
+        var subtitle = zone is null
+            ? new[] { (Biomes.Name(State.CurrentBiome), new Vector4(1f, 1f, 1f, 1f)) }
+            : new[]
+            {
+                (FitLabel(zone.Name, content.Width * 0.55f, TextStyles.FootnoteEmphasized),
+                    new Vector4(1f, 1f, 1f, 1f)),
+                ("|", RosterUi.NavyLine),
+                (zone.LevelLabel, RosterUi.CountGreen),
+            };
+        RosterUi.ScreenHeader(content, "LILLYPAD GO", "logo_ball", subtitle, scale);
 
         // Radar: progress toward the next encounter roll. Scanning is paused when the team is
         // wiped or while resting in a town, so the radar goes quiet in those states.
@@ -228,7 +235,9 @@ internal sealed partial class LillypadGoApp
     {
         var drawList = ImGui.GetWindowDrawList();
         var mouse = ImGui.GetMousePos();
-        var y = content.Max.Y - 76f * scale;
+        // Leave a little more room above the bottom navigation so the party HP readouts do not
+        // get clipped by the nav bar on shorter phone layouts.
+        var y = content.Max.Y - 84f * scale;
         var slot = (content.Width - 24f * scale) / 6f;
         for (var i = 0; i < 6; i++)
         {

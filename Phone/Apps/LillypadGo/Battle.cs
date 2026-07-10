@@ -1525,20 +1525,30 @@ internal sealed class Battle
             return usable[rng.Next(usable.Count)];
         }
 
-        MoveDef best = usable[0];
-        var bestScore = float.MinValue;
-        foreach (var move in usable)
+        // Trainers pick at random, but weighted by how good each move is right now, so a gym leader
+        // mixes up its attacks instead of spamming its single highest-scoring move every turn.
+        // Weight ∝ score², which keeps a KO (scored 4x) or a super-effective hit heavily favoured
+        // while still leaving weaker moves a real chance. Immune moves score ~1 and all but vanish.
+        var weights = new float[usable.Count];
+        var total = 0f;
+        for (var i = 0; i < usable.Count; i++)
         {
-            // A little jitter keeps trainers from being perfectly predictable, but good moves win.
-            var score = ScoreTrainerMove(move) * (0.85f + (float)rng.NextDouble() * 0.3f);
-            if (score > bestScore)
+            var score = MathF.Max(0.01f, ScoreTrainerMove(usable[i]));
+            weights[i] = score * score;
+            total += weights[i];
+        }
+
+        var roll = (float)rng.NextDouble() * total;
+        for (var i = 0; i < usable.Count; i++)
+        {
+            roll -= weights[i];
+            if (roll <= 0f)
             {
-                bestScore = score;
-                best = move;
+                return usable[i];
             }
         }
 
-        return best;
+        return usable[^1];
     }
 
     // Heuristic value of a move for a trainer/gym AI, given the current matchup (Wild attacks Active).

@@ -24,9 +24,10 @@ internal sealed partial class LillypadGoApp
         var drawList = ImGui.GetWindowDrawList();
         var bedMin = panel.Min + new Vector2(10f * scale, 10f * scale);
         var bedMax = panel.Max - new Vector2(10f * scale, 12f * scale);
-        Squircle.Fill(drawList, bedMin, bedMax, 10f * scale, ImGui.GetColorU32(new Vector4(0.02f, 0.025f, 0.035f, 0.46f)));
-        Squircle.Stroke(drawList, bedMin, bedMax, 10f * scale, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.06f)),
-            1f * scale);
+        Squircle.Fill(drawList, bedMin, bedMax, 10f * scale,
+            ImGui.GetColorU32(RosterUi.NavyInset with { W = 0.8f }));
+        Squircle.Stroke(drawList, bedMin, bedMax, 10f * scale, ImGui.GetColorU32(RosterUi.NavyEdge with { W = 0.9f }),
+            1.4f * scale);
 
         var maxWidth = bedMax.X - bedMin.X - 34f * scale;
         var lineHeight = 21f * scale;
@@ -225,7 +226,7 @@ internal sealed partial class LillypadGoApp
                         $"{battle.Active.Name} is charging {charging.Name}!", theme.TextStrong, TextStyles.Headline);
                     var unleash = CenteredAt(new Vector2(panel.Center.X, panel.Center.Y + 14f * scale),
                         new Vector2(panel.Width * 0.62f, panel.Height * 0.34f));
-                    if (LgUi.Button(unleash, $"Unleash {charging.Name}", Accent, theme, true))
+                    if (RosterUi.ColorButton(unleash, $"Unleash {charging.Name}", RosterUi.Green, scale, true))
                     {
                         battle.UseMove(0);
                         menu = Menu.Root;
@@ -240,7 +241,7 @@ internal sealed partial class LillypadGoApp
                         $"{battle.Active.Name} must recharge!", theme.TextStrong, TextStyles.Headline);
                     var recharge = CenteredAt(new Vector2(panel.Center.X, panel.Center.Y + 14f * scale),
                         new Vector2(panel.Width * 0.62f, panel.Height * 0.34f));
-                    if (LgUi.Button(recharge, "Recharge", Accent, theme, true))
+                    if (RosterUi.ColorButton(recharge, "Recharge", RosterUi.Green, scale, true))
                     {
                         battle.UseMove(0);
                         menu = Menu.Root;
@@ -255,7 +256,7 @@ internal sealed partial class LillypadGoApp
                         $"{battle.Active.Name} is locked into {rampage.Name}!", theme.TextStrong, TextStyles.Headline);
                     var cont = CenteredAt(new Vector2(panel.Center.X, panel.Center.Y + 14f * scale),
                         new Vector2(panel.Width * 0.62f, panel.Height * 0.34f));
-                    if (LgUi.Button(cont, rampage.Name, Accent, theme, true))
+                    if (RosterUi.ColorButton(cont, rampage.Name, RosterUi.Green, scale, true))
                     {
                         battle.UseMove(0);
                         menu = Menu.Root;
@@ -264,7 +265,8 @@ internal sealed partial class LillypadGoApp
                     break;
                 }
 
-                var quad = new[] { "Fight", "Bag", "Team", "Run" };
+                var quad = new[] { "FIGHT", "BAG", "TEAM", "RUN" };
+                var colors = new[] { RosterUi.Green, RosterUi.Blue, RosterUi.Purple, RosterUi.Red };
                 var hints = new[]
                 {
                     "Choose a move. Hover over a move to inspect its power and effects.",
@@ -277,15 +279,14 @@ internal sealed partial class LillypadGoApp
                         : $"Attempt to escape. Current success chance: {battle.EscapeChance:P0}.",
                 };
                 Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale),
-                    $"What will {battle.Active.Name} do?", theme.TextMuted, TextStyles.Caption2);
+                    $"What will {battle.Active.Name} do?", new Vector4(1f, 1f, 1f, 0.75f), TextStyles.Caption2);
                 for (var i = 0; i < 4; i++)
                 {
                     var cx = panel.Center.X + (i % 2 == 0 ? -1 : 1) * panel.Width * 0.24f;
                     var cy = panel.Min.Y + (i < 2 ? 0.32f : 0.7f) * panel.Height;
                     var size = new Vector2(panel.Width * 0.42f, panel.Height * 0.32f);
-                    var accent = i == 0 ? Accent : i == 3 ? theme.Danger : theme.Accent;
                     var button = CenteredAt(new Vector2(cx, cy), size);
-                    if (LgUi.Button(button, quad[i], accent, theme, true))
+                    if (RosterUi.ColorButton(button, quad[i], colors[i], scale, true))
                     {
                         OnRootAction(i);
                     }
@@ -341,7 +342,7 @@ internal sealed partial class LillypadGoApp
 
         var yes = CenteredAt(new Vector2(panel.Center.X - panel.Width * 0.22f, panel.Min.Y + panel.Height * 0.76f),
             new Vector2(panel.Width * 0.38f, panel.Height * 0.32f));
-        if (LgUi.Button(yes, trainer ? "Forfeit" : "Run", theme.Danger, theme, true))
+        if (RosterUi.ColorButton(yes, trainer ? "FORFEIT" : "RUN", RosterUi.Red, scale, true))
         {
             confirmingRun = false;
             battle.Run();
@@ -350,7 +351,7 @@ internal sealed partial class LillypadGoApp
 
         var no = CenteredAt(new Vector2(panel.Center.X + panel.Width * 0.22f, panel.Min.Y + panel.Height * 0.76f),
             new Vector2(panel.Width * 0.38f, panel.Height * 0.32f));
-        if (LgUi.Button(no, "Stay", theme.Accent, theme, true))
+        if (RosterUi.ColorButton(no, "STAY", RosterUi.Blue, scale, true))
         {
             confirmingRun = false;
         }
@@ -360,11 +361,12 @@ internal sealed partial class LillypadGoApp
     {
         var moves = battle!.Active.Moves;
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale), "Choose a move",
-            theme.TextMuted, TextStyles.Caption2);
+            new Vector4(1f, 1f, 1f, 0.75f), TextStyles.Caption2);
         if (battle.Active.Pp.All(value => value <= 0))
         {
             var recover = Centered(panel, 0.48f, new Vector2(panel.Width * 0.72f, panel.Height * 0.3f));
-            if (LgUi.Button(recover, "Struggle", theme.Accent, theme, true, "50 power  |  recoil"))
+            if (RosterUi.ColorButton(recover, "Struggle", RosterUi.Red, scale, true,
+                    sub: "50 power  |  recoil"))
             {
                 battle.UseMove(-1);
                 menu = Menu.Root;
@@ -415,29 +417,27 @@ internal sealed partial class LillypadGoApp
 
         if (!enabled)
         {
-            Squircle.Fill(drawList, rect.Min, rect.Max, radius, ImGui.GetColorU32(GamePalette.CellSunken));
-            Squircle.Stroke(drawList, rect.Min, rect.Max, radius, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.05f)),
-                1f * scale);
+            Squircle.Fill(drawList, rect.Min, rect.Max, radius,
+                ImGui.GetColorU32(GamePalette.Darken(RosterUi.CardBottom, 0.05f)));
+            Squircle.Stroke(drawList, rect.Min, rect.Max, radius,
+                ImGui.GetColorU32(RosterUi.CardEdge with { W = 0.35f }), 1.4f * scale);
         }
         else
         {
-            // Same hover language as LgUi.Button: a contained lift + brighter edge, no glow blob.
-            if (hovered && !pressed)
-            {
-                Elevation.Draw(drawList, rect.Min, rect.Max, radius, scale, 9f, 3f, 0.22f);
-            }
-
+            // The chunky button chrome from the UI Update kit: drop shadow, dark outline, top shine.
+            drawList.AddRectFilled(rect.Min + new Vector2(0f, 2f * scale), rect.Max + new Vector2(0f, 2f * scale),
+                ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.20f)), radius);
             Squircle.FillVerticalGradient(drawList, rect.Min, rect.Max, radius,
-                ImGui.GetColorU32(GamePalette.Lighten(fill, pressed ? 0.03f : hovered ? 0.15f : 0.12f)),
-                ImGui.GetColorU32(GamePalette.Darken(fill, pressed ? 0.24f : hovered ? 0.10f : 0.14f)));
-            Squircle.Stroke(drawList, rect.Min, rect.Max, radius,
-                ImGui.GetColorU32(GamePalette.Lighten(fill, 0.38f) with { W = hovered ? 0.85f : 0.55f }), 1f * scale);
-            drawList.AddLine(new Vector2(rect.Min.X + radius, rect.Min.Y + 1f * scale),
-                new Vector2(rect.Max.X - radius, rect.Min.Y + 1f * scale),
-                ImGui.GetColorU32(new Vector4(1f, 1f, 1f, hovered ? 0.32f : 0.22f)), 1f * scale);
+                ImGui.GetColorU32(GamePalette.Lighten(fill, pressed ? 0.03f : hovered ? 0.16f : 0.11f)),
+                ImGui.GetColorU32(GamePalette.Darken(fill, pressed ? 0.24f : hovered ? 0.08f : 0.12f)));
+            Squircle.Stroke(drawList, rect.Min, rect.Max, radius, ImGui.GetColorU32(RosterUi.NavyEdge),
+                1.6f * scale);
+            drawList.AddLine(new Vector2(rect.Min.X + radius, rect.Min.Y + 2f * scale),
+                new Vector2(rect.Max.X - radius, rect.Min.Y + 2f * scale),
+                ImGui.GetColorU32(new Vector4(1f, 1f, 1f, hovered ? 0.4f : 0.3f)), 1.2f * scale);
         }
 
-        var ink = enabled ? GamePalette.InkOn(fill) : theme.TextMuted;
+        var ink = enabled ? GamePalette.InkOn(fill) : RosterUi.CardMuted;
         var x = rect.Min.X + 10f * scale;
         var right = rect.Max.X - 10f * scale;
         var titleStyle = TextStyles.Headline;
@@ -447,10 +447,10 @@ internal sealed partial class LillypadGoApp
         Typography.DrawCentered(new Vector2(rect.Center.X, rect.Min.Y + 16f * scale), title, ink,
             titleStyle);
 
-        var typeText = FitLabel(Elements.Name(move.Element), rect.Width * 0.48f, metaStyle);
+        var typeText = FitLabel(Elements.Name(move.Element), rect.Width * 0.42f, metaStyle);
         Typography.Draw(new Vector2(x, rect.Min.Y + 33f * scale), typeText, ink with { W = 0.84f }, metaStyle);
 
-        var categoryText = FitLabel(move.CategoryLabel, rect.Width * 0.4f, metaStyle);
+        var categoryText = FitLabel(move.CategoryLabel, rect.Width * 0.34f, metaStyle);
         var categorySize = Typography.Measure(categoryText, metaStyle);
         Typography.Draw(new Vector2(right - categorySize.X, rect.Min.Y + 33f * scale), categoryText,
             ink with { W = 0.8f }, metaStyle);
@@ -508,12 +508,12 @@ internal sealed partial class LillypadGoApp
     {
         var owned = State.Bag.Contents().ToList();
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale), "Choose an item",
-            theme.TextMuted, TextStyles.Caption2);
+            new Vector4(1f, 1f, 1f, 0.75f), TextStyles.Caption2);
 
         if (owned.Count == 0)
         {
             Typography.DrawCentered(new Vector2(panel.Center.X, panel.Center.Y - 6f * scale),
-                "Your bag is empty. Restock at a town Marketboard.", theme.TextMuted, TextStyles.Subheadline);
+                "Your bag is empty. Restock at a town Marketboard.", RosterUi.CardMuted, TextStyles.Subheadline);
             BackButton(panel, theme, scale);
             return;
         }
@@ -531,8 +531,8 @@ internal sealed partial class LillypadGoApp
         var enabled = battle!.CanUseItem(item);
         var tint = LgUi.ItemTint(item.Category);
         // Leave room on the left for the item sprite, mirroring the bag layout.
-        if (LgUi.Button(rect, "      " + item.Name, enabled ? tint : GamePalette.CellSunken, theme, enabled,
-                BattleItemSub(item, count)))
+        if (RosterUi.ColorButton(rect, "      " + item.Name, tint, scale, enabled,
+                sub: BattleItemSub(item, count)))
         {
             if (item.Category == ItemCategory.Ball)
             {
@@ -604,12 +604,12 @@ internal sealed partial class LillypadGoApp
         }
 
         var title = FitLabel($"Learn {choice.Move.Name}?", panel.Width - 32f * scale, TextStyles.SubheadlineEmphasized);
-        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 10f * scale), title, theme.TextStrong,
+        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 10f * scale), title, RosterUi.CardInk,
             TextStyles.SubheadlineEmphasized);
         var instruction = FitLabel($"Choose a move for {choice.Monster.Name} to forget",
             panel.Width - 32f * scale, TextStyles.Caption2);
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 27f * scale), instruction,
-            theme.TextMuted, TextStyles.Caption2);
+            RosterUi.CardMuted, TextStyles.Caption2);
 
         var headerRect = new Rect(new Vector2(panel.Min.X + 10f * scale, panel.Min.Y + 2f * scale),
             new Vector2(panel.Max.X - 10f * scale, panel.Min.Y + 34f * scale));
@@ -628,8 +628,8 @@ internal sealed partial class LillypadGoApp
                 panel.Min.Y + panel.Height * (0.42f + row * 0.25f));
             var rect = new Rect(center - size * 0.5f, center + size * 0.5f);
             var label = FitLabel(move.Name, size.X - 12f * scale, TextStyles.Subheadline);
-            if (LgUi.Button(rect, label, Elements.Color(move.Element), theme, true,
-                    $"{Elements.Name(move.Element)}  {choice.Monster.Pp[i]}/{move.Pp} PP"))
+            if (RosterUi.ColorButton(rect, label, Elements.Color(move.Element), scale, true,
+                    sub: $"{Elements.Name(move.Element)}  {choice.Monster.Pp[i]}/{move.Pp} PP"))
             {
                 battle.ResolveMoveChoice(i);
                 return;
@@ -642,7 +642,7 @@ internal sealed partial class LillypadGoApp
         }
 
         var keepRect = Centered(panel, 0.89f, new Vector2(panel.Width * 0.52f, panel.Height * 0.14f));
-        if (LgUi.Button(keepRect, "Keep current moves", GamePalette.Cell, theme, true))
+        if (RosterUi.BlueButton(keepRect, "Keep current moves", scale, true))
         {
             battle.ResolveMoveChoice(null);
         }
@@ -653,7 +653,7 @@ internal sealed partial class LillypadGoApp
         var drawList = ImGui.GetWindowDrawList();
         var forced = battle!.RequiresSwitch;
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale),
-            forced ? "Choose your next creature" : "Switch creature", theme.TextStrong with { W = 0.82f },
+            forced ? "Choose your next creature" : "Switch creature", new Vector4(1f, 1f, 1f, 0.75f),
             TextStyles.Caption2);
         var count = 0;
         for (var i = 0; i < State.Party.Count; i++)
@@ -670,9 +670,8 @@ internal sealed partial class LillypadGoApp
             var center = new Vector2(panel.Center.X + (column == 0 ? -1f : 1f) * panel.Width * 0.235f,
                 panel.Min.Y + (0.24f + row * 0.25f) * panel.Height);
             var rect = new Rect(center - size * 0.5f, center + size * 0.5f);
-            if (LgUi.Button(rect, "     " + m.Name,
-                    m.Fainted ? GamePalette.CellSunken : Elements.Color(m.Element), theme, !m.Fainted,
-                    $"Lv {m.Level}   {m.CurrentHp}/{m.MaxHp} HP"))
+            if (RosterUi.ColorButton(rect, "     " + m.Name, Elements.Color(m.Element), scale, !m.Fainted,
+                    sub: $"Lv {m.Level}   {m.CurrentHp}/{m.MaxHp} HP"))
             {
                 battle.Switch(i);
                 menu = Menu.Root;
@@ -695,7 +694,7 @@ internal sealed partial class LillypadGoApp
         if (count == 0)
         {
             Typography.DrawCentered(new Vector2(panel.Center.X, panel.Center.Y - 6f * scale),
-                "No other creature can battle.", theme.TextMuted, TextStyles.Subheadline);
+                "No other creature can battle.", RosterUi.CardMuted, TextStyles.Subheadline);
         }
 
         if (!forced)
@@ -737,17 +736,11 @@ internal sealed partial class LillypadGoApp
         var pad = 8f * scale;
         float Y(float f) => panel.Min.Y + h * f;
 
-        // Panel surface, tinted by outcome.
-        Elevation.Draw(dl, panel.Min, panel.Max, 14f * scale, scale, 13f, -4f, 0.3f);
-        Squircle.FillVerticalGradient(dl, panel.Min, panel.Max, 14f * scale,
-            ImGui.GetColorU32(GamePalette.Lighten(GamePalette.Board, 0.05f) with { W = 0.97f }),
-            ImGui.GetColorU32(GamePalette.Darken(GamePalette.Board, 0.16f) with { W = 0.97f }));
+        // Panel surface: the navy combat box, tinted by outcome.
+        DrawCombatBox(dl, panel.Min, panel.Max, scale);
         ResultTintWash(dl, panel, accent, Y(0.6f), positive ? 0.16f : 0.12f);
         Squircle.Stroke(dl, panel.Min, panel.Max, 14f * scale, ImGui.GetColorU32(accent with { W = 0.5f }),
             1.3f * scale);
-        dl.AddLine(new Vector2(panel.Min.X + 14f * scale, panel.Min.Y + 1f * scale),
-            new Vector2(panel.Max.X - 14f * scale, panel.Min.Y + 1f * scale),
-            ImGui.GetColorU32(accent with { W = 0.45f }), 1f * scale);
         DrawResultCorners(dl, panel, ImGui.GetColorU32(accent with { W = 0.8f }), 16f * scale, 2f * scale,
             8f * scale);
 
@@ -777,8 +770,8 @@ internal sealed partial class LillypadGoApp
                 true, ease);
             Typography.DrawCentered(new Vector2(panel.Center.X, Y(0.6f)),
                 FitLabel("You slipped out of the encounter.", w - 24f * scale, TextStyles.Callout),
-                theme.TextMuted with { W = theme.TextMuted.W * ease }, TextStyles.Callout);
-            if (LgUi.Button(button, "Continue", buttonCol, theme, true))
+                RosterUi.CardMuted with { W = RosterUi.CardMuted.W * ease }, TextStyles.Callout);
+            if (RosterUi.ColorButton(button, "CONTINUE", buttonCol, scale, true))
             {
                 FinishBattle();
             }
@@ -880,7 +873,7 @@ internal sealed partial class LillypadGoApp
                 win with { W = 0.95f }, TextStyles.Caption1);
         }
 
-        if (LgUi.Button(button, defeated ? "Retreat" : "Continue", buttonCol, theme, true))
+        if (RosterUi.ColorButton(button, defeated ? "RETREAT" : "CONTINUE", buttonCol, scale, true))
         {
             FinishBattle();
         }
