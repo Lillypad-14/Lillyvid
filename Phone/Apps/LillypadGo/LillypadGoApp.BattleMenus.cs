@@ -450,7 +450,9 @@ internal sealed partial class LillypadGoApp
         var typeText = FitLabel(Elements.Name(move.Element), rect.Width * 0.42f, metaStyle);
         Typography.Draw(new Vector2(x, rect.Min.Y + 33f * scale), typeText, ink with { W = 0.84f }, metaStyle);
 
-        var categoryText = FitLabel(move.CategoryLabel, rect.Width * 0.34f, metaStyle);
+        // "Physical" is the longest category label; the old proportional cap clipped it to
+        // "Physi..." on narrow phone cards. Reserve a real minimum width for the right column.
+        var categoryText = FitLabel(move.CategoryLabel, MathF.Max(68f * scale, rect.Width * 0.42f), metaStyle);
         var categorySize = Typography.Measure(categoryText, metaStyle);
         Typography.Draw(new Vector2(right - categorySize.X, rect.Min.Y + 33f * scale), categoryText,
             ink with { W = 0.8f }, metaStyle);
@@ -1033,6 +1035,8 @@ internal sealed partial class LillypadGoApp
         State.Save();
         battle = null;
         displayedPlayer = null;
+        sendOutFx = null;
+        enemyAwaitingSendOut = false;
         battlePopups.Clear();
         moveFx = null;
         awaitingResult = false;

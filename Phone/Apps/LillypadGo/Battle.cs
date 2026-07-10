@@ -76,6 +76,8 @@ internal readonly struct BattleMessage
     public BattleSnapshot? StateAfter { get; }
 }
 
+internal readonly record struct BattleIndicator(string Label, string Detail, Vector4 Color);
+
 internal readonly struct BattleSnapshot
 {
     private BattleSnapshot(MonsterInstance monster)
@@ -87,6 +89,8 @@ internal readonly struct BattleSnapshot
         SpAtkStage = monster.SpAtkStage;
         SpDefStage = monster.SpDefStage;
         SpdStage = monster.SpdStage;
+        AccuracyStage = monster.AccuracyStage;
+        EvasionStage = monster.EvasionStage;
         Level = monster.Level;
         XpFraction = monster.XpFraction;
     }
@@ -98,6 +102,8 @@ internal readonly struct BattleSnapshot
     public int SpAtkStage { get; }
     public int SpDefStage { get; }
     public int SpdStage { get; }
+    public int AccuracyStage { get; }
+    public int EvasionStage { get; }
     public int Level { get; }
     public float XpFraction { get; }
 
@@ -147,6 +153,8 @@ internal sealed class Battle
     private MonsterInstance? futureSightTarget;
     private int futureSightTurns;
     private bool resolvingFutureSight;
+    private MoveDef? playerTurnMove;
+    private MoveDef? wildTurnMove;
 
     // Zone weather carried in from the overworld lasts the whole battle (unlike the 5-turn timer a
     // weather move sets), so use a sentinel duration that never expires mid-fight.
@@ -308,8 +316,12 @@ internal sealed class Battle
             faster = EffectiveSpeed(Active) < EffectiveSpeed(Wild);
         }
 
-        var playerFirst = playerMove.Priority > wildMove.Priority ||
-            playerMove.Priority == wildMove.Priority && (faster || sameSpeed && rng.Next(2) == 0);
+        playerTurnMove = playerMove;
+        wildTurnMove = wildMove;
+        var playerPriority = MovePriority(Active, playerMove);
+        var wildPriority = MovePriority(Wild, wildMove);
+        var playerFirst = playerPriority > wildPriority ||
+            playerPriority == wildPriority && (faster || sameSpeed && rng.Next(2) == 0);
         if (playerFirst)
         {
             PlayerMove(moveIndex);
@@ -411,6 +423,7 @@ internal sealed class Battle
             return;
         }
 
+        playerTurnMove = null;
         WildTurn();
         if (PlayerDown())
         {
@@ -480,6 +493,7 @@ internal sealed class Battle
                 break;
         }
 
+        playerTurnMove = null;
         WildTurn();
         if (PlayerDown())
         {
@@ -704,7 +718,23 @@ internal sealed class Battle
 
         if (move.Name == "Poltergeist" && !((ReferenceEquals(monster, Active) ? Wild : Active).HasHeldItem))
         {
-            Log.Enqueue(new BattleMessage("But it failed! The target has no held item.", BattleCue.Info, monster));
+            Log.Enqueue(new BattleMessage("It failed because the target has no held item.", BattleCue.Info, monster));
+            return false;
+        }
+
+        if (move.Name == "Sucker Punch" && !IsSelectedDamagingMove(ReferenceEquals(monster, Active) ? Wild : Active))
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name}'s Sucker Punch failed because the target wasn't attacking!",
+                BattleCue.Info, monster));
+            return false;
+        }
+
+        var targetMove = ReferenceEquals(monster, Active) ? wildTurnMove : playerTurnMove;
+        if (move.Name == "Upper Hand" && (targetMove is null || MovePriority(ReferenceEquals(monster, Active) ? Wild : Active,
+                targetMove) <= 0))
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name}'s Upper Hand failed because the target did not use a priority move!",
+                BattleCue.Info, monster));
             return false;
         }
 
@@ -717,6 +747,13 @@ internal sealed class Battle
         if (monster.TauntTurns > 0 && move.IsStatus)
         {
             Log.Enqueue(new BattleMessage($"{monster.Name} can't use {move.Name} after the taunt!", BattleCue.Info,
+                monster));
+            return false;
+        }
+
+        if (move.Name == "Focus Punch" && monster.DamagedThisTurn)
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name} lost focus and couldn't use Focus Punch!", BattleCue.Info,
                 monster));
             return false;
         }
@@ -737,7 +774,7 @@ internal sealed class Battle
         {
             if (rng.NextDouble() < 0.2)
             {
-                monster.Status = Status.None;
+                monster.CureStatus();
                 Log.Enqueue(new BattleMessage($"{monster.Name} thawed out!", BattleCue.Buff, monster,
                     stateAfter: BattleSnapshot.Capture(monster)));
             }
@@ -752,19 +789,19 @@ internal sealed class Battle
         {
             if (monster.SleepTurns <= 0)
             {
-                monster.Status = Status.None;
+                monster.CureStatus();
                 Log.Enqueue(new BattleMessage($"{monster.Name} woke up!", BattleCue.Buff, monster,
                     stateAfter: BattleSnapshot.Capture(monster)));
             }
             else
             {
                 monster.SleepTurns--;
-                Log.Enqueue(new BattleMessage($"{monster.Name} is fast asleep.", BattleCue.Info, monster));
+                Log.Enqueue(new BattleMessage($"{monster.Name} is fast asleep. ({monster.SleepTurns} turn{(monster.SleepTurns == 1 ? "" : "s")} left)", BattleCue.Info, monster));
                 if (monster.SleepTurns <= 0)
                 {
                     Log.Enqueue(new BattleMessage($"{monster.Name} woke up!", BattleCue.Buff, monster,
                         stateAfter: BattleSnapshot.Capture(monster)));
-                    monster.Status = Status.None;
+                    monster.CureStatus();
                 }
 
                 return false;
@@ -865,6 +902,23 @@ internal sealed class Battle
         }
 
         return speed;
+    }
+
+    private int MovePriority(MonsterInstance monster, MoveDef move)
+    {
+        var priority = move.Priority;
+        if (move.Name == "Grassy Glide" && Terrain == BattleTerrain.Grassy)
+        {
+            priority++;
+        }
+
+        return priority;
+    }
+
+    private bool IsSelectedDamagingMove(MonsterInstance defender)
+    {
+        var selected = ReferenceEquals(defender, Active) ? playerTurnMove : wildTurnMove;
+        return selected is { IsStatus: false };
     }
 
     private float WeatherPowerMultiplier(Element moveType)
@@ -1025,6 +1079,65 @@ internal sealed class Battle
         }
 
         return lines;
+    }
+
+    public IReadOnlyList<BattleIndicator> FieldIndicators()
+    {
+        var indicators = new List<BattleIndicator>();
+        if (Weather != BattleWeather.None)
+        {
+            indicators.Add(new BattleIndicator("Weather", WeatherName,
+                Weather switch
+                {
+                    BattleWeather.Sun => new Vector4(1f, 0.72f, 0.2f, 1f),
+                    BattleWeather.Rain => Elements.Color(Element.Water),
+                    BattleWeather.Sandstorm => new Vector4(0.78f, 0.58f, 0.3f, 1f),
+                    _ => Elements.Color(Element.Ice),
+                }));
+        }
+
+        if (Terrain != BattleTerrain.None)
+        {
+            var element = Terrain switch
+            {
+                BattleTerrain.Electric => Element.Electric,
+                BattleTerrain.Grassy => Element.Grass,
+                BattleTerrain.Misty => Element.Fairy,
+                _ => Element.Psychic,
+            };
+            indicators.Add(new BattleIndicator("Terrain", $"{Terrain} Terrain", Elements.Color(element)));
+        }
+
+        AddSideIndicators(indicators, true);
+        AddSideIndicators(indicators, false);
+        AddMonsterIndicators(indicators, Active, "You");
+        AddMonsterIndicators(indicators, Wild, "Foe");
+        return indicators;
+    }
+
+    private void AddSideIndicators(List<BattleIndicator> indicators, bool playerSide)
+    {
+        var side = playerSide ? "Your" : "Foe";
+        if ((playerSide ? playerReflectTurns : wildReflectTurns) > 0)
+            indicators.Add(new BattleIndicator(side, "Reflect", Elements.Color(Element.Psychic)));
+        if ((playerSide ? playerLightScreenTurns : wildLightScreenTurns) > 0)
+            indicators.Add(new BattleIndicator(side, "Light Screen", Elements.Color(Element.Electric)));
+        if ((playerSide ? playerSafeguardTurns : wildSafeguardTurns) > 0)
+            indicators.Add(new BattleIndicator(side, "Safeguard", Elements.Color(Element.Fairy)));
+        if ((playerSide ? playerSpikesLayers : wildSpikesLayers) > 0)
+            indicators.Add(new BattleIndicator(side, $"Spikes x{(playerSide ? playerSpikesLayers : wildSpikesLayers)}", Elements.Color(Element.Steel)));
+        if ((playerSide ? playerToxicSpikesLayers : wildToxicSpikesLayers) > 0)
+            indicators.Add(new BattleIndicator(side, $"Toxic Spikes x{(playerSide ? playerToxicSpikesLayers : wildToxicSpikesLayers)}", Elements.Color(Element.Poison)));
+        if (playerSide ? playerStealthRock : wildStealthRock)
+            indicators.Add(new BattleIndicator(side, "Stealth Rock", Elements.Color(Element.Rock)));
+    }
+
+    private static void AddMonsterIndicators(List<BattleIndicator> indicators, MonsterInstance monster, string side)
+    {
+        if (monster.SubstituteHp > 0) indicators.Add(new BattleIndicator(side, "Substitute", new Vector4(0.35f, 0.9f, 0.55f, 1f)));
+        if (monster.TauntTurns > 0) indicators.Add(new BattleIndicator(side, $"Taunt {monster.TauntTurns}", new Vector4(1f, 0.35f, 0.35f, 1f)));
+        if (monster.BindingTurns > 0) indicators.Add(new BattleIndicator(side, $"Bound {monster.BindingTurns}", new Vector4(0.95f, 0.55f, 0.2f, 1f)));
+        if (monster.ConfusionTurns > 0) indicators.Add(new BattleIndicator(side, $"Confused {monster.ConfusionTurns}", new Vector4(0.8f, 0.55f, 1f, 1f)));
     }
 
     private bool TakesSandstormDamage(MonsterInstance mon) =>
@@ -1211,7 +1324,7 @@ internal sealed class Battle
         {
             var effectiveness = Elements.Effectiveness(Element.Rock, entrant.Element, entrant.SecondaryElement);
             var damage = Math.Max(1, (int)(entrant.MaxHp / 8f * effectiveness));
-            IndirectDamage(entrant, damage, "Stealth Rock");
+            IndirectDamage(entrant, damage, "Stealth Rock on entry");
             if (entrant.Fainted)
             {
                 return;
@@ -1221,7 +1334,7 @@ internal sealed class Battle
         if (IsGrounded(entrant) && spikes > 0)
         {
             var divisor = spikes switch { 1 => 8, 2 => 6, _ => 4 };
-            IndirectDamage(entrant, Math.Max(1, entrant.MaxHp / divisor), "Spikes");
+            IndirectDamage(entrant, Math.Max(1, entrant.MaxHp / divisor), "Spikes on entry");
             if (entrant.Fainted)
             {
                 return;
@@ -1443,7 +1556,7 @@ internal sealed class Battle
     }
 
     // Applies a status with type/ability immunity checks and Synchronize reflection. Returns success.
-    private bool TryInflict(MonsterInstance target, Status status, MonsterInstance? source)
+    private bool TryInflict(MonsterInstance target, Status status, MonsterInstance? source, bool badlyPoisoned = false)
     {
         if (target.Fainted || target.Status != Status.None || status == Status.None ||
             TypeImmuneToStatus(target, status))
@@ -1484,7 +1597,9 @@ internal sealed class Battle
         }
 
         target.Status = status;
-        target.SleepTurns = status == Status.Sleep ? rng.Next(2, 5) : 0;
+        target.BadlyPoisoned = status == Status.Poison && badlyPoisoned;
+        target.ToxicCounter = target.BadlyPoisoned ? 1 : 0;
+        target.SleepTurns = status == Status.Sleep ? rng.Next(1, 4) : 0;
         Log.Enqueue(new BattleMessage(StatusInflictText(target, status), BattleCue.Buff, target,
             stateAfter: BattleSnapshot.Capture(target)));
 
@@ -1631,7 +1746,7 @@ internal sealed class Battle
 
         if (m.Ability is "Shed Skin" && m.Status != Status.None && rng.Next(10) < 3)
         {
-            m.Status = Status.None;
+            m.CureStatus();
             Log.Enqueue(new BattleMessage($"{m.Name}'s Shed Skin cured its status!", BattleCue.Buff, m,
                 stateAfter: BattleSnapshot.Capture(m)));
         }
@@ -1647,7 +1762,7 @@ internal sealed class Battle
 
         if (m.Ability is "Natural Cure")
         {
-            m.Status = Status.None;
+            m.CureStatus();
         }
 
         if (m.Ability is "Regenerator" && m.CurrentHp < m.MaxHp)
@@ -1823,7 +1938,7 @@ internal sealed class Battle
             attacker.SemiInvulnerable = false;
         }
 
-        if (!IsSelfEffect(move.Effect) && defender.Protecting)
+        if (!IsSelfEffect(move.Effect) && defender.Protecting && move.Name != "Feint")
         {
             Log.Enqueue(new BattleMessage($"{defender.Name} protected itself!", BattleCue.Info, defender));
             return;
@@ -2095,9 +2210,25 @@ internal sealed class Battle
                 attacker.RecordDamage(appliedDamage);
             }
 
-            Log.Enqueue(new BattleMessage(DamageText(defender, appliedDamage, effectiveness, isCritical), hurtCue,
+            Log.Enqueue(new BattleMessage(DamageText(defender, appliedDamage), hurtCue,
                 defender, defender.CurrentHp, isCritical, effectiveness, move,
                 stateAfter: BattleSnapshot.Capture(defender)));
+            if (isCritical)
+            {
+                Log.Enqueue(new BattleMessage("A critical hit!", BattleCue.Info, defender, critical: true,
+                    effectiveness: effectiveness, move: move));
+            }
+
+            if (effectiveness > 1f)
+            {
+                Log.Enqueue(new BattleMessage("It's super effective!", BattleCue.Info, defender,
+                    effectiveness: effectiveness, move: move));
+            }
+            else if (effectiveness < 1f)
+            {
+                Log.Enqueue(new BattleMessage("It's not very effective.", BattleCue.Info, defender,
+                    effectiveness: effectiveness, move: move));
+            }
             if (hitCount > 1)
             {
                 Log.Enqueue(new BattleMessage($"Hit {hitCount} times!", BattleCue.Info, defender));
@@ -2139,7 +2270,7 @@ internal sealed class Battle
 
             if (!defender.Fainted && defender.Status == Status.Freeze && move.Element == Element.Fire)
             {
-                defender.Status = Status.None;
+                defender.CureStatus();
                 Log.Enqueue(new BattleMessage($"{defender.Name} thawed out!", BattleCue.Buff, defender,
                     stateAfter: BattleSnapshot.Capture(defender)));
             }
@@ -2504,7 +2635,7 @@ internal sealed class Battle
                 TryInflict(defender, Status.Paralysis, attacker);
                 break;
             case MoveEffect.Poison:
-                TryInflict(defender, Status.Poison, attacker);
+                TryInflict(defender, Status.Poison, attacker, move.Name == "Toxic");
                 break;
             case MoveEffect.Flinch:
                 if (!defender.Fainted && defender.Ability is not "Inner Focus")
@@ -3085,13 +3216,8 @@ internal sealed class Battle
         return r < 3 ? 2 : r < 6 ? 3 : r == 6 ? 4 : 5;
     }
 
-    private static string DamageText(MonsterInstance defender, int damage, float effectiveness, bool crit)
-    {
-        var note = effectiveness > 1f ? " It's super effective!" :
-            effectiveness < 1f ? " It's not very effective." : string.Empty;
-        var critNote = crit ? " Critical hit!" : string.Empty;
-        return $"{defender.Name} took {damage} damage.{critNote}{note}";
-    }
+    private static string DamageText(MonsterInstance defender, int damage) =>
+        $"{defender.Name} took {damage} damage.";
 
     private bool WildDown()
     {
@@ -3643,9 +3769,17 @@ internal sealed class Battle
             return;
         }
 
-        var damage = Math.Min(monster.CurrentHp, Math.Max(1, monster.MaxHp / 8));
+        var toxicStep = monster.BadlyPoisoned ? Math.Max(1, monster.ToxicCounter) : 0;
+        var damage = Math.Min(monster.CurrentHp, monster.BadlyPoisoned
+            ? Math.Max(1, monster.MaxHp * toxicStep / 16)
+            : Math.Max(1, monster.MaxHp / 8));
+        if (monster.BadlyPoisoned)
+        {
+            monster.ToxicCounter = Math.Min(16, toxicStep + 1);
+        }
         monster.CurrentHp -= damage;
-        Log.Enqueue(new BattleMessage($"{monster.Name} was hurt by poison. ({damage})", hurtCue, monster,
+        var suffix = monster.BadlyPoisoned ? $" (bad poison x{toxicStep})" : string.Empty;
+        Log.Enqueue(new BattleMessage($"{monster.Name} was hurt by poison. ({damage}){suffix}", hurtCue, monster,
             monster.CurrentHp, stateAfter: BattleSnapshot.Capture(monster)));
     }
 

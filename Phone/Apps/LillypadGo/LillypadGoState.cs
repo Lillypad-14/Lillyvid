@@ -31,6 +31,8 @@ internal sealed class LillypadGoState
     public int BattlesWon { get; set; }
     public int Captures { get; set; }
     public float BattleEffectScale { get; set; } = 1.25f;
+    public float BattleSpeed { get; set; } = 1f;
+    public bool BattleLogEnabled { get; set; } = true;
     public bool BackgroundTrackingEnabled { get; set; } = true;
 
     // Transient (not serialized).
@@ -154,6 +156,8 @@ internal sealed class LillypadGoState
         Captures = 0;
         StarterChosen = false;
         BattleEffectScale = 1.25f;
+        BattleSpeed = 1f;
+        BattleLogEnabled = true;
         BackgroundTrackingEnabled = true;
 
         Pending = null;
@@ -226,6 +230,8 @@ internal sealed class LillypadGoState
                 BattlesWon = BattlesWon,
                 Captures = Captures,
                 BattleEffectScale = BattleEffectScale,
+                BattleSpeed = BattleSpeed,
+                BattleLogEnabled = BattleLogEnabled,
                 BackgroundTrackingEnabled = BackgroundTrackingEnabled,
                 Seen = Seen.ToArray(),
                 Badges = Badges.ToArray(),
@@ -273,6 +279,8 @@ internal sealed class LillypadGoState
         BattlesWon = dto.BattlesWon;
         Captures = dto.Captures;
         BattleEffectScale = dto.BattleEffectScale <= 0f ? 1.25f : Math.Clamp(dto.BattleEffectScale, 0.75f, 2f);
+        BattleSpeed = dto.BattleSpeed <= 0f ? 1f : Math.Clamp(dto.BattleSpeed, 0.5f, 2.5f);
+        BattleLogEnabled = dto.BattleLogEnabled ?? true;
         BackgroundTrackingEnabled = dto.BackgroundTrackingEnabled ?? true;
         if (dto.Seen is not null)
         {
@@ -396,6 +404,8 @@ internal sealed class LillypadGoState
         public int BattlesWon { get; set; }
         public int Captures { get; set; }
         public float BattleEffectScale { get; set; }
+        public float BattleSpeed { get; set; }
+        public bool? BattleLogEnabled { get; set; }
         public bool? BackgroundTrackingEnabled { get; set; }
         public string[]? Seen { get; set; }
         public int[]? Badges { get; set; }

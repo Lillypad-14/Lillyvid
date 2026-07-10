@@ -104,7 +104,18 @@ internal sealed partial class LillypadGoApp : IPhoneApp
         public int Shakes;
     }
 
+    // Opponent send-out animation: the ball appears above the field, opens, and releases the
+    // incoming creature. Kept separate from CaptureFx so catching and trainer transitions cannot
+    // advance or clear one another.
+    private sealed class SendOutFx
+    {
+        public float Age;
+        public const float Duration = 0.95f;
+    }
+
     private CaptureFx? captureFx;
+    private SendOutFx? sendOutFx;
+    private bool enemyAwaitingSendOut;
     private string pendingCaptureBallId = "pokeball";
 
     private static readonly string[] StarterIds = { "bulbasaur", "charmander", "squirtle" };
@@ -127,11 +138,15 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private int displayedPlayerSpAtkStage;
     private int displayedPlayerSpDefStage;
     private int displayedPlayerSpdStage;
+    private int displayedPlayerAccuracyStage;
+    private int displayedPlayerEvasionStage;
     private int displayedWildAtkStage;
     private int displayedWildDefStage;
     private int displayedWildSpAtkStage;
     private int displayedWildSpDefStage;
     private int displayedWildSpdStage;
+    private int displayedWildAccuracyStage;
+    private int displayedWildEvasionStage;
     private int displayedPlayerLevel;
     private int displayedWildLevel;
     private float displayedPlayerXpFraction;
@@ -155,6 +170,8 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private string? message;
     private float messageTimer;
     private readonly List<BattleTextEntry> battleText = new();
+    private readonly List<string> battleHistory = new();
+    private bool showBattleHistory;
     private bool awaitingResult;
     private float resultShownAt = -1f; // when the result screen first appeared, for its entrance ease
     // Guards the battle action/menu buttons for a moment after any message so the click that

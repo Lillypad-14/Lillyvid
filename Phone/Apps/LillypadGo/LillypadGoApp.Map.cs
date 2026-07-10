@@ -220,10 +220,14 @@ internal sealed partial class LillypadGoApp
         message = null;
         messageTimer = 0f;
         battleText.Clear();
+        battleHistory.Clear();
+        showBattleHistory = false;
         awaitingResult = false;
         resultShownAt = -1f;
         battlePopups.Clear();
         captureFx = null;
+        sendOutFx = null;
+        enemyAwaitingSendOut = battle.IsTrainerBattle;
         battleItemScroll = 0f;
         confirmingRun = false;
         moveFx = null;

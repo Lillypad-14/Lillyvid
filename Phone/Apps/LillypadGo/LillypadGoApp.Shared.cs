@@ -240,14 +240,29 @@ internal sealed partial class LillypadGoApp
 
     private static string BuildMonsterTooltip(MonsterInstance monster, string note, int? hpOverride = null)
     {
-        var status = monster.Status == Status.None ? "None" : monster.Status.ToString();
+        var status = monster.Status == Status.None ? "None" : monster.Status switch
+        {
+            Status.Poison when monster.BadlyPoisoned => $"Badly poisoned (x{monster.ToxicCounter})",
+            Status.Sleep when monster.SleepTurns > 0 => $"Sleep ({monster.SleepTurns} turn{(monster.SleepTurns == 1 ? "" : "s")})",
+            Status.Freeze => "Frozen (may thaw each turn)",
+            _ => monster.Status.ToString(),
+        };
         var xp = monster.Level >= 100 ? "MAX" : $"{monster.Xp}/{monster.XpToNext}";
         var moves = string.Join(", ", monster.Moves.Select((move, index) =>
             $"{move.Name} {monster.Pp[index]}/{move.Pp}"));
+        var volatileState = new List<string>();
+        if (monster.AccuracyStage != 0) volatileState.Add($"Accuracy {StageValue(monster.AccuracyStage)}");
+        if (monster.EvasionStage != 0) volatileState.Add($"Evasion {StageValue(monster.EvasionStage)}");
+        if (monster.SubstituteHp > 0) volatileState.Add($"Substitute {monster.SubstituteHp} HP");
+        if (monster.TauntTurns > 0) volatileState.Add($"Taunt {monster.TauntTurns} turns");
+        if (monster.BindingTurns > 0) volatileState.Add($"Binding {monster.BindingTurns} turns");
+        if (monster.ConfusionTurns > 0) volatileState.Add($"Confusion {monster.ConfusionTurns} turns");
+        if (monster.HealBlockTurns > 0) volatileState.Add($"Heal Block {monster.HealBlockTurns} turns");
+        var volatileText = volatileState.Count == 0 ? "None" : string.Join(", ", volatileState);
         return $"{monster.Name}  Lv {monster.Level}\n{Elements.Format(monster.Element, monster.SecondaryElement)}\n\n" +
                $"HP {hpOverride ?? monster.CurrentHp}/{monster.MaxHp}\nATK {monster.Atk}    DEF {monster.Def}    SPD {monster.Spd}\n" +
                $"SP. ATK {monster.SpAtk}    SP. DEF {monster.SpDef}\n" +
-               $"XP {xp}    Status: {status}\nMoves: {moves}\n\n{note}";
+               $"XP {xp}    Status: {status}\nEffects: {volatileText}\nMoves: {moves}\n\n{note}";
     }
 
     private static List<string> WrapText(string text, float maxWidth, in TextStyle style)
@@ -332,7 +347,8 @@ internal sealed partial class LillypadGoApp
 
     private void DrawStatusPanel(ImDrawListPtr drawList, Vector2 min, Vector2 max, MonsterInstance m, float displayedHp,
         Status displayedStatus, int atkStage, int defStage, int spAtkStage, int spDefStage, int spdStage,
-        int displayedLevel, float displayedXpFraction, bool showXp, PhoneTheme theme, float scale)
+        int accuracyStage, int evasionStage, int displayedLevel, float displayedXpFraction, bool showXp,
+        PhoneTheme theme, float scale)
     {
         var elementColor = Elements.Color(m.Element);
         var slant = 14f * scale;
@@ -369,9 +385,21 @@ internal sealed partial class LillypadGoApp
             Status.Freeze => (Element.Ice, "FRZ"),
             Status.Sleep => (Element.Psychic, "SLP"),
             Status.Paralysis => (Element.Electric, "PAR"),
-            Status.Poison => (Element.Poison, "PSN"),
+            Status.Poison => (Element.Poison, m.BadlyPoisoned ? $"PSN x{m.ToxicCounter}" : "PSN"),
             _ => (Element.Fire, "BRN"),
         };
+        var volatileLabels = new List<string>(4);
+        if (m.SubstituteHp > 0) volatileLabels.Add("SUB");
+        if (m.TauntTurns > 0) volatileLabels.Add($"TAU {m.TauntTurns}");
+        if (m.BindingTurns > 0) volatileLabels.Add($"BND {m.BindingTurns}");
+        if (m.HealBlockTurns > 0) volatileLabels.Add($"HLB {m.HealBlockTurns}");
+        if (m.PerishTurns > 0) volatileLabels.Add($"PER {m.PerishTurns}");
+        if (m.ConfusionTurns > 0) volatileLabels.Add($"CNF {m.ConfusionTurns}");
+        if (volatileLabels.Count > 0)
+        {
+            statusLabel = hasStatus ? $"{statusLabel} · {string.Join(" ", volatileLabels)}" : string.Join(" ", volatileLabels);
+            hasStatus = true;
+        }
         var statusChipWidth = hasStatus
             ? Typography.Measure(statusLabel, TextStyles.Caption2).X + 14f * scale
             : 0f;
@@ -402,7 +430,7 @@ internal sealed partial class LillypadGoApp
         Typography.Draw(new Vector2(innerMaxX - hpTextSize.X, hpTop + 10f * scale), hpText, theme.TextMuted,
             TextStyles.Caption2);
 
-        var stages = StageSummary(atkStage, defStage, spAtkStage, spDefStage, spdStage);
+        var stages = StageSummary(atkStage, defStage, spAtkStage, spDefStage, spdStage, accuracyStage, evasionStage);
         if (stages.Length > 0)
         {
             var stageRight = innerMaxX - hpTextSize.X - 8f * scale;
@@ -447,16 +475,21 @@ internal sealed partial class LillypadGoApp
         drawList.AddLine(min with { Y = max.Y }, min, edge, thickness);
     }
 
-    private static string StageSummary(int atkStage, int defStage, int spAtkStage, int spDefStage, int spdStage)
+    private static string StageSummary(int atkStage, int defStage, int spAtkStage, int spDefStage, int spdStage,
+        int accuracyStage, int evasionStage)
     {
-        var parts = new List<string>(5);
+        var parts = new List<string>(7);
         AddStage(parts, "ATK", atkStage);
         AddStage(parts, "DEF", defStage);
         AddStage(parts, "SPA", spAtkStage);
         AddStage(parts, "SDF", spDefStage);
         AddStage(parts, "SPE", spdStage);
+        AddStage(parts, "ACC", accuracyStage);
+        AddStage(parts, "EVA", evasionStage);
         return string.Join(" ", parts);
     }
+
+    private static string StageValue(int stage) => stage > 0 ? $"+{stage}" : stage.ToString();
 
     private static void AddStage(List<string> parts, string label, int stage)
     {

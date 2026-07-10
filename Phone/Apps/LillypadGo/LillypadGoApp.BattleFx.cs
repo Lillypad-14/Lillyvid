@@ -87,6 +87,34 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    // Trainer/gym send-out ball: it lands on the opponent's side, opens in a bright flash, then
+    // hands the field back to the released creature.
+    private static void DrawSendOutBall(ImDrawListPtr dl, Vector2 pos, float angle, float flash, float scale)
+    {
+        var size = 26f * scale;
+        if (flash > 0.01f)
+        {
+            dl.AddCircleFilled(pos, size * (0.55f + flash * 1.35f),
+                ImGui.GetColorU32(new Vector4(0.95f, 0.98f, 1f, flash * 0.72f)));
+            dl.AddCircle(pos, size * (0.75f + flash * 1.8f),
+                ImGui.GetColorU32(new Vector4(0.55f, 0.86f, 1f, flash * 0.8f)), 24, 2f * scale);
+        }
+
+        dl.AddCircleFilled(pos + new Vector2(0f, size * 0.62f), size * 0.52f,
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.22f)));
+        if (AssetTextures.TryGet("items/pokeball.png", out var tex, out var aspect))
+        {
+            DrawRotatedImage(dl, tex, pos, new Vector2(size * MathF.Max(0.3f, aspect), size), angle);
+        }
+        else
+        {
+            dl.AddCircleFilled(pos, size * 0.5f, ImGui.GetColorU32(new Vector4(0.86f, 0.22f, 0.22f, 1f)));
+            dl.AddLine(pos - new Vector2(size * 0.46f, 0f), pos + new Vector2(size * 0.46f, 0f),
+                ImGui.GetColorU32(new Vector4(0.08f, 0.1f, 0.14f, 1f)), 2f * scale);
+            dl.AddCircleFilled(pos, size * 0.14f, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 1f)));
+        }
+    }
+
     private static void DrawRotatedImage(ImDrawListPtr dl, ImTextureID tex, Vector2 center, Vector2 size, float angle)
     {
         var c = MathF.Cos(angle);

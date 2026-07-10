@@ -78,7 +78,36 @@ internal sealed partial class LillypadGoApp
 
         // Save data: wipe progress and return to starter selection. Two taps to confirm the wipe.
         // Kept as a compact row (not a full card) so it always clears the bottom navigation dock.
-        var saveTop = cardMax.Y + 14f * scale;
+        var battleCardMin = new Vector2(content.Min.X + 14f * scale, cardMax.Y + 12f * scale);
+        var battleCardMax = new Vector2(content.Max.X - 14f * scale, battleCardMin.Y + 112f * scale);
+        LgUi.Card(drawList, battleCardMin, battleCardMax, 14f * scale, scale);
+        Typography.Draw(new Vector2(battleCardMin.X + 14f * scale, battleCardMin.Y + 12f * scale), "Battle playback",
+            theme.TextStrong, TextStyles.SubheadlineEmphasized);
+        Typography.Draw(new Vector2(battleCardMin.X + 14f * scale, battleCardMin.Y + 34f * scale),
+            "Control message pacing and keep an optional history of the fight.", theme.TextMuted, TextStyles.Caption1);
+        var speed = Math.Clamp(State.BattleSpeed, 0.5f, 2.5f);
+        var speedRect = new Rect(new Vector2(battleCardMin.X + 14f * scale, battleCardMin.Y + 58f * scale),
+            new Vector2(battleCardMax.X - 14f * scale, battleCardMin.Y + 84f * scale));
+        if (DrawBattleSpeedSlider(speedRect, theme, scale, ref speed))
+        {
+            State.BattleSpeed = speed;
+            State.Save();
+        }
+        var history = State.BattleLogEnabled;
+        var historyRect = new Rect(new Vector2(battleCardMin.X + 14f * scale, battleCardMax.Y - 25f * scale),
+            new Vector2(battleCardMax.X - 14f * scale, battleCardMax.Y - 5f * scale));
+        if (DrawCheckboxRow(historyRect, theme, scale, ref history, "Keep battle log/history"))
+        {
+            State.BattleLogEnabled = history;
+            State.Save();
+        }
+
+        if (effectScaleSliderActive && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            State.Save();
+        }
+
+        var saveTop = battleCardMax.Y + 14f * scale;
         Typography.Draw(new Vector2(content.Min.X + 14f * scale, saveTop),
             FitLabel(confirmingDeleteSave
                     ? "Erase your team, items and progress? This cannot be undone."
@@ -225,6 +254,33 @@ internal sealed partial class LillypadGoApp
         }
 
         value = next;
+        return true;
+    }
+
+    private bool DrawBattleSpeedSlider(Rect rect, PhoneTheme theme, float scale, ref float value)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var trackMin = new Vector2(rect.Min.X, rect.Center.Y - 4f * scale);
+        var trackMax = new Vector2(rect.Max.X, rect.Center.Y + 4f * scale);
+        var t = Math.Clamp((value - 0.5f) / 2f, 0f, 1f);
+        var knob = new Vector2(trackMin.X + (trackMax.X - trackMin.X) * t, rect.Center.Y);
+        Squircle.Fill(drawList, trackMin, trackMax, 4f * scale, ImGui.GetColorU32(GamePalette.CellSunken));
+        Squircle.Fill(drawList, trackMin, new Vector2(knob.X, trackMax.Y), 4f * scale,
+            ImGui.GetColorU32(Accent with { W = 0.92f }));
+        drawList.AddCircleFilled(knob, 10f * scale, ImGui.GetColorU32(GamePalette.Lighten(Accent, 0.22f)));
+        Typography.Draw(new Vector2(rect.Min.X, rect.Max.Y - 3f * scale), "0.5x", theme.TextMuted, TextStyles.Caption2);
+        var maxLabel = "2.5x";
+        Typography.Draw(new Vector2(rect.Max.X - Typography.Measure(maxLabel, TextStyles.Caption2).X,
+            rect.Max.Y - 3f * scale), maxLabel, theme.TextMuted, TextStyles.Caption2);
+        ImGui.SetCursorScreenPos(rect.Min);
+        ImGui.InvisibleButton("##battle-speed", rect.Max - rect.Min);
+        if (!ImGui.IsItemActive() && !ImGui.IsItemClicked())
+        {
+            return false;
+        }
+
+        value = 0.5f + Math.Clamp((ImGui.GetMousePos().X - trackMin.X) /
+            MathF.Max(1f, trackMax.X - trackMin.X), 0f, 1f) * 2f;
         return true;
     }
 }

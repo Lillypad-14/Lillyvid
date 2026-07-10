@@ -92,10 +92,16 @@ internal sealed partial class LillypadGoApp
         var capWildAlpha = 1f;
         var capWildScale = 1f;
         var capWildPos = wildPos;
+        var sendOutAlpha = enemyAwaitingSendOut ? 0f : 1f;
+        var sendOutScale = 1f;
         var ballPos = Vector2.Zero;
         var ballAngle = 0f;
         var ballFlash = 0f;
         var ballVisible = false;
+        var sendOutBallVisible = false;
+        var sendOutBallPos = wildBase;
+        var sendOutBallAngle = 0f;
+        var sendOutBallFlash = 0f;
         if (captureFx is { } cap)
         {
             cap.Age += dt;
@@ -164,15 +170,50 @@ internal sealed partial class LillypadGoApp
             }
         }
 
+        if (sendOutFx is { } sendOut)
+        {
+            sendOut.Age += dt;
+            const float releaseStart = 0.38f;
+            const float releaseEnd = 0.78f;
+            // The ball is already on the opponent's side before it opens. Keeping it fixed here
+            // makes the creature visibly emerge from the ball instead of crossing paths with it.
+            sendOutBallPos = wildBase + new Vector2(-4f * scale, 18f * scale);
+            sendOutBallAngle = sendOut.Age < 0.16f ? 0f : MathF.Sin((sendOut.Age - 0.16f) * 18f) * 0.11f;
+            sendOutBallVisible = sendOut.Age < releaseStart + 0.12f;
+            sendOutBallFlash = Math.Clamp(1f - MathF.Abs(sendOut.Age - releaseStart) / 0.16f, 0f, 1f);
+            if (sendOut.Age < releaseStart)
+            {
+                sendOutAlpha = 0f;
+                sendOutScale = 0.15f;
+                capWildPos = sendOutBallPos;
+            }
+            else
+            {
+                var reveal = Math.Clamp((sendOut.Age - releaseStart) / (releaseEnd - releaseStart), 0f, 1f);
+                sendOutAlpha = reveal * reveal * (3f - 2f * reveal);
+                sendOutScale = 0.15f + sendOutAlpha * 0.85f;
+                capWildPos = Vector2.Lerp(sendOutBallPos, wildPos, sendOutAlpha);
+            }
+
+            if (sendOut.Age >= SendOutFx.Duration)
+            {
+                sendOutFx = null;
+            }
+        }
+
         var wildHidden = battle.Wild.SemiInvulnerable ? 0.2f : 1f; // underground / in the air during a charge
-        MonsterArt.Draw(drawList, capWildPos, 42f * scale * wildAnimPose.ScaleMul * capWildScale,
+        MonsterArt.Draw(drawList, capWildPos, 42f * scale * wildAnimPose.ScaleMul * capWildScale * sendOutScale,
             battle.Wild.Species, -1f,
             new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt,
-                wildAnim.Alpha * wildAnimPose.Alpha * wildHidden * capWildAlpha, displayedWildHp <= 0));
-        DrawStatusFx(drawList, wildPos, displayedWildStatus, time, scale);
-        if (battle.Wild.ConfusionTurns > 0 && displayedWildHp > 0)
+                wildAnim.Alpha * wildAnimPose.Alpha * wildHidden * capWildAlpha * sendOutAlpha, displayedWildHp <= 0),
+            back: false);
+        if (sendOutAlpha > 0f)
         {
-            DrawConfusionFx(drawList, wildPos, time, scale);
+            DrawStatusFx(drawList, wildPos, displayedWildStatus, time, scale);
+            if (battle.Wild.ConfusionTurns > 0 && displayedWildHp > 0)
+            {
+                DrawConfusionFx(drawList, wildPos, time, scale);
+            }
         }
 
         DrawImpactFx(drawList, wildPos, wildAnim.Hurt, Elements.Color(battle.Wild.Element), scale);
@@ -180,7 +221,8 @@ internal sealed partial class LillypadGoApp
             new Vector2(content.Min.X + 188f * scale, content.Min.Y + 78f * scale));
         DrawStatusPanel(drawList, wildPanel.Min, wildPanel.Max, battle.Wild, animatedWildHp, displayedWildStatus,
             displayedWildAtkStage, displayedWildDefStage, displayedWildSpAtkStage, displayedWildSpDefStage,
-            displayedWildSpdStage, displayedWildLevel, 0f, false, theme, scale);
+            displayedWildSpdStage, displayedWildAccuracyStage, displayedWildEvasionStage,
+            displayedWildLevel, 0f, false, theme, scale);
         if (wildPanel.Contains(ImGui.GetMousePos()))
         {
             string note;
@@ -222,7 +264,8 @@ internal sealed partial class LillypadGoApp
             new Vector2(content.Max.X - 8f * scale, content.Min.Y + content.Height * 0.5f + 68f * scale));
         DrawStatusPanel(drawList, playerPanel.Min, playerPanel.Max, player, animatedPlayerHp, displayedPlayerStatus,
             displayedPlayerAtkStage, displayedPlayerDefStage, displayedPlayerSpAtkStage, displayedPlayerSpDefStage,
-            displayedPlayerSpdStage, displayedPlayerLevel, animatedPlayerXp, true, theme, scale);
+            displayedPlayerSpdStage, displayedPlayerAccuracyStage, displayedPlayerEvasionStage,
+            displayedPlayerLevel, animatedPlayerXp, true, theme, scale);
         if (playerPanel.Contains(ImGui.GetMousePos()))
         {
             ShowTooltip(BuildMonsterTooltip(player, "Your active creature." + BattleWeatherNote(player),
@@ -234,7 +277,13 @@ internal sealed partial class LillypadGoApp
             DrawCaptureBall(drawList, ballPos, ballAngle, ballFlash, capDraw, scale);
         }
 
+        if (sendOutBallVisible)
+        {
+            DrawSendOutBall(drawList, sendOutBallPos, sendOutBallAngle, sendOutBallFlash, scale);
+        }
+
         DrawWeatherChip(content, theme, scale);
+        DrawBattleIndicators(content, theme, scale);
         DrawMoveFx(drawList, content, playerBase, wildBase, sceneMap, scale);
         DrawBattlePopups(wildPos, playerPos, theme, scale);
 
@@ -263,6 +312,14 @@ internal sealed partial class LillypadGoApp
         DrawCombatBox(drawList, panelMin, panelMax, scale);
         var panel = new Rect(panelMin, panelMax);
 
+        var historyButton = new Rect(new Vector2(panelMax.X - 58f * scale, panelMin.Y + 5f * scale),
+            new Vector2(panelMax.X - 8f * scale, panelMin.Y + 28f * scale));
+        if (State.BattleLogEnabled && RosterUi.ColorButton(historyButton, "LOG",
+                showBattleHistory ? RosterUi.Green : RosterUi.Blue, scale, true))
+        {
+            showBattleHistory = !showBattleHistory;
+        }
+
         // Freeze the panel's buttons briefly after each message (see suppressBattleButtonsUntil).
         var prevInteractive = LgUi.Interactive;
         if (time < suppressBattleButtonsUntil)
@@ -284,6 +341,11 @@ internal sealed partial class LillypadGoApp
         }
 
         LgUi.Interactive = prevInteractive;
+
+        if (showBattleHistory)
+        {
+            DrawBattleHistory(panel, theme, scale);
+        }
     }
 
     // The battle's bottom box: navy gradient, dark outline, light inner hairline and a top shine,
@@ -340,12 +402,22 @@ internal sealed partial class LillypadGoApp
             ApplyCue(msg);
             message = msg.Text;
             AddBattleText(msg);
-            messageTimer = msg.Cue switch
+            if (State.BattleLogEnabled && !string.IsNullOrWhiteSpace(msg.Text))
+            {
+                battleHistory.Add(msg.Text);
+                while (battleHistory.Count > 100)
+                {
+                    battleHistory.RemoveAt(0);
+                }
+            }
+
+            var baseDuration = msg.Cue switch
             {
                 BattleCue.CaptureThrow => 1.7f,  // ball arcs in, opens, the wild is drawn in, ball drops
                 BattleCue.CaptureShake => 0.75f, // a dramatic beat between each shake
                 _ => Math.Clamp(0.9f + msg.Text.Length * 0.025f, 1.15f, 2.4f),
             };
+            messageTimer = baseDuration / Math.Clamp(State.BattleSpeed, 0.5f, 2.5f);
             return;
         }
 
@@ -468,6 +540,8 @@ internal sealed partial class LillypadGoApp
                 // refreshed the panel; reset the entrance animation so it appears at full opacity.
                 animatedWildHp = displayedWildHp;
                 wildAnim.Reset();
+                enemyAwaitingSendOut = false;
+                sendOutFx = new SendOutFx();
                 break;
             case BattleCue.CaptureThrow:
                 captureFx = new CaptureFx { BallId = pendingCaptureBallId };
@@ -546,6 +620,71 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    private void DrawBattleIndicators(Rect content, PhoneTheme theme, float scale)
+    {
+        if (battle is null)
+        {
+            return;
+        }
+
+        var drawList = ImGui.GetWindowDrawList();
+        var x = content.Min.X + 10f * scale;
+        var y = content.Min.Y + 86f * scale;
+        var rowBottom = content.Min.Y + content.Height * 0.28f;
+        foreach (var indicator in battle.FieldIndicators())
+        {
+            var label = $"{indicator.Label}: {indicator.Detail}";
+            var width = Typography.Measure(label, TextStyles.Caption2).X + 26f * scale;
+            if (x + width > content.Max.X - 10f * scale)
+            {
+                x = content.Min.X + 10f * scale;
+                y += 22f * scale;
+            }
+
+            if (y + 19f * scale > rowBottom)
+            {
+                break;
+            }
+
+            var min = new Vector2(x, y);
+            var max = new Vector2(x + width, y + 19f * scale);
+            var hovered = ImGui.IsMouseHoveringRect(min, max);
+            Squircle.Fill(drawList, min, max, 6f * scale,
+                ImGui.GetColorU32(new Vector4(0f, 0f, 0f, hovered ? 0.7f : 0.48f)));
+            Squircle.Stroke(drawList, min, max, 6f * scale,
+                ImGui.GetColorU32(indicator.Color with { W = 0.75f }), 1f * scale);
+            ProgressRing.CenterIcon(drawList, new Vector2(min.X + 10f * scale, (min.Y + max.Y) * 0.5f),
+                FontAwesomeIcon.InfoCircle, indicator.Color, 10f * scale);
+            Typography.Draw(new Vector2(min.X + 18f * scale, min.Y + 3f * scale), label,
+                hovered ? theme.TextStrong : theme.TextMuted, TextStyles.Caption2);
+            if (hovered)
+            {
+                ShowTooltip($"{indicator.Label}\n{indicator.Detail}");
+            }
+
+            x = max.X + 5f * scale;
+        }
+    }
+
+    private void DrawBattleHistory(Rect panel, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var min = panel.Min + new Vector2(12f * scale, 12f * scale);
+        var max = panel.Max - new Vector2(12f * scale, 12f * scale);
+        Squircle.Fill(drawList, min, max, 9f * scale, ImGui.GetColorU32(RosterUi.NavyInset with { W = 0.98f }));
+        Typography.Draw(min + new Vector2(12f * scale, 10f * scale), "Battle history", theme.TextStrong,
+            TextStyles.SubheadlineEmphasized);
+        var first = Math.Max(0, battleHistory.Count - 8);
+        var y = min.Y + 34f * scale;
+        for (var i = first; i < battleHistory.Count; i++)
+        {
+            Typography.Draw(new Vector2(min.X + 12f * scale, y),
+                FitLabel(battleHistory[i], max.X - min.X - 24f * scale, TextStyles.Caption1),
+                theme.TextMuted, TextStyles.Caption1);
+            y += 19f * scale;
+        }
+    }
+
     // A short suffix for a battler's hover tooltip describing how the current weather affects it via
     // its ability/typing. Empty when nothing applies.
     private string BattleWeatherNote(MonsterInstance mon)
@@ -568,6 +707,8 @@ internal sealed partial class LillypadGoApp
         displayedPlayerSpAtkStage = state.SpAtkStage;
         displayedPlayerSpDefStage = state.SpDefStage;
         displayedPlayerSpdStage = state.SpdStage;
+        displayedPlayerAccuracyStage = state.AccuracyStage;
+        displayedPlayerEvasionStage = state.EvasionStage;
         displayedPlayerLevel = state.Level;
         displayedPlayerXpFraction = state.XpFraction;
     }
@@ -581,6 +722,8 @@ internal sealed partial class LillypadGoApp
         displayedWildSpAtkStage = state.SpAtkStage;
         displayedWildSpDefStage = state.SpDefStage;
         displayedWildSpdStage = state.SpdStage;
+        displayedWildAccuracyStage = state.AccuracyStage;
+        displayedWildEvasionStage = state.EvasionStage;
         displayedWildLevel = state.Level;
     }
 
@@ -629,10 +772,19 @@ internal sealed partial class LillypadGoApp
         if (AssetTextures.TryGet($"leaders/{gym.Leader}_throw.png", out var tex, out var stripAspect))
         {
             var cellAspect = stripAspect / GymThrowFrames; // strip is GymThrowFrames equal cells
-            var h = content.Height * 0.74f;
+            var h = content.Height * 0.66f;
             var w = h * cellAspect;
-            var center = new Vector2(content.Max.X - w * 0.5f - 18f * scale + offX,
+            var rawCenter = new Vector2(content.Max.X - w * 0.5f - 18f * scale + offX,
                 content.Max.Y - h * 0.5f - 6f * scale + bob);
+            var centerX = content.Width >= w + 16f * scale
+                ? Math.Clamp(rawCenter.X, content.Min.X + w * 0.5f + 8f * scale,
+                    content.Max.X - w * 0.5f - 8f * scale)
+                : content.Center.X;
+            var centerY = content.Height >= h + 16f * scale
+                ? Math.Clamp(rawCenter.Y, content.Min.Y + h * 0.5f + 8f * scale,
+                    content.Max.Y - h * 0.5f - 8f * scale)
+                : content.Center.Y;
+            var center = new Vector2(centerX, centerY);
             // Soft dark spotlight behind the leader to hide any residual sheet background.
             drawList.AddCircleFilled(center, w * 0.62f, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.28f)));
             var min = center - new Vector2(w * 0.5f, h * 0.5f);
@@ -645,8 +797,15 @@ internal sealed partial class LillypadGoApp
         {
             // Placeholder card until the leader's art is added.
             var w = content.Width * 0.42f;
-            var h = content.Height * 0.6f;
-            var max = new Vector2(content.Max.X - 16f * scale + offX, content.Max.Y - 16f * scale + bob);
+            var h = content.Height * 0.54f;
+            var rawMax = new Vector2(content.Max.X - 16f * scale + offX, content.Max.Y - 16f * scale + bob);
+            var maxX = content.Width >= w + 16f * scale
+                ? Math.Clamp(rawMax.X, content.Min.X + w + 8f * scale, content.Max.X - 8f * scale)
+                : content.Center.X + w * 0.5f;
+            var maxY = content.Height >= h + 16f * scale
+                ? Math.Clamp(rawMax.Y, content.Min.Y + h + 8f * scale, content.Max.Y - 8f * scale)
+                : content.Center.Y + h * 0.5f;
+            var max = new Vector2(maxX, maxY);
             var min = new Vector2(max.X - w, max.Y - h);
             RosterUi.DarkCard(drawList, new Rect(min, max), 16f * scale, scale);
             Squircle.Stroke(drawList, min, max, 16f * scale, ImGui.GetColorU32(typeColor with { W = 0.6f }),
@@ -657,7 +816,7 @@ internal sealed partial class LillypadGoApp
 
         // Name plate sliding in from the left.
         var plateX = content.Min.X + 14f * scale - (1f - plateIn) * content.Width * 0.5f;
-        var plateMin = new Vector2(plateX, content.Min.Y + content.Height * 0.30f);
+        var plateMin = new Vector2(plateX, content.Min.Y + content.Height * 0.16f);
         var plateMax = new Vector2(plateX + content.Width * 0.62f, plateMin.Y + 96f * scale);
         RosterUi.DarkCard(drawList, new Rect(plateMin, plateMax), 12f * scale, scale, accent: typeColor);
         var innerX = plateMin.X + 16f * scale;

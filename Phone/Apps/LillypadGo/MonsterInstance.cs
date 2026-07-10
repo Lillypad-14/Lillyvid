@@ -68,6 +68,8 @@ internal sealed class MonsterInstance
     public int Spd { get; private set; }
     public int CurrentHp { get; set; }
     public Status Status { get; set; }
+    public bool BadlyPoisoned { get; set; }
+    public int ToxicCounter { get; set; }
     public string Nickname { get; private set; } = string.Empty;
     public bool IsFavorite { get; private set; }
     public int Battles { get; private set; }
@@ -209,6 +211,8 @@ internal sealed class MonsterInstance
         Flinched = false;
         ConfusionTurns = 0;
         SleepTurns = 0;
+        ToxicCounter = 0;
+        BadlyPoisoned = false;
         YawnTurns = 0;
         Protecting = false;
         Enduring = false;
@@ -406,6 +410,8 @@ internal sealed class MonsterInstance
         }
 
         Status = Status.None;
+        ToxicCounter = 0;
+        BadlyPoisoned = false;
         SleepTurns = 0;
         YawnTurns = 0;
         CurrentHp = full ? MaxHp : Math.Max(1, MaxHp / 2);
@@ -414,6 +420,8 @@ internal sealed class MonsterInstance
     public void CureStatus()
     {
         Status = Status.None;
+        ToxicCounter = 0;
+        BadlyPoisoned = false;
         SleepTurns = 0;
         YawnTurns = 0;
     }
@@ -422,6 +430,8 @@ internal sealed class MonsterInstance
     {
         CurrentHp = MaxHp;
         Status = Status.None;
+        ToxicCounter = 0;
+        BadlyPoisoned = false;
         SleepTurns = 0;
         YawnTurns = 0;
         for (var i = 0; i < Pp.Count && i < Moves.Count; i++)
