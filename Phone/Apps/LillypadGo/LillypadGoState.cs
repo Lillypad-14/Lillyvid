@@ -362,6 +362,7 @@ internal sealed class LillypadGoState
         Ivs = m.Ivs.ToArray(),
         Evs = m.Evs.ToArray(),
         Ability = m.Ability,
+        HeldItem = m.HeldItem,
         Gender = (byte)m.Gender,
     };
 
@@ -389,6 +390,8 @@ internal sealed class LillypadGoState
 
         instance.Restore(dto.Xp, dto.Hp, (Status)dto.Status, moves, dto.Pp ?? Array.Empty<int>());
         instance.RestoreProfile(dto.Nickname, dto.Favorite, dto.Battles, dto.Victories, dto.DamageDealt);
+        instance.HeldItem = Items.Find(dto.HeldItem ?? string.Empty) is { Category: ItemCategory.HeldItem }
+            ? dto.HeldItem! : string.Empty;
         return instance;
     }
 
@@ -433,6 +436,7 @@ internal sealed class LillypadGoState
         public int[]? Ivs { get; set; }
         public int[]? Evs { get; set; }
         public string? Ability { get; set; }
+        public string? HeldItem { get; set; }
         public byte? Gender { get; set; }
     }
 }

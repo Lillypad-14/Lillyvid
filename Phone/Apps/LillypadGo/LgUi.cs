@@ -55,6 +55,8 @@ internal static class LgUi
         ItemCategory.Potion => new Vector4(0.38f, 0.74f, 0.52f, 1f),    // restorative green
         ItemCategory.Revive => new Vector4(0.96f, 0.79f, 0.36f, 1f),    // revival gold
         ItemCategory.StatusHeal => new Vector4(0.46f, 0.68f, 0.92f, 1f),// remedy blue
+        ItemCategory.HeldItem => new Vector4(0.68f, 0.48f, 0.90f, 1f),  // held-item violet
+        ItemCategory.EvolutionStone => new Vector4(0.42f, 0.82f, 0.88f, 1f), // evolution teal
         _ => new Vector4(0.7f, 0.7f, 0.7f, 1f),
     };
 

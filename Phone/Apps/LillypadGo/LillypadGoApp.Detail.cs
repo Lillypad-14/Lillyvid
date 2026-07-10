@@ -87,6 +87,11 @@ internal sealed partial class LillypadGoApp
         DrawDetailHeroCard(drawList, hero, monster, scale);
         DrawDetailEvolution(drawList, new Rect(new Vector2(hero.Max.X + 6f * scale, heroTop),
             new Vector2(right, hero.Max.Y)), monster, scale);
+        if (detailEvolutionPulse > 0f)
+        {
+            detailEvolutionPulse -= ImGui.GetIO().DeltaTime;
+            DrawDetailEvolutionPulse(drawList, hero, monster, scale);
+        }
 
         // ---- Nickname editor ----
         var nickTop = hero.Max.Y + 8f * scale;
@@ -171,8 +176,40 @@ internal sealed partial class LillypadGoApp
                 abilLines[i], RosterUi.CardMuted, TextStyles.Caption2);
         }
 
+        // ---- Held item: equipped from the Bag and consumed/triggered by battle rules. ----
+        var heldTop = abil.Max.Y + 8f * scale;
+        var held = new Rect(new Vector2(left, heldTop), new Vector2(right, heldTop + 36f * scale));
+        // Once the picker is on screen, its controls own the pointer. Do not let the underlying
+        // card re-open the picker while a choice is being clicked over the modal.
+        var heldHovered = LgUi.Interactive && heldItemPicker is null && ImGui.IsMouseHoveringRect(held.Min, held.Max);
+        RosterUi.DarkCard(drawList, held, 9f * scale, scale, hovered: heldHovered, accent: RosterUi.Gold);
+        Typography.Draw(new Vector2(held.Min.X + 11f * scale, held.Min.Y + 10f * scale), "HELD ITEM",
+            RosterUi.Gold, TextStyles.Caption2);
+        var heldName = string.IsNullOrEmpty(monster.HeldItem) ? "None" : Items.Find(monster.HeldItem)?.Name ?? "Unknown";
+        Typography.Draw(new Vector2(held.Min.X + 76f * scale, held.Min.Y + 7f * scale),
+            FitLabel(heldName, held.Width - 168f * scale, TextStyles.SubheadlineEmphasized), RosterUi.CardInk,
+            TextStyles.SubheadlineEmphasized);
+        var heldAction = CenteredAt(new Vector2(held.Max.X - 35f * scale, held.Center.Y),
+            new Vector2(58f * scale, 22f * scale));
+        RosterUi.Pill(drawList, heldAction.Center,
+            new[] { ("CHANGE", RosterUi.CardInk) }, TextStyles.Caption2, scale);
+        if (heldHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            heldItemPicker = monster;
+            heldItemPickerAwaitingRelease = true;
+            heldItemPickerTab = 0;
+            heldItemPickerSort = 0;
+            heldItemPickerSearch = string.Empty;
+            heldItemPickerScroll = 0f;
+        }
+        if (heldHovered)
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+            ShowTooltip("Choose an item from your Bag for this creature to hold in battle.");
+        }
+
         // ---- XP strip ----
-        var xpTop = abil.Max.Y + 8f * scale;
+        var xpTop = held.Max.Y + 8f * scale;
         var xp = new Rect(new Vector2(left, xpTop), new Vector2(right, xpTop + 28f * scale));
         RosterUi.ChunkyCard(drawList, xp.Min, xp.Max, 9f * scale, scale, RosterUi.TileCream,
             GamePalette.Darken(RosterUi.TileCream, 0.05f), RosterUi.TanEdge);
@@ -203,6 +240,11 @@ internal sealed partial class LillypadGoApp
             else
             {
                 DrawReleaseConfirm(content, theme, monster, scale);
+            }
+
+            if (heldItemPicker is not null)
+            {
+                DrawHeldItemPicker(content, theme, heldItemPicker, scale);
             }
 
             return;
@@ -295,6 +337,214 @@ internal sealed partial class LillypadGoApp
         {
             DrawNavigation(content, theme, scale);
         }
+
+        if (heldItemPicker is not null)
+        {
+            DrawHeldItemPicker(content, theme, heldItemPicker, scale);
+        }
+    }
+
+    // The held-item picker's pocket filter: everything the bag can equip, or berries / battle
+    // held items on their own (mirroring the Bag's Berries vs. Held Items tabs).
+    private static readonly CategoryTab[] HeldPickerTabs =
+    {
+        new("All", "tab_items", FontAwesomeIcon.ShoppingBag, RosterUi.Gold),
+        new("Berries", "tab_berry", FontAwesomeIcon.Leaf, LgUi.ItemTint(ItemCategory.HeldItem)),
+        new("Held Items", "tab_held", FontAwesomeIcon.Gem, LgUi.ItemTint(ItemCategory.HeldItem)),
+    };
+
+    private void DrawHeldItemPicker(Rect content, PhoneTheme theme, MonsterInstance monster, float scale)
+    {
+        // The tap that opens this overlay must fully finish before any choice can receive input.
+        var wasInteractive = LgUi.Interactive;
+        var suppressOpeningTap = heldItemPickerAwaitingRelease;
+        if (heldItemPickerAwaitingRelease && !ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
+            !ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            heldItemPickerAwaitingRelease = false;
+        }
+        if (suppressOpeningTap)
+        {
+            LgUi.Interactive = false;
+        }
+
+        try
+        {
+        var dl = ImGui.GetWindowDrawList();
+        dl.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.66f)));
+
+        var query = heldItemPickerSearch.Trim();
+        var choices = Items.All.Where(item => item.Category == ItemCategory.HeldItem && State.Bag.Has(item.Id) &&
+            (heldItemPickerTab == 0 || (heldItemPickerTab == 1) == Items.IsBerry(item.Id)) &&
+            (query.Length == 0 || item.Name.Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
+        choices = heldItemPickerSort switch
+        {
+            1 => choices.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+            2 => choices.OrderByDescending(item => State.Bag.Count(item.Id)).ThenBy(item => item.Name).ToList(),
+            _ => choices, // Type = catalogue order, which is already grouped by pocket
+        };
+
+        // The card sizes itself to its contents up to the screen, then the list scrolls inside it —
+        // a bag full of berries used to run the rows off the bottom edge.
+        var rowH = 46f * scale;
+        var rowGap = 6f * scale;
+        var tabsH = 46f * scale;
+        var ctrlH = 26f * scale;
+        var clearH = 30f * scale;
+        var chrome = 46f * scale + tabsH + 8f * scale + ctrlH + 8f * scale + clearH + 8f * scale + 10f * scale;
+        var listWanted = Math.Max(1, choices.Count) * (rowH + rowGap) - rowGap;
+        var h = MathF.Min(content.Height - 36f * scale, chrome + listWanted);
+        var card = CenteredAt(content.Center, new Vector2(content.Width - 24f * scale, h));
+        RosterUi.DarkCard(dl, card, 12f * scale, scale, accent: RosterUi.Gold);
+        var left = card.Min.X + 10f * scale;
+        var right = card.Max.X - 10f * scale;
+
+        Typography.DrawCentered(new Vector2(card.Center.X, card.Min.Y + 15f * scale), "Choose held item",
+            RosterUi.CardInk, TextStyles.SubheadlineEmphasized);
+        Typography.DrawCentered(new Vector2(card.Center.X, card.Min.Y + 31f * scale),
+            FitLabel("Equipped items activate automatically in battle.", card.Width - 60f * scale, TextStyles.Caption2),
+            RosterUi.CardMuted, TextStyles.Caption2);
+        var close = CenteredAt(new Vector2(card.Max.X - 20f * scale, card.Min.Y + 17f * scale),
+            new Vector2(28f * scale, 20f * scale));
+        if (RosterUi.ColorButton(close, "X", RosterUi.Red, scale, true))
+        {
+            heldItemPicker = null;
+            return;
+        }
+
+        // Filter what the bag offers: everything, just berries, or just battle held items.
+        var tabBounds = new Rect(new Vector2(left, card.Min.Y + 46f * scale),
+            new Vector2(right, card.Min.Y + 46f * scale + tabsH - 6f * scale));
+        var tabClicked = RosterUi.CategoryTabs(tabBounds, HeldPickerTabs, heldItemPickerTab, scale);
+        if (tabClicked >= 0 && tabClicked != heldItemPickerTab)
+        {
+            heldItemPickerTab = tabClicked;
+            heldItemPickerScroll = 0f;
+        }
+
+        // Sort capsule and search field share one line: the capsule takes exactly what its widest
+        // label needs, the search bar drinks the rest.
+        var ctrlY = tabBounds.Max.Y + 8f * scale;
+        var sortLabels = new[] { "Type", "Name", "Count" };
+        var sortW = MathF.Min((right - left) * 0.5f, RosterUi.SortButtonWidth(sortLabels, scale));
+        var sortRect = new Rect(new Vector2(left, ctrlY), new Vector2(left + sortW, ctrlY + ctrlH));
+        if (RosterUi.SortButton(sortRect, sortLabels[heldItemPickerSort], scale, true))
+        {
+            heldItemPickerSort = (heldItemPickerSort + 1) % sortLabels.Length;
+            heldItemPickerScroll = 0f;
+        }
+
+        if (LgUi.Interactive && ImGui.IsMouseHoveringRect(sortRect.Min, sortRect.Max))
+        {
+            ShowTooltip($"Sorted by {sortLabels[heldItemPickerSort].ToLowerInvariant()}. Tap to cycle.");
+        }
+
+        var searchRect = new Rect(new Vector2(sortRect.Max.X + 6f * scale, ctrlY), new Vector2(right, ctrlY + ctrlH));
+        var before = heldItemPickerSearch;
+        RosterUi.SearchBar(searchRect, "##helditemsearch", "Search items", ref heldItemPickerSearch, scale);
+        if (!string.Equals(before, heldItemPickerSearch, StringComparison.Ordinal))
+        {
+            heldItemPickerScroll = 0f;
+        }
+
+        // "No held item" clears the slot; it stays pinned above the list so it is always one tap away.
+        var clearY = searchRect.Max.Y + 8f * scale;
+        DrawHeldItemChoice(new Rect(new Vector2(left, clearY), new Vector2(right, clearY + clearH)), monster, scale);
+
+        var listArea = new Rect(new Vector2(left, clearY + clearH + 8f * scale),
+            new Vector2(right, card.Max.Y - 10f * scale));
+        if (choices.Count == 0)
+        {
+            var message = query.Length > 0
+                ? $"Nothing matches “{query}”."
+                : heldItemPickerTab == 1
+                    ? "No berries in your bag."
+                    : "No held items in your bag.";
+            Typography.DrawCentered(new Vector2(listArea.Center.X, listArea.Min.Y + 18f * scale),
+                FitLabel(message, listArea.Width - 16f * scale, TextStyles.Caption1), RosterUi.CardMuted,
+                TextStyles.Caption1);
+        }
+        else
+        {
+            DrawScrollList(listArea, rowH, rowGap, choices.Count, ref heldItemPickerScroll, scale,
+                (i, rect) => DrawHeldItemRow(rect, monster, choices[i], scale));
+        }
+        }
+        finally
+        {
+            LgUi.Interactive = wasInteractive;
+        }
+    }
+
+    // The pinned "No held item" row: green while the creature is already empty-handed.
+    private void DrawHeldItemChoice(Rect rect, MonsterInstance monster, float scale)
+    {
+        var selected = monster.HeldItem.Length == 0;
+        if (RosterUi.ColorButton(rect, "No held item", selected ? RosterUi.Green : RosterUi.Blue, scale, true))
+        {
+            EquipHeldItem(monster, null);
+        }
+    }
+
+    // A picker row, drawn like the Bag and Marketboard rows: icon tile, name, blurb, owned count.
+    // The equipped item's card is accented green rather than by its category tint.
+    private void DrawHeldItemRow(Rect rect, MonsterInstance monster, ItemDef item, float scale)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var selected = string.Equals(monster.HeldItem, item.Id, StringComparison.Ordinal);
+        var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
+        var accent = selected ? RosterUi.Green : LgUi.ItemTint(item.Category);
+        RosterUi.DarkCard(dl, rect, 10f * scale, scale, hovered, accent: accent);
+
+        var iconCenter = new Vector2(rect.Min.X + 28f * scale, rect.Center.Y);
+        RosterUi.IconTile(dl, iconCenter, 34f * scale, scale);
+        LgUi.ItemIcon(dl, iconCenter, 26f * scale, item);
+
+        var textLeft = rect.Min.X + 52f * scale;
+        var textWidth = rect.Width - 90f * scale;
+        Typography.Draw(new Vector2(textLeft, rect.Min.Y + 6f * scale),
+            FitLabel(item.Name, textWidth, TextStyles.SubheadlineEmphasized), RosterUi.CardInk,
+            TextStyles.SubheadlineEmphasized);
+        Typography.Draw(new Vector2(textLeft, rect.Min.Y + 26f * scale),
+            FitLabel(item.Blurb, textWidth, TextStyles.Caption2), RosterUi.CardMuted, TextStyles.Caption2);
+        Typography.DrawCentered(new Vector2(rect.Max.X - 22f * scale, rect.Center.Y),
+            "x" + State.Bag.Count(item.Id), selected ? RosterUi.CountGreen : RosterUi.CountBlue, TextStyles.Headline);
+
+        // The row has no space for the full effect text, so it hovers instead.
+        if (!hovered)
+        {
+            return;
+        }
+
+        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+        ShowTooltip(BuildItemTooltip(item, State.Bag.Count(item.Id)));
+        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            EquipHeldItem(monster, item);
+        }
+    }
+
+    // Swap what the creature holds, returning anything it was already carrying to the bag.
+    private void EquipHeldItem(MonsterInstance monster, ItemDef? item)
+    {
+        var nextId = item?.Id ?? string.Empty;
+        if (!string.Equals(monster.HeldItem, nextId, StringComparison.Ordinal))
+        {
+            if (!string.IsNullOrEmpty(monster.HeldItem))
+            {
+                State.Bag.Add(monster.HeldItem);
+            }
+
+            if (item is not null)
+            {
+                State.Bag.Consume(item.Id);
+            }
+
+            monster.HeldItem = nextId;
+            State.Save();
+        }
+
+        heldItemPicker = null;
     }
 
     // The blue "lead card" hero: name + gender up top, the creature over a watermark, type and
@@ -393,11 +643,56 @@ internal sealed partial class LillypadGoApp
             new[] { (FitLabel(trigger, card.Width - 26f * scale, TextStyles.Caption2), new Vector4(1f, 1f, 1f, 1f)) },
             TextStyles.Caption2, scale);
 
+        if (Items.StoneFor(monster.Species.EvolveMethod) is { } stone)
+        {
+            var useStone = CenteredAt(new Vector2(card.Center.X, card.Max.Y - 34f * scale),
+                new Vector2(card.Width - 12f * scale, 20f * scale));
+            var canUse = State.Bag.Has(stone.Id);
+            if (RosterUi.ColorButton(useStone, canUse ? "USE STONE" : stone.Name, RosterUi.Purple, scale, canUse))
+            {
+                if (State.Bag.Consume(stone.Id) && monster.TryEvolveWithStone(stone.Id))
+                {
+                    State.Save();
+                    detailEvolutionPulse = 1.35f;
+                }
+            }
+
+            if (ImGui.IsMouseHoveringRect(useStone.Min, useStone.Max))
+            {
+                ShowTooltip(canUse ? $"Use a {stone.Name} to evolve {monster.Name}." :
+                    $"Buy a {stone.Name} at the Marketboard to evolve {monster.Name}.");
+            }
+        }
+
         if (ImGui.IsMouseHoveringRect(card.Min, card.Max))
         {
             ShowTooltip($"{monster.Species.Name} evolves into {evo.Name}" +
                 (monster.Species.EvolveLevel > 0 ? $" at Lv {monster.Species.EvolveLevel}." : "."));
         }
+    }
+
+    private void DrawDetailEvolutionPulse(ImDrawListPtr drawList, Rect hero, MonsterInstance monster, float scale)
+    {
+        var t = Math.Clamp(1f - detailEvolutionPulse / 1.35f, 0f, 1f);
+        var center = new Vector2(hero.Center.X, hero.Min.Y + 55f * scale);
+        var fade = MathF.Sin(Math.Clamp(t * 1.25f, 0f, 1f) * MathF.PI);
+        var tint = Elements.Color(monster.Element) with { W = fade };
+        for (var i = 0; i < 3; i++)
+        {
+            var radius = (16f + i * 11f + t * 30f) * scale;
+            drawList.AddCircle(center, radius, ImGui.GetColorU32(tint with { W = fade * (0.7f - i * 0.16f) }),
+                32, 2f * scale);
+        }
+
+        for (var i = 0; i < 7; i++)
+        {
+            var angle = t * 8f + i * MathF.Tau / 7f;
+            var point = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (24f + t * 32f) * scale;
+            drawList.AddCircleFilled(point, 2.5f * scale, ImGui.GetColorU32(tint));
+        }
+
+        Typography.DrawCentered(new Vector2(hero.Center.X, hero.Min.Y + 25f * scale), "EVOLVED!",
+            new Vector4(1f, 1f, 1f, fade), TextStyles.SubheadlineEmphasized);
     }
 
     private void DrawMoveCard(ImDrawListPtr drawList, Rect rect, MonsterInstance monster, int index, PhoneTheme theme,

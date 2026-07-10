@@ -12,8 +12,9 @@ generated files — change the generator and re-run.
   (Supersonic/Confuse Ray) in addition to the earlier stat/status/heal/recoil mappings.
 - `../PokedexData.g.cs` — `Dex.Populate()` with all 151 species + level-up learnsets + the first
   Kanto evolution (`evolvesToId`, `evolveLevel`, `evolveMethod`); level-based ones auto-evolve.
-- Item icons (`../../../../Assets/pokemon/items/*.png`) come from PokeAPI/sprites; gym badge
-  emblems (`../../../../Assets/pokemon/badges/*.png`) are Showdown client type icons.
+- Item icons (`../../../../Assets/pokemon/items/*.png`) — the full Showdown item catalogue,
+  cut from its icon sheet by `build_items.py` (see below). Gym badge emblems
+  (`../../../../Assets/pokemon/badges/*.png`) are Showdown client type icons.
 - `../Biome.cs`, `../ZoneCatalog.cs` — Kanto encounter tables (rendered from `tpl/*.tpl`).
 - `../../../../Assets/pokemon/{front,back}/<id>.png` + `manifest.json` — animated spritesheets
   (one horizontal PNG strip per creature; `manifest.json` holds frame count + per-frame delays).
@@ -42,6 +43,28 @@ cp out/MovesData.g.cs out/PokedexData.g.cs ..
 # sprites: download gen5ani front+back gifs into raw/{front,back}/<id>.gif, then:
 python build_sheets.py      # -> sheets/{front,back}/<id>.png + sheets/manifest.json
 ```
+
+### Item icons (build_items.py -> Assets/pokemon/items/)
+
+Showdown packs every item icon into one 16-column sheet of 24x24 cells; an item's cell index
+is its `spritenum` in the sim's `data/items.ts`. `build_items.py` parses those numbers, cuts
+each cell, keys the flat `(1, 0, 0)` background to transparent, and writes
+`Assets/pokemon/items/<showdown id>.png`. Our `ItemDef.Id`s **are** Showdown ids, so
+`LgUi.ItemIcon` finds the art with no mapping table — adding an item to `Item.cs` with the
+right id gives it an icon for free.
+
+```
+python build_items.py            # add missing icons (downloads + caches into data/)
+python build_items.py --force    # re-cut every icon
+python build_items.py --list     # report coverage, write nothing
+```
+
+Existing files are kept unless `--force`. That matters: Showdown's *sim* data has no medicine
+at all (no potions, revives or status heals — they do nothing in a battle sim), so those nine
+icons are higher-resolution PokeAPI art and must not be overwritten by 24px sheet cells. Same
+reason `pokeball`/`greatball`/`ultraball` keep their PokeAPI versions even though the sheet
+has them. TMs likewise have no sheet entry — `DrawTmRow` draws a numbered disc tinted by the
+move's element instead.
 
 ### Move animations (trace_anims.js -> Assets/pokemon/moveanims.json)
 
@@ -77,6 +100,10 @@ images referenced in `bg` entries).
 ## Notes / fidelity limits
 - Move effects are collapsed to the single-effect `MoveEffect` enum (no sleep/multi-hit/weather/
   two-turn modelling); fixed/variable-power moves fall back to 50 power so they still deal damage.
+  `Battle.MovePower` then re-derives the real power for the variable-power moves it knows by name
+  (Flail, Electro Ball, Gyro Ball, Low Kick, Grass Knot, Heavy Slam, Heat Crash, ...), so those do
+  *not* stay at 50. The weight-scaled four read `MonsterSpecies.WeightKg`, emitted from the
+  pokedex's `weightkg`.
 - Learnsets use each move's newest-generation level-up entry. Catch rates come from PokeAPI.
 - A few legendaries (Mewtwo/Mew/Zapdos) may not fall into any zone's level+biome window; they
   exist in the Dex but can be rare/unspawned. Tune `emit.js` zone logic to place them explicitly.

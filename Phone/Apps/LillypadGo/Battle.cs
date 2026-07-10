@@ -113,7 +113,7 @@ internal readonly struct BattleSnapshot
 internal readonly record struct MoveLearnChoice(MonsterInstance Monster, MoveDef Move);
 
 // Turn-based battle engine using modern mainline-style type, stat, damage and status rules.
-internal sealed class Battle
+internal sealed partial class Battle
 {
     private readonly List<MonsterInstance> party;
     private readonly Bag bag;
@@ -287,9 +287,20 @@ internal sealed class Battle
 
     // ---- Player actions -------------------------------------------------------------
 
+    // Whether the move menu may offer this slot: it has PP, the held item does not forbid it, and a
+    // Choice lock — if one is in force — points at it. The menu greys out everything else, so the
+    // CanUseMove guard inside the turn never has to spend a turn refusing the player's pick.
+    public bool CanSelectMove(int moveIndex) =>
+        moveIndex >= 0 && moveIndex < Active.Moves.Count && Active.Pp[moveIndex] > 0 &&
+        !IsMoveBlockedByItem(Active, Active.Moves[moveIndex]) &&
+        (ChoiceLockedMove(Active) is not { } locked || ReferenceEquals(locked, Active.Moves[moveIndex]));
+
+    // Nothing left to pick: every move is dry, forbidden, or locked away. Struggle, as in the games.
+    public bool MustStruggle => !Enumerable.Range(0, Active.Moves.Count).Any(CanSelectMove);
+
     public void UseMove(int moveIndex)
     {
-        var struggling = moveIndex < 0 && Active.Pp.All(value => value <= 0);
+        var struggling = moveIndex < 0 && MustStruggle;
         if (!CanAct || (!struggling && (moveIndex < 0 || moveIndex >= Active.Moves.Count)))
         {
             return;
@@ -322,6 +333,33 @@ internal sealed class Battle
         var wildPriority = MovePriority(Wild, wildMove);
         var playerFirst = playerPriority > wildPriority ||
             playerPriority == wildPriority && (faster || sameSpeed && rng.Next(2) == 0);
+
+        // Within a priority bracket a Lagging Tail holder always yields, and a Quick Claw can steal
+        // the lead outright. If both hold a Tail (or both claws fire) the Speed order stands.
+        if (playerPriority == wildPriority)
+        {
+            var playerLags = HeldMovesLast(Active);
+            var wildLags = HeldMovesLast(Wild);
+            if (playerLags != wildLags)
+            {
+                playerFirst = wildLags;
+            }
+
+            var playerClaw = HeldQuickClawWins(Active);
+            var wildClaw = HeldQuickClawWins(Wild);
+            if (playerClaw != wildClaw)
+            {
+                playerFirst = playerClaw;
+                var quick = playerClaw ? Active : Wild;
+                Log.Enqueue(new BattleMessage($"{quick.Name}'s Quick Claw let it move first!", BattleCue.Info,
+                    quick));
+            }
+        }
+
+        // Zoom Lens pays out only for whoever strikes second.
+        Active.MovingSecond = !playerFirst;
+        Wild.MovingSecond = playerFirst;
+
         if (playerFirst)
         {
             PlayerMove(moveIndex);
@@ -637,6 +675,7 @@ internal sealed class Battle
 
         var struggling = moveIndex < 0;
         var move = ResolveForcedMove(Active, struggling ? Moves.Struggle : Active.Moves[moveIndex]);
+        struggling |= ReferenceEquals(move, Moves.Struggle);
         if (!CanUseMove(Active, move))
         {
             return;
@@ -705,11 +744,45 @@ internal sealed class Battle
         Execute(Wild, Active, move, BattleCue.WildAttack, BattleCue.PlayerHurt);
     }
 
-    private static MoveDef ResolveForcedMove(MonsterInstance monster, MoveDef chosen) =>
-        monster.EncoreTurns > 0 && monster.EncoreMove is not null ? monster.EncoreMove : chosen;
+    // Encore overrides the picked move; failing that, a Choice item keeps its holder on the move it
+    // committed to when it came in. Struggle answers to neither — it is what a creature falls back on
+    // once the locked move runs dry.
+    private MoveDef ResolveForcedMove(MonsterInstance monster, MoveDef chosen)
+    {
+        if (ReferenceEquals(chosen, Moves.Struggle))
+        {
+            return chosen;
+        }
+
+        if (monster.EncoreTurns > 0 && monster.EncoreMove is not null)
+        {
+            return monster.EncoreMove;
+        }
+
+        if (ChoiceLockedMove(monster) is not { } forced)
+        {
+            return chosen;
+        }
+
+        // A Choice holder that has run its locked move dry has nothing left to do but Struggle.
+        return HasPp(monster, forced) ? forced : Moves.Struggle;
+    }
+
+    private static bool HasPp(MonsterInstance monster, MoveDef move)
+    {
+        var index = monster.Moves.IndexOf(move);
+        return index >= 0 && index < monster.Pp.Count && monster.Pp[index] > 0;
+    }
 
     private bool CanUseMove(MonsterInstance monster, MoveDef move)
     {
+        if (IsMoveBlockedByItem(monster, move))
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name} can't use status moves while it holds its " +
+                $"{ItemName(monster.HeldItem)}!", BattleCue.Info, monster));
+            return false;
+        }
+
         if (move.Name == "Belch" && !monster.HeldBerryConsumed)
         {
             Log.Enqueue(new BattleMessage($"{monster.Name} has not eaten a Berry yet!", BattleCue.Info, monster));
@@ -882,7 +955,7 @@ internal sealed class Battle
 
     private int EffectiveSpeed(MonsterInstance monster)
     {
-        var speed = monster.EffectiveSpd;
+        var speed = Math.Max(1, (int)(monster.EffectiveSpd * HeldSpeedMultiplier(monster)));
         if (ReferenceEquals(monster, Active) ? playerTailwindTurns > 0 : wildTailwindTurns > 0)
         {
             speed *= 2;
@@ -1145,10 +1218,13 @@ internal sealed class Battle
         !mon.HasType(Element.Rock) && !mon.HasType(Element.Ground) && !mon.HasType(Element.Steel) &&
         mon.Ability is not ("Sand Veil" or "Sand Rush" or "Sand Force" or "Overcoat" or "Magic Guard");
 
-    private void SetWeather(BattleWeather weather, string message)
+    // `setter` is whoever summoned the weather: their Heat/Damp/Smooth/Icy Rock stretches it to eight
+    // turns. Ambient weather has no setter and runs the standard five.
+    private void SetWeather(BattleWeather weather, string message, MonsterInstance? setter = null)
     {
         Weather = weather;
-        weatherTurns = weather == BattleWeather.None ? 0 : 5;
+        weatherTurns = weather == BattleWeather.None ? 0
+            : setter is null ? 5 : HeldWeatherTurns(setter, weather);
         Log.Enqueue(new BattleMessage(message, BattleCue.Buff));
     }
 
@@ -1312,7 +1388,8 @@ internal sealed class Battle
 
     private void ApplyEntryHazards(MonsterInstance entrant, bool playerSide)
     {
-        if (entrant.Fainted)
+        HeldItemOnEntry(entrant);
+        if (entrant.Fainted || HeldIgnoresHazards(entrant))
         {
             return;
         }
@@ -1401,16 +1478,16 @@ internal sealed class Battle
 
                 break;
             case "Drought":
-                SetWeather(BattleWeather.Sun, $"{entrant.Name}'s Drought intensified the sunlight!");
+                SetWeather(BattleWeather.Sun, $"{entrant.Name}'s Drought intensified the sunlight!", entrant);
                 break;
             case "Drizzle":
-                SetWeather(BattleWeather.Rain, $"{entrant.Name}'s Drizzle made it rain!");
+                SetWeather(BattleWeather.Rain, $"{entrant.Name}'s Drizzle made it rain!", entrant);
                 break;
             case "Sand Stream":
-                SetWeather(BattleWeather.Sandstorm, $"{entrant.Name}'s Sand Stream whipped up a sandstorm!");
+                SetWeather(BattleWeather.Sandstorm, $"{entrant.Name}'s Sand Stream whipped up a sandstorm!", entrant);
                 break;
             case "Snow Warning":
-                SetWeather(BattleWeather.Snow, $"{entrant.Name}'s Snow Warning started snow!");
+                SetWeather(BattleWeather.Snow, $"{entrant.Name}'s Snow Warning started snow!", entrant);
                 break;
         }
     }
@@ -1602,6 +1679,7 @@ internal sealed class Battle
         target.SleepTurns = status == Status.Sleep ? rng.Next(1, 4) : 0;
         Log.Enqueue(new BattleMessage(StatusInflictText(target, status), BattleCue.Buff, target,
             stateAfter: BattleSnapshot.Capture(target)));
+        HeldItemAfterStatus(target);
 
         if (target.Ability is "Synchronize" && source is not null && !ReferenceEquals(source, target) &&
             source.Status == Status.None && status is Status.Burn or Status.Poison or Status.Paralysis &&
@@ -1649,7 +1727,9 @@ internal sealed class Battle
         }
     }
 
-    private static void ApplyStageDown(MonsterInstance m, StatKind k, int amount)
+    // Every stat drop in the battle funnels through here, self-inflicted ones included (Close Combat,
+    // Overheat, Shell Smash) — which is exactly the set a White Herb answers.
+    private void ApplyStageDown(MonsterInstance m, StatKind k, int amount)
     {
         switch (k)
         {
@@ -1661,6 +1741,8 @@ internal sealed class Battle
             case StatKind.Acc: m.AccuracyStage = Math.Max(-6, m.AccuracyStage - amount); break;
             case StatKind.Eva: m.EvasionStage = Math.Max(-6, m.EvasionStage - amount); break;
         }
+
+        HeldItemAfterStatDrop(m);
     }
 
     private static bool StatDropBlocked(MonsterInstance t, StatKind k) => t.Ability switch
@@ -1727,6 +1809,8 @@ internal sealed class Battle
         var cue = ReferenceEquals(m, Wild) ? BattleCue.WildHurt : BattleCue.PlayerHurt;
         Log.Enqueue(new BattleMessage($"{m.Name} was hurt by {sourceLabel}! ({dmg})", cue, m, m.CurrentHp,
             stateAfter: BattleSnapshot.Capture(m)));
+        // Chip damage crosses berry thresholds too — a sandstorm can set off a Sitrus Berry.
+        HeldItemAfterHpChange(m);
     }
 
     // Speed Boost / Shed Skin at the end of each turn.
@@ -1778,7 +1862,8 @@ internal sealed class Battle
         var usable = new List<MoveDef>();
         for (var i = 0; i < Wild.Moves.Count; i++)
         {
-            if (i >= Wild.Pp.Count || Wild.Pp[i] > 0)
+            // An Assault Vest holder would only waste the turn discovering it cannot use a status move.
+            if ((i >= Wild.Pp.Count || Wild.Pp[i] > 0) && !IsMoveBlockedByItem(Wild, Wild.Moves[i]))
             {
                 usable.Add(Wild.Moves[i]);
             }
@@ -1794,6 +1879,9 @@ internal sealed class Battle
             return usable[rng.Next(usable.Count)];
         }
 
+        // A trainer that can knock the player out this turn should be doing that, not setting up.
+        var canKo = usable.Any(move => !move.IsStatus && EstimatedDamage(move) >= Active.CurrentHp);
+
         // Trainers pick at random, but weighted by how good each move is right now, so a gym leader
         // mixes up its attacks instead of spamming its single highest-scoring move every turn.
         // Weight ∝ score², which keeps a KO (scored 4x) or a super-effective hit heavily favoured
@@ -1802,7 +1890,7 @@ internal sealed class Battle
         var total = 0f;
         for (var i = 0; i < usable.Count; i++)
         {
-            var score = MathF.Max(0.01f, ScoreTrainerMove(usable[i]));
+            var score = MathF.Max(0.01f, ScoreTrainerMove(usable[i], canKo));
             weights[i] = score * score;
             total += weights[i];
         }
@@ -1820,24 +1908,57 @@ internal sealed class Battle
         return usable[^1];
     }
 
-    // Heuristic value of a move for a trainer/gym AI, given the current matchup (Wild attacks Active).
-    private float ScoreTrainerMove(MoveDef move)
+    // What this move would take off the player right now, before the damage roll. Reads MovePower so
+    // the variable-power moves (Low Kick, Gyro Ball, Flail...) are judged at their real strength.
+    private float EstimatedDamage(MoveDef move)
     {
+        var eff = EffectivenessWith(Wild, Active, move);
+        if (move.IsStatus || eff <= 0f)
+        {
+            return 0f;
+        }
+
+        var stab = Wild.HasType(move.Element) ? 1.5f : 1f;
+        var atk = Wild.OffensiveStat(move.Category, false);
+        var def = Math.Max(1, Active.DefensiveStat(move.Category, false));
+        var raw = (2f * Wild.Level / 5f + 2f) * MovePower(Wild, Active, move) * atk / def / 50f + 2f;
+        return raw * eff * stab;
+    }
+
+    // How many stages the player can still lose on the stat this move targets. Zero once the stat is
+    // pinned at -6 or an ability refuses the drop — the AI used to keep firing Growl at a -6 Attack.
+    private int TargetDropRoom(MoveEffect effect)
+    {
+        var (stage, kind) = effect switch
+        {
+            MoveEffect.LowerTargetAtk => (Active.AtkStage, StatKind.Atk),
+            MoveEffect.LowerTargetSpAtk => (Active.SpAtkStage, StatKind.SpA),
+            MoveEffect.LowerTargetDef => (Active.DefStage, StatKind.Def),
+            MoveEffect.LowerTargetSpDef => (Active.SpDefStage, StatKind.SpD),
+            MoveEffect.LowerTargetSpd => (Active.SpdStage, StatKind.Spe),
+            MoveEffect.LowerTargetAccuracy => (Active.AccuracyStage, StatKind.Acc),
+            _ => (Active.EvasionStage, StatKind.Eva),
+        };
+
+        return StatDropBlocked(Active, kind) ? 0 : stage + 6;
+    }
+
+    // Heuristic value of a move for a trainer/gym AI, given the current matchup (Wild attacks Active).
+    // Damage and status share one scale: "roughly what percent of the player's remaining HP is this
+    // worth". Without that, a 60-power attack scored ~14 while a stat drop scored a flat 38, so the
+    // AI would rather debuff forever than ever swing.
+    private float ScoreTrainerMove(MoveDef move, bool canKo)
+    {
+        var accuracy = move.Accuracy <= 0 ? 1f : move.Accuracy / 100f;
         if (!move.IsStatus)
         {
-            var eff = EffectivenessWith(Wild, Active, move);
-            if (eff <= 0f)
+            var estDamage = EstimatedDamage(move);
+            if (estDamage <= 0f)
             {
                 return 1f; // never pick a move the target is immune to
             }
 
-            var stab = Wild.HasType(move.Element) ? 1.5f : 1f;
-            var atk = Wild.OffensiveStat(move.Category, false);
-            var def = Math.Max(1, Active.DefensiveStat(move.Category, false));
-            var raw = (2f * Wild.Level / 5f + 2f) * move.Power * atk / def / 50f + 2f;
-            var estDamage = raw * eff * stab;
-            var accuracy = move.Accuracy <= 0 ? 1f : move.Accuracy / 100f;
-            var score = estDamage * accuracy;
+            var score = 160f * (estDamage / Math.Max(1, Active.CurrentHp)) * accuracy;
             if (estDamage >= Active.CurrentHp)
             {
                 score *= 4f; // this move should KO — go for it
@@ -1848,7 +1969,7 @@ internal sealed class Battle
 
         var setup = Math.Max(0, Wild.AtkStage) + Math.Max(0, Wild.SpAtkStage) + Math.Max(0, Wild.SpdStage) +
             Math.Max(0, Wild.DefStage) + Math.Max(0, Wild.SpDefStage);
-        return move.Effect switch
+        var value = move.Effect switch
         {
             MoveEffect.HealUser => Wild.HpFraction < 0.35f ? 220f : Wild.HpFraction < 0.6f ? 80f : 2f,
             MoveEffect.Rest => Wild.HpFraction < 0.4f ? 210f : 2f,
@@ -1861,9 +1982,16 @@ internal sealed class Battle
                 or MoveEffect.RaiseSpd or MoveEffect.RaiseAtkDef or MoveEffect.RaiseSpAtkSpDef
                 or MoveEffect.RaiseAtkSpd or MoveEffect.BellyDrum or MoveEffect.Acupressure
                 => Wild.HpFraction > 0.55f && setup < 4 ? 75f : 4f,
+
+            // Debuffs fall off with the square of the room left, so the fourth Growl is worth a
+            // quarter of the first and a -6 stat is worth nothing. They are also a poor use of a
+            // turn once the player is nearly dead — finish it instead.
             MoveEffect.LowerTargetAtk or MoveEffect.LowerTargetSpAtk or MoveEffect.LowerTargetDef
                 or MoveEffect.LowerTargetSpDef or MoveEffect.LowerTargetSpd or MoveEffect.LowerTargetAccuracy
-                or MoveEffect.LowerTargetEvasion => 38f,
+                or MoveEffect.LowerTargetEvasion => TargetDropRoom(move.Effect) / 6f is var room && room <= 0f
+                    ? 1f
+                    : 34f * room * room * (Active.HpFraction < 0.4f ? 0.4f : 1f),
+
             MoveEffect.ReflectSide or MoveEffect.LightScreenSide => 55f,
             MoveEffect.SetSun or MoveEffect.SetRain or MoveEffect.SetSandstorm or MoveEffect.SetSnow
                 or MoveEffect.SetElectricTerrain or MoveEffect.SetGrassyTerrain or MoveEffect.SetMistyTerrain
@@ -1874,7 +2002,39 @@ internal sealed class Battle
             MoveEffect.NoOp => 1f,
             _ => 30f,
         };
+
+        // Stop the debuff treadmill. Repeating one move is the obvious case, but a trainer holding
+        // two drops just alternates them (Growl → Leer → Growl), so any stat move gets cut simply
+        // for following another status turn. Together these keep the AI from stalling out a battle.
+        if (IsStatStageMove(move.Effect))
+        {
+            if (Wild.LastMove is { IsStatus: true })
+            {
+                value *= 0.5f;
+            }
+
+            if (ReferenceEquals(move, Wild.LastMove))
+            {
+                value *= 0.35f;
+            }
+        }
+
+        // Setting up or debuffing while holding a knockout is throwing the turn away.
+        if (canKo)
+        {
+            value *= 0.2f;
+        }
+
+        return value * accuracy;
     }
+
+    // The stat-stage moves: the ones worth using once or twice and then never again.
+    private static bool IsStatStageMove(MoveEffect effect) => effect
+        is MoveEffect.LowerTargetAtk or MoveEffect.LowerTargetSpAtk or MoveEffect.LowerTargetDef
+        or MoveEffect.LowerTargetSpDef or MoveEffect.LowerTargetSpd or MoveEffect.LowerTargetAccuracy
+        or MoveEffect.LowerTargetEvasion or MoveEffect.RaiseAtk or MoveEffect.RaiseSpAtk or MoveEffect.RaiseDef
+        or MoveEffect.RaiseSpDef or MoveEffect.RaiseSpd or MoveEffect.RaiseAtkDef or MoveEffect.RaiseSpAtkSpDef
+        or MoveEffect.RaiseAtkSpd or MoveEffect.BellyDrum or MoveEffect.Acupressure;
 
     private void Execute(MonsterInstance attacker, MonsterInstance defender, MoveDef move, BattleCue attackCue,
         BattleCue hurtCue)
@@ -1882,6 +2042,7 @@ internal sealed class Battle
         Log.Enqueue(new BattleMessage($"{attacker.Name} used {move.Name}!", attackCue, attacker, move: move));
         attacker.LastMove = move;
         lastMoveUsedInBattle = move;
+        HeldRememberChoice(attacker, move);
 
         if (move.Effect == MoveEffect.FutureSight && !resolvingFutureSight)
         {
@@ -1952,6 +2113,12 @@ internal sealed class Battle
             return;
         }
 
+        // Safety Goggles filter powder moves; an intact Air Balloon keeps Ground moves off its holder.
+        if (!IsSelfEffect(move.Effect) && HeldBlocksMove(defender, move))
+        {
+            return;
+        }
+
         // Damp on either battler smothers self-detonating moves (Self-Destruct / Explosion).
         if (move.Effect == MoveEffect.UserFaints && (Active.Ability is "Damp" || Wild.Ability is "Damp"))
         {
@@ -1970,6 +2137,8 @@ internal sealed class Battle
             var stage = Math.Clamp(attacker.AccuracyStage - defender.EvasionStage, -6, 6);
             var stageMul = stage >= 0 ? (3f + stage) / 3f : 3f / (3f - stage);
             var acc = move.Accuracy * stageMul;
+            acc *= HeldAccuracyMultiplier(attacker);
+            acc *= HeldEvasionMultiplier(defender);
             if (attacker.Ability is "Compound Eyes") acc *= 1.3f;
             if (attacker.Ability is "Hustle" && move.Category == MoveCategory.Physical) acc *= 0.8f;
             if (move.IsStatus && defender.Ability is "Wonder Skin") acc *= 0.5f;
@@ -2029,6 +2198,9 @@ internal sealed class Battle
                 critRate = attacker.Ability is "Super Luck" ? 3 : 6;
             }
 
+            // Scope Lens / Razor Claw (+1 stage) and Leek / Lucky Punch (+2) each halve the denominator.
+            critRate = Math.Max(1, critRate >> HeldCritStages(attacker));
+
             var isCritical = !noCrit && rng.Next(critRate) == 0;
             var crit = isCritical ? (attacker.Ability is "Sniper" ? 2.25f : 1.5f) : 1f;
 
@@ -2066,7 +2238,10 @@ internal sealed class Battle
                 if (attacker.Ability is "Hustle") atkMul *= 1.5f;
             }
 
-            var defMul = 1f;
+            // Choice Band / Specs, Light Ball, Thick Club scale the attacking stat itself.
+            atkMul *= HeldAttackMultiplier(attacker, move);
+
+            var defMul = HeldDefenseMultiplier(defender, move);
             if (defAb is "Marvel Scale" && defender.Status != Status.None) defMul *= 1.5f;
             // Rock-types get +50% Sp. Def in a sandstorm.
             if (!WeatherSuppressed && Weather == BattleWeather.Sandstorm && defender.HasType(Element.Rock) &&
@@ -2088,6 +2263,7 @@ internal sealed class Battle
             }
 
             if (attacker.FlashFireActive && move.Element == Element.Fire) powerMul *= 1.5f;
+            powerMul *= HeldPowerMultiplier(attacker, move, effectiveness);
             // Sand Force: +30% to Rock/Ground/Steel moves in a sandstorm.
             if (!WeatherSuppressed && Weather == BattleWeather.Sandstorm && attacker.Ability is "Sand Force" &&
                 move.Element is Element.Rock or Element.Ground or Element.Steel)
@@ -2117,6 +2293,8 @@ internal sealed class Battle
                 effMul *= 1f / 3f;
             }
             effMul *= ScreenDamageMultiplier(defender, move.Category, isCritical);
+            // A resist berry is eaten the moment it softens the hit, so this both scales and consumes.
+            effMul *= HeldDamageTakenMultiplier(defender, move, effectiveness);
 
             var burn = attacker.Status == Status.Burn && move.Category == MoveCategory.Physical &&
                 attacker.Ability is not "Guts" ? 0.5f : 1f;
@@ -2179,6 +2357,20 @@ internal sealed class Battle
                 appliedDamage = defender.CurrentHp - 1;
             }
 
+            // Focus Sash only holds from full HP; Focus Band is a 10% shot from anywhere. Both leave
+            // the holder on 1 HP, and the Sash is used up doing it.
+            var wouldFaint = appliedDamage >= defender.CurrentHp && defender.CurrentHp > 1;
+            var focusSash = wouldFaint && defender.HeldItem == "focussash" && defender.CurrentHp == defender.MaxHp;
+            var focusBand = wouldFaint && !focusSash && defender.HeldItem == "focusband" && rng.Next(10) == 0;
+            if (focusSash || focusBand)
+            {
+                appliedDamage = defender.CurrentHp - 1;
+                if (focusSash)
+                {
+                    defender.HeldItem = string.Empty;
+                }
+            }
+
             if (defender.SubstituteHp > 0)
             {
                 var substituteDamage = Math.Min(defender.SubstituteHp, appliedDamage);
@@ -2213,6 +2405,16 @@ internal sealed class Battle
             Log.Enqueue(new BattleMessage(DamageText(defender, appliedDamage), hurtCue,
                 defender, defender.CurrentHp, isCritical, effectiveness, move,
                 stateAfter: BattleSnapshot.Capture(defender)));
+            if (focusSash || focusBand)
+            {
+                var band = focusSash ? "Focus Sash" : "Focus Band";
+                Log.Enqueue(new BattleMessage($"{defender.Name} hung on using its {band}!", BattleCue.Buff,
+                    defender, defender.CurrentHp, stateAfter: BattleSnapshot.Capture(defender)));
+            }
+
+            HeldItemOnDealtDamage(attacker, defender, move, appliedDamage);
+            HeldItemOnTookDamage(defender, attacker, move, effectiveness);
+            HeldItemAfterHpChange(defender);
             if (isCritical)
             {
                 Log.Enqueue(new BattleMessage("A critical hit!", BattleCue.Info, defender, critical: true,
@@ -2243,7 +2445,7 @@ internal sealed class Battle
             // Liquid Ooze, which makes the drain backfire and hurt the user instead.
             if (move.Effect == MoveEffect.DrainHalf && appliedDamage > 0 && !attacker.Fainted)
             {
-                var amount = Math.Max(1, appliedDamage / 2);
+                var amount = HeldDrainAmount(attacker, Math.Max(1, appliedDamage / 2));
                 if (defender.Ability is "Liquid Ooze")
                 {
                     IndirectDamage(attacker, amount, "Liquid Ooze");
@@ -2415,6 +2617,21 @@ internal sealed class Battle
             return move.Power * 2;
         }
 
+        // Weight-scaled moves. Low Kick and Grass Knot read the target alone; Heavy Slam and Heat
+        // Crash compare the two, so a Snorlax flattens a Diglett and barely budges an Onix.
+        if (move.Name is "Low Kick" or "Grass Knot")
+        {
+            var target = EffectiveWeight(defender);
+            return target >= 200f ? 120 : target >= 100f ? 100 : target >= 50f ? 80
+                : target >= 25f ? 60 : target >= 10f ? 40 : 20;
+        }
+
+        if (move.Name is "Heavy Slam" or "Heat Crash")
+        {
+            var ratio = EffectiveWeight(attacker) / EffectiveWeight(defender);
+            return ratio >= 5f ? 120 : ratio >= 4f ? 100 : ratio >= 3f ? 80 : ratio >= 2f ? 60 : 40;
+        }
+
         if (move.Name is "Acrobatics" && !attacker.HasHeldItem) return move.Power * 2;
         if (move.Name is "Echoed Voice") return move.Power + attacker.RolloutTurns * 40;
         if (move.Name is "Fury Cutter") return Math.Min(160, move.Power * (1 << Math.Min(2, attacker.FuryCutterHits)));
@@ -2490,7 +2707,7 @@ internal sealed class Battle
                 break;
             case "Bug Bite":
             case "Pluck":
-                if (defender.HasHeldItem && defender.HeldItem.Contains("Berry", StringComparison.OrdinalIgnoreCase))
+                if (defender.HasHeldItem && Items.IsBerry(defender.HeldItem))
                 {
                     attacker.HeldBerryConsumed = true;
                     defender.HeldItem = string.Empty;
@@ -2689,16 +2906,16 @@ internal sealed class Battle
                 ForceOut(attacker, defender);
                 break;
             case MoveEffect.SetSun:
-                SetWeather(BattleWeather.Sun, "The sunlight turned harsh!");
+                SetWeather(BattleWeather.Sun, "The sunlight turned harsh!", attacker);
                 break;
             case MoveEffect.SetRain:
-                SetWeather(BattleWeather.Rain, "Rain began to fall!");
+                SetWeather(BattleWeather.Rain, "Rain began to fall!", attacker);
                 break;
             case MoveEffect.SetSandstorm:
-                SetWeather(BattleWeather.Sandstorm, "A sandstorm kicked up!");
+                SetWeather(BattleWeather.Sandstorm, "A sandstorm kicked up!", attacker);
                 break;
             case MoveEffect.SetSnow:
-                SetWeather(BattleWeather.Snow, "Snow began to fall!");
+                SetWeather(BattleWeather.Snow, "Snow began to fall!", attacker);
                 break;
             case MoveEffect.SetElectricTerrain:
                 SetTerrain(BattleTerrain.Electric, "Electricity surged across the battlefield!");
@@ -2713,12 +2930,16 @@ internal sealed class Battle
                 SetTerrain(BattleTerrain.Psychic, "The battlefield got weird!");
                 break;
             case MoveEffect.ReflectSide:
-                if (ReferenceEquals(attacker, Active)) playerReflectTurns = 5; else wildReflectTurns = 5;
+                var reflectTurns = HeldScreenTurns(attacker);
+                if (ReferenceEquals(attacker, Active)) playerReflectTurns = reflectTurns;
+                else wildReflectTurns = reflectTurns;
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s side gained Reflect!", BattleCue.Buff,
                     attacker));
                 break;
             case MoveEffect.LightScreenSide:
-                if (ReferenceEquals(attacker, Active)) playerLightScreenTurns = 5; else wildLightScreenTurns = 5;
+                var screenTurns = HeldScreenTurns(attacker);
+                if (ReferenceEquals(attacker, Active)) playerLightScreenTurns = screenTurns;
+                else wildLightScreenTurns = screenTurns;
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s side gained Light Screen!", BattleCue.Buff,
                     attacker));
                 break;
@@ -2779,6 +3000,7 @@ internal sealed class Battle
             case MoveEffect.Taunt:
                 defender.TauntTurns = 3;
                 Log.Enqueue(new BattleMessage($"{defender.Name} fell for the taunt!", BattleCue.Buff, defender));
+                HeldItemAfterMoveLock(defender);
                 break;
             case MoveEffect.Encore:
                 if (defender.LastMove is null || defender.LastMove.Pp <= 0)
@@ -2790,6 +3012,7 @@ internal sealed class Battle
                     defender.EncoreMove = defender.LastMove;
                     defender.EncoreTurns = 3;
                     Log.Enqueue(new BattleMessage($"{defender.Name} received an encore!", BattleCue.Buff, defender));
+                    HeldItemAfterMoveLock(defender);
                 }
                 break;
             case MoveEffect.Disable:
@@ -2803,6 +3026,7 @@ internal sealed class Battle
                     defender.DisableTurns = 4;
                     Log.Enqueue(new BattleMessage($"{defender.Name}'s {defender.LastMove.Name} was disabled!", BattleCue.Buff,
                         defender));
+                    HeldItemAfterMoveLock(defender);
                 }
                 break;
             case MoveEffect.PerishSong:
@@ -2853,7 +3077,8 @@ internal sealed class Battle
                     attacker, stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
             case MoveEffect.TrapDamage:
-                defender.BindingTurns = rng.Next(4, 6);
+                // A Grip Claw holds the target for the maximum number of turns instead of rolling.
+                defender.BindingTurns = attacker.HeldItem == "gripclaw" ? 7 : rng.Next(4, 6);
                 defender.BindingSource = attacker;
                 defender.Trapped = true;
                 Log.Enqueue(new BattleMessage($"{defender.Name} was trapped!", BattleCue.Buff, defender));
@@ -2961,7 +3186,7 @@ internal sealed class Battle
             case MoveEffect.RequiresItem:
                 break;
             case MoveEffect.ConsumeTargetItem:
-                if (defender.HasHeldItem && defender.HeldItem.Contains("Berry", StringComparison.OrdinalIgnoreCase))
+                if (defender.HasHeldItem && Items.IsBerry(defender.HeldItem))
                 {
                     attacker.HeldBerryConsumed = true;
                     defender.HeldItem = string.Empty;
@@ -3004,7 +3229,7 @@ internal sealed class Battle
                 }
                 break;
             case MoveEffect.NaturalGift:
-                if (attacker.HasHeldItem && attacker.HeldItem.Contains("Berry", StringComparison.OrdinalIgnoreCase))
+                if (attacker.HasHeldItem && Items.IsBerry(attacker.HeldItem))
                 {
                     attacker.HeldItem = string.Empty;
                     Log.Enqueue(new BattleMessage($"{attacker.Name} used its Berry as a Natural Gift!", BattleCue.Info,
@@ -3436,6 +3661,8 @@ internal sealed class Battle
             return;
         }
 
+        HeldItemEndOfTurn(Active);
+        HeldItemEndOfTurn(Wild);
         EndOfTurnAbilities(Active);
         EndOfTurnAbilities(Wild);
         AdvanceFieldTimers();
@@ -3492,7 +3719,7 @@ internal sealed class Battle
             seeded, seeded.CurrentHp, stateAfter: BattleSnapshot.Capture(seeded)));
         if (!healer.Fainted && healer.HealBlockTurns <= 0 && healer.CurrentHp < healer.MaxHp)
         {
-            healer.Heal(damage);
+            healer.Heal(HeldDrainAmount(healer, damage));
             Log.Enqueue(new BattleMessage($"{healer.Name} absorbed nutrients!", BattleCue.Heal, healer,
                 healer.CurrentHp, stateAfter: BattleSnapshot.Capture(healer)));
         }
@@ -3604,7 +3831,9 @@ internal sealed class Battle
             return;
         }
 
-        var damage = Math.Max(1, monster.MaxHp / 8);
+        // A Binding Band on whoever bound this creature tightens the squeeze from 1/8 to 1/6.
+        var divisor = monster.BindingSource?.HeldItem == "bindingband" ? 6 : 8;
+        var damage = Math.Max(1, monster.MaxHp / divisor);
         IndirectDamage(monster, damage, "binding");
         monster.BindingTurns--;
         if (monster.BindingTurns == 0)

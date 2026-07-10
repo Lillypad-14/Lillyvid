@@ -17,6 +17,7 @@
     "spe": 45
    },
    "color": "Green",
+   "weightkg": 6.9,
    "abilities": [
     "Overgrow",
     "Chlorophyll"
@@ -151,6 +152,7 @@
     "spe": 60
    },
    "color": "Green",
+   "weightkg": 13,
    "abilities": [
     "Overgrow",
     "Chlorophyll"
@@ -286,6 +288,7 @@
     "spe": 80
    },
    "color": "Green",
+   "weightkg": 100,
    "abilities": [
     "Overgrow",
     "Chlorophyll"
@@ -433,6 +436,7 @@
     "spe": 65
    },
    "color": "Red",
+   "weightkg": 8.5,
    "abilities": [
     "Blaze",
     "Solar Power"
@@ -566,6 +570,7 @@
     "spe": 80
    },
    "color": "Red",
+   "weightkg": 19,
    "abilities": [
     "Blaze",
     "Solar Power"
@@ -695,6 +700,7 @@
     "spe": 100
    },
    "color": "Red",
+   "weightkg": 90.5,
    "abilities": [
     "Blaze",
     "Solar Power"
@@ -849,6 +855,7 @@
     "spe": 43
    },
    "color": "Blue",
+   "weightkg": 9,
    "abilities": [
     "Torrent",
     "Rain Dish"
@@ -980,6 +987,7 @@
     "spe": 58
    },
    "color": "Blue",
+   "weightkg": 22.5,
    "abilities": [
     "Torrent",
     "Rain Dish"
@@ -1111,6 +1119,7 @@
     "spe": 78
    },
    "color": "Blue",
+   "weightkg": 85.5,
    "abilities": [
     "Torrent",
     "Rain Dish"
@@ -1257,6 +1266,7 @@
     "spe": 45
    },
    "color": "Green",
+   "weightkg": 2.9,
    "abilities": [
     "Shield Dust",
     "Run Away"
@@ -1307,6 +1317,7 @@
     "spe": 30
    },
    "color": "Green",
+   "weightkg": 9.9,
    "abilities": [
     "Shed Skin"
    ],
@@ -1349,6 +1360,7 @@
     "spe": 70
    },
    "color": "White",
+   "weightkg": 32,
    "abilities": [
     "Compound Eyes",
     "Tinted Lens"
@@ -1462,6 +1474,7 @@
     "spe": 50
    },
    "color": "Brown",
+   "weightkg": 3.2,
    "abilities": [
     "Shield Dust",
     "Run Away"
@@ -1513,6 +1526,7 @@
     "spe": 35
    },
    "color": "Yellow",
+   "weightkg": 10,
    "abilities": [
     "Shed Skin"
    ],
@@ -1555,6 +1569,7 @@
     "spe": 75
    },
    "color": "Yellow",
+   "weightkg": 29.5,
    "abilities": [
     "Swarm",
     "Sniper"
@@ -1640,6 +1655,7 @@
     "spe": 56
    },
    "color": "Brown",
+   "weightkg": 1.8,
    "abilities": [
     "Keen Eye",
     "Tangled Feet",
@@ -1736,6 +1752,7 @@
     "spe": 71
    },
    "color": "Brown",
+   "weightkg": 30,
    "abilities": [
     "Keen Eye",
     "Tangled Feet",
@@ -1832,6 +1849,7 @@
     "spe": 101
    },
    "color": "Brown",
+   "weightkg": 39.5,
    "abilities": [
     "Keen Eye",
     "Tangled Feet",
@@ -1921,6 +1939,7 @@
     "spe": 72
    },
    "color": "Purple",
+   "weightkg": 3.5,
    "abilities": [
     "Run Away",
     "Guts",
@@ -2012,6 +2031,7 @@
     "spe": 97
    },
    "color": "Brown",
+   "weightkg": 18.5,
    "abilities": [
     "Run Away",
     "Guts",
@@ -2106,6 +2126,7 @@
     "spe": 70
    },
    "color": "Brown",
+   "weightkg": 2,
    "abilities": [
     "Keen Eye",
     "Sniper"
@@ -2193,6 +2214,7 @@
     "spe": 100
    },
    "color": "Brown",
+   "weightkg": 38,
    "abilities": [
     "Keen Eye",
     "Sniper"
@@ -2281,6 +2303,7 @@
     "spe": 55
    },
    "color": "Purple",
+   "weightkg": 6.9,
    "abilities": [
     "Intimidate",
     "Shed Skin",
@@ -2432,6 +2455,7 @@
     "spe": 80
    },
    "color": "Purple",
+   "weightkg": 65,
    "abilities": [
     "Intimidate",
     "Shed Skin",
@@ -2604,6 +2628,7 @@
     "spe": 90
    },
    "color": "Yellow",
+   "weightkg": 6,
    "abilities": [
     "Static",
     "Lightning Rod"
@@ -2771,6 +2796,7 @@
     "spe": 110
    },
    "color": "Yellow",
+   "weightkg": 30,
    "abilities": [
     "Static",
     "Lightning Rod"
@@ -2938,6 +2964,7 @@
     "spe": 40
    },
    "color": "Yellow",
+   "weightkg": 12,
    "abilities": [
     "Sand Veil",
     "Sand Rush"
@@ -3095,6 +3122,7 @@
     "spe": 65
    },
    "color": "Yellow",
+   "weightkg": 29.5,
    "abilities": [
     "Sand Veil",
     "Sand Rush"
@@ -3255,6 +3283,7 @@
     "spe": 41
    },
    "color": "Blue",
+   "weightkg": 7,
    "abilities": [
     "Poison Point",
     "Rivalry",
@@ -3354,6 +3383,7 @@
     "spe": 56
    },
    "color": "Blue",
+   "weightkg": 20,
    "abilities": [
     "Poison Point",
     "Rivalry",
@@ -3454,6 +3484,7 @@
     "spe": 76
    },
    "color": "Blue",
+   "weightkg": 60,
    "abilities": [
     "Poison Point",
     "Rivalry",
@@ -3551,6 +3582,7 @@
     "spe": 50
    },
    "color": "Purple",
+   "weightkg": 9,
    "abilities": [
     "Poison Point",
     "Rivalry",
@@ -3650,6 +3682,7 @@
     "spe": 65
    },
    "color": "Purple",
+   "weightkg": 19.5,
    "abilities": [
     "Poison Point",
     "Rivalry",
@@ -3750,6 +3783,7 @@
     "spe": 85
    },
    "color": "Purple",
+   "weightkg": 62,
    "abilities": [
     "Poison Point",
     "Rivalry",
@@ -3847,6 +3881,7 @@
     "spe": 35
    },
    "color": "Pink",
+   "weightkg": 7.5,
    "abilities": [
     "Cute Charm",
     "Magic Guard",
@@ -4043,6 +4078,7 @@
     "spe": 60
    },
    "color": "Pink",
+   "weightkg": 40,
    "abilities": [
     "Cute Charm",
     "Magic Guard",
@@ -4237,6 +4273,7 @@
     "spe": 65
    },
    "color": "Brown",
+   "weightkg": 9.9,
    "abilities": [
     "Flash Fire",
     "Drought"
@@ -4377,6 +4414,7 @@
     "spe": 100
    },
    "color": "Yellow",
+   "weightkg": 19.9,
    "abilities": [
     "Flash Fire",
     "Drought"
@@ -4526,6 +4564,7 @@
     "spe": 20
    },
    "color": "Pink",
+   "weightkg": 5.5,
    "abilities": [
     "Cute Charm",
     "Competitive",
@@ -4724,6 +4763,7 @@
     "spe": 45
    },
    "color": "Pink",
+   "weightkg": 12,
    "abilities": [
     "Cute Charm",
     "Competitive",
@@ -4924,6 +4964,7 @@
     "spe": 55
    },
    "color": "Purple",
+   "weightkg": 7.5,
    "abilities": [
     "Inner Focus",
     "Infiltrator"
@@ -5027,6 +5068,7 @@
     "spe": 90
    },
    "color": "Purple",
+   "weightkg": 55,
    "abilities": [
     "Inner Focus",
     "Infiltrator"
@@ -5130,6 +5172,7 @@
     "spe": 30
    },
    "color": "Blue",
+   "weightkg": 5.4,
    "abilities": [
     "Chlorophyll",
     "Run Away"
@@ -5252,6 +5295,7 @@
     "spe": 40
    },
    "color": "Blue",
+   "weightkg": 8.6,
    "abilities": [
     "Chlorophyll",
     "Stench"
@@ -5377,6 +5421,7 @@
     "spe": 50
    },
    "color": "Red",
+   "weightkg": 18.6,
    "abilities": [
     "Chlorophyll",
     "Effect Spore"
@@ -5507,6 +5552,7 @@
     "spe": 25
    },
    "color": "Red",
+   "weightkg": 5.4,
    "abilities": [
     "Effect Spore",
     "Dry Skin",
@@ -5599,6 +5645,7 @@
     "spe": 30
    },
    "color": "Red",
+   "weightkg": 29.5,
    "abilities": [
     "Effect Spore",
     "Dry Skin",
@@ -5689,6 +5736,7 @@
     "spe": 45
    },
    "color": "Purple",
+   "weightkg": 30,
    "abilities": [
     "Compound Eyes",
     "Tinted Lens",
@@ -5818,6 +5866,7 @@
     "spe": 90
    },
    "color": "Purple",
+   "weightkg": 12.5,
    "abilities": [
     "Shield Dust",
     "Tinted Lens",
@@ -5956,6 +6005,7 @@
     "spe": 95
    },
    "color": "Brown",
+   "weightkg": 0.8,
    "abilities": [
     "Sand Veil",
     "Arena Trap",
@@ -6088,6 +6138,7 @@
     "spe": 120
    },
    "color": "Brown",
+   "weightkg": 33.3,
    "abilities": [
     "Sand Veil",
     "Arena Trap",
@@ -6230,6 +6281,7 @@
     "spe": 90
    },
    "color": "Yellow",
+   "weightkg": 4.2,
    "abilities": [
     "Pickup",
     "Technician",
@@ -6371,6 +6423,7 @@
     "spe": 115
    },
    "color": "Yellow",
+   "weightkg": 32,
    "abilities": [
     "Limber",
     "Technician",
@@ -6518,6 +6571,7 @@
     "spe": 55
    },
    "color": "Yellow",
+   "weightkg": 19.6,
    "abilities": [
     "Damp",
     "Cloud Nine",
@@ -6669,6 +6723,7 @@
     "spe": 85
    },
    "color": "Blue",
+   "weightkg": 76.6,
    "abilities": [
     "Damp",
     "Cloud Nine",
@@ -6828,6 +6883,7 @@
     "spe": 70
    },
    "color": "Brown",
+   "weightkg": 28,
    "abilities": [
     "Vital Spirit",
     "Anger Point",
@@ -6986,6 +7042,7 @@
     "spe": 95
    },
    "color": "Brown",
+   "weightkg": 32,
    "abilities": [
     "Vital Spirit",
     "Anger Point",
@@ -7150,6 +7207,7 @@
     "spe": 60
    },
    "color": "Brown",
+   "weightkg": 19,
    "abilities": [
     "Intimidate",
     "Flash Fire",
@@ -7293,6 +7351,7 @@
     "spe": 95
    },
    "color": "Brown",
+   "weightkg": 155,
    "abilities": [
     "Intimidate",
     "Flash Fire",
@@ -7444,6 +7503,7 @@
     "spe": 90
    },
    "color": "Blue",
+   "weightkg": 12.4,
    "abilities": [
     "Water Absorb",
     "Damp",
@@ -7566,6 +7626,7 @@
     "spe": 90
    },
    "color": "Blue",
+   "weightkg": 20,
    "abilities": [
     "Water Absorb",
     "Damp",
@@ -7697,6 +7758,7 @@
     "spe": 70
    },
    "color": "Blue",
+   "weightkg": 54,
    "abilities": [
     "Water Absorb",
     "Damp",
@@ -7847,6 +7909,7 @@
     "spe": 90
    },
    "color": "Brown",
+   "weightkg": 19.5,
    "abilities": [
     "Synchronize",
     "Inner Focus",
@@ -7890,6 +7953,7 @@
     "spe": 105
    },
    "color": "Brown",
+   "weightkg": 56.5,
    "abilities": [
     "Synchronize",
     "Inner Focus",
@@ -7997,6 +8061,7 @@
     "spe": 120
    },
    "color": "Brown",
+   "weightkg": 48,
    "abilities": [
     "Synchronize",
     "Inner Focus",
@@ -8098,6 +8163,7 @@
     "spe": 35
    },
    "color": "Gray",
+   "weightkg": 19.5,
    "abilities": [
     "Guts",
     "No Guard",
@@ -8213,6 +8279,7 @@
     "spe": 45
    },
    "color": "Gray",
+   "weightkg": 70.5,
    "abilities": [
     "Guts",
     "No Guard",
@@ -8328,6 +8395,7 @@
     "spe": 55
    },
    "color": "Gray",
+   "weightkg": 130,
    "abilities": [
     "Guts",
     "No Guard",
@@ -8442,6 +8510,7 @@
     "spe": 40
    },
    "color": "Green",
+   "weightkg": 4,
    "abilities": [
     "Chlorophyll",
     "Gluttony"
@@ -8572,6 +8641,7 @@
     "spe": 55
    },
    "color": "Green",
+   "weightkg": 6.4,
    "abilities": [
     "Chlorophyll",
     "Gluttony"
@@ -8705,6 +8775,7 @@
     "spe": 70
    },
    "color": "Green",
+   "weightkg": 15.5,
    "abilities": [
     "Chlorophyll",
     "Gluttony"
@@ -8823,6 +8894,7 @@
     "spe": 70
    },
    "color": "Blue",
+   "weightkg": 45.5,
    "abilities": [
     "Clear Body",
     "Liquid Ooze",
@@ -8959,6 +9031,7 @@
     "spe": 100
    },
    "color": "Blue",
+   "weightkg": 55,
    "abilities": [
     "Clear Body",
     "Liquid Ooze",
@@ -9098,6 +9171,7 @@
     "spe": 20
    },
    "color": "Brown",
+   "weightkg": 20,
    "abilities": [
     "Rock Head",
     "Sturdy",
@@ -9234,6 +9308,7 @@
     "spe": 35
    },
    "color": "Brown",
+   "weightkg": 105,
    "abilities": [
     "Rock Head",
     "Sturdy",
@@ -9374,6 +9449,7 @@
     "spe": 45
    },
    "color": "Brown",
+   "weightkg": 300,
    "abilities": [
     "Rock Head",
     "Sturdy",
@@ -9510,6 +9586,7 @@
     "spe": 90
    },
    "color": "Yellow",
+   "weightkg": 30,
    "abilities": [
     "Run Away",
     "Flash Fire",
@@ -9609,6 +9686,7 @@
     "spe": 105
    },
    "color": "Yellow",
+   "weightkg": 95,
    "abilities": [
     "Run Away",
     "Flash Fire",
@@ -9719,6 +9797,7 @@
     "spe": 15
    },
    "color": "Pink",
+   "weightkg": 36,
    "abilities": [
     "Oblivious",
     "Own Tempo",
@@ -9881,6 +9960,7 @@
     "spe": 30
    },
    "color": "Pink",
+   "weightkg": 78.5,
    "abilities": [
     "Oblivious",
     "Own Tempo",
@@ -10060,6 +10140,7 @@
     "spe": 45
    },
    "color": "Gray",
+   "weightkg": 6,
    "abilities": [
     "Magnet Pull",
     "Sturdy",
@@ -10196,6 +10277,7 @@
     "spe": 70
    },
    "color": "Gray",
+   "weightkg": 60,
    "abilities": [
     "Magnet Pull",
     "Sturdy",
@@ -10337,6 +10419,7 @@
     "spe": 60
    },
    "color": "Brown",
+   "weightkg": 15,
    "abilities": [
     "Keen Eye",
     "Inner Focus",
@@ -10451,6 +10534,7 @@
     "spe": 75
    },
    "color": "Brown",
+   "weightkg": 39.2,
    "abilities": [
     "Run Away",
     "Early Bird",
@@ -10574,6 +10658,7 @@
     "spe": 110
    },
    "color": "Brown",
+   "weightkg": 85.2,
    "abilities": [
     "Run Away",
     "Early Bird",
@@ -10703,6 +10788,7 @@
     "spe": 45
    },
    "color": "White",
+   "weightkg": 90,
    "abilities": [
     "Thick Fat",
     "Hydration",
@@ -10850,6 +10936,7 @@
     "spe": 70
    },
    "color": "White",
+   "weightkg": 120,
    "abilities": [
     "Thick Fat",
     "Hydration",
@@ -10997,6 +11084,7 @@
     "spe": 25
    },
    "color": "Purple",
+   "weightkg": 30,
    "abilities": [
     "Stench",
     "Sticky Hold",
@@ -11148,6 +11236,7 @@
     "spe": 50
    },
    "color": "Purple",
+   "weightkg": 30,
    "abilities": [
     "Stench",
     "Sticky Hold",
@@ -11305,6 +11394,7 @@
     "spe": 40
    },
    "color": "Purple",
+   "weightkg": 4,
    "abilities": [
     "Shell Armor",
     "Skill Link",
@@ -11432,6 +11522,7 @@
     "spe": 70
    },
    "color": "Purple",
+   "weightkg": 132.5,
    "abilities": [
     "Shell Armor",
     "Skill Link",
@@ -11578,6 +11669,7 @@
     "spe": 80
    },
    "color": "Purple",
+   "weightkg": 0.1,
    "abilities": [
     "Levitate"
    ],
@@ -11721,6 +11813,7 @@
     "spe": 95
    },
    "color": "Purple",
+   "weightkg": 0.1,
    "abilities": [
     "Levitate"
    ],
@@ -11875,6 +11968,7 @@
     "spe": 110
    },
    "color": "Purple",
+   "weightkg": 40.5,
    "abilities": [
     "Cursed Body"
    ],
@@ -12040,6 +12134,7 @@
     "spe": 70
    },
    "color": "Gray",
+   "weightkg": 210,
    "abilities": [
     "Rock Head",
     "Sturdy",
@@ -12163,6 +12258,7 @@
     "spe": 42
    },
    "color": "Yellow",
+   "weightkg": 32.4,
    "abilities": [
     "Insomnia",
     "Forewarn",
@@ -12318,6 +12414,7 @@
     "spe": 67
    },
    "color": "Yellow",
+   "weightkg": 75.6,
    "abilities": [
     "Insomnia",
     "Forewarn",
@@ -12478,6 +12575,7 @@
     "spe": 50
    },
    "color": "Red",
+   "weightkg": 6.5,
    "abilities": [
     "Hyper Cutter",
     "Shell Armor",
@@ -12589,6 +12687,7 @@
     "spe": 75
    },
    "color": "Red",
+   "weightkg": 60,
    "abilities": [
     "Hyper Cutter",
     "Shell Armor",
@@ -12702,6 +12801,7 @@
     "spe": 100
    },
    "color": "Red",
+   "weightkg": 10.4,
    "abilities": [
     "Soundproof",
     "Static",
@@ -12840,6 +12940,7 @@
     "spe": 150
    },
    "color": "Red",
+   "weightkg": 66.6,
    "abilities": [
     "Soundproof",
     "Static",
@@ -12982,6 +13083,7 @@
     "spe": 40
    },
    "color": "Pink",
+   "weightkg": 2.5,
    "abilities": [
     "Chlorophyll",
     "Harvest"
@@ -13110,6 +13212,7 @@
     "spe": 55
    },
    "color": "Yellow",
+   "weightkg": 120,
    "abilities": [
     "Chlorophyll",
     "Harvest"
@@ -13270,6 +13373,7 @@
     "spe": 35
    },
    "color": "Brown",
+   "weightkg": 6.5,
    "abilities": [
     "Rock Head",
     "Lightning Rod",
@@ -13378,6 +13482,7 @@
     "spe": 45
    },
    "color": "Brown",
+   "weightkg": 45,
    "abilities": [
     "Rock Head",
     "Lightning Rod",
@@ -13479,6 +13584,7 @@
     "spe": 87
    },
    "color": "Brown",
+   "weightkg": 49.8,
    "abilities": [
     "Limber",
     "Reckless",
@@ -13631,6 +13737,7 @@
     "spe": 76
    },
    "color": "Brown",
+   "weightkg": 50.2,
    "abilities": [
     "Keen Eye",
     "Iron Fist",
@@ -13794,6 +13901,7 @@
     "spe": 30
    },
    "color": "Pink",
+   "weightkg": 65.5,
    "abilities": [
     "Own Tempo",
     "Oblivious",
@@ -13893,6 +14001,7 @@
     "spe": 35
    },
    "color": "Purple",
+   "weightkg": 1,
    "abilities": [
     "Levitate",
     "Neutralizing Gas",
@@ -14028,6 +14137,7 @@
     "spe": 60
    },
    "color": "Purple",
+   "weightkg": 9.5,
    "abilities": [
     "Levitate",
     "Neutralizing Gas",
@@ -14168,6 +14278,7 @@
     "spe": 25
    },
    "color": "Gray",
+   "weightkg": 115,
    "abilities": [
     "Lightning Rod",
     "Rock Head",
@@ -14319,6 +14430,7 @@
     "spe": 40
    },
    "color": "Gray",
+   "weightkg": 120,
    "abilities": [
     "Lightning Rod",
     "Rock Head",
@@ -14488,6 +14600,7 @@
     "spe": 50
    },
    "color": "Pink",
+   "weightkg": 34.6,
    "abilities": [
     "Natural Cure",
     "Serene Grace",
@@ -14665,6 +14778,7 @@
     "spe": 60
    },
    "color": "Blue",
+   "weightkg": 35,
    "abilities": [
     "Chlorophyll",
     "Leaf Guard",
@@ -14776,6 +14890,7 @@
     "spe": 90
    },
    "color": "Brown",
+   "weightkg": 80,
    "abilities": [
     "Early Bird",
     "Scrappy",
@@ -14893,6 +15008,7 @@
     "spe": 60
    },
    "color": "Blue",
+   "weightkg": 8,
    "abilities": [
     "Swift Swim",
     "Sniper",
@@ -15013,6 +15129,7 @@
     "spe": 85
    },
    "color": "Blue",
+   "weightkg": 25,
    "abilities": [
     "Poison Point",
     "Sniper",
@@ -15133,6 +15250,7 @@
     "spe": 63
    },
    "color": "Red",
+   "weightkg": 15,
    "abilities": [
     "Swift Swim",
     "Water Veil",
@@ -15228,6 +15346,7 @@
     "spe": 68
    },
    "color": "Red",
+   "weightkg": 39,
    "abilities": [
     "Swift Swim",
     "Water Veil",
@@ -15321,6 +15440,7 @@
     "spe": 85
    },
    "color": "Brown",
+   "weightkg": 34.5,
    "abilities": [
     "Illuminate",
     "Natural Cure",
@@ -15445,6 +15565,7 @@
     "spe": 115
    },
    "color": "Purple",
+   "weightkg": 80,
    "abilities": [
     "Illuminate",
     "Natural Cure",
@@ -15547,6 +15668,7 @@
     "spe": 90
    },
    "color": "Pink",
+   "weightkg": 54.5,
    "abilities": [
     "Soundproof",
     "Filter",
@@ -15697,6 +15819,7 @@
     "spe": 105
    },
    "color": "Green",
+   "weightkg": 56,
    "abilities": [
     "Swarm",
     "Technician",
@@ -15827,6 +15950,7 @@
     "spe": 95
    },
    "color": "Red",
+   "weightkg": 40.6,
    "abilities": [
     "Oblivious",
     "Forewarn",
@@ -15948,6 +16072,7 @@
     "spe": 105
    },
    "color": "Yellow",
+   "weightkg": 30,
    "abilities": [
     "Static",
     "Vital Spirit"
@@ -16089,6 +16214,7 @@
     "spe": 93
    },
    "color": "Red",
+   "weightkg": 44.5,
    "abilities": [
     "Flame Body",
     "Vital Spirit"
@@ -16230,6 +16356,7 @@
     "spe": 85
    },
    "color": "Brown",
+   "weightkg": 55,
    "abilities": [
     "Hyper Cutter",
     "Mold Breaker",
@@ -16335,6 +16462,7 @@
     "spe": 110
    },
    "color": "Brown",
+   "weightkg": 88.4,
    "abilities": [
     "Intimidate",
     "Anger Point",
@@ -16473,6 +16601,7 @@
     "spe": 80
    },
    "color": "Red",
+   "weightkg": 10,
    "abilities": [
     "Swift Swim",
     "Rattled"
@@ -16524,6 +16653,7 @@
     "spe": 81
    },
    "color": "Blue",
+   "weightkg": 235,
    "abilities": [
     "Intimidate",
     "Moxie"
@@ -16688,6 +16818,7 @@
     "spe": 60
    },
    "color": "Blue",
+   "weightkg": 220,
    "abilities": [
     "Water Absorb",
     "Shell Armor",
@@ -16834,6 +16965,7 @@
     "spe": 48
    },
    "color": "Purple",
+   "weightkg": 4,
    "abilities": [
     "Limber",
     "Imposter"
@@ -16870,6 +17002,7 @@
     "spe": 55
    },
    "color": "Brown",
+   "weightkg": 6.5,
    "abilities": [
     "Run Away",
     "Adaptability",
@@ -17009,6 +17142,7 @@
     "spe": 65
    },
    "color": "Blue",
+   "weightkg": 29,
    "abilities": [
     "Water Absorb",
     "Hydration"
@@ -17182,6 +17316,7 @@
     "spe": 130
    },
    "color": "Yellow",
+   "weightkg": 24.5,
    "abilities": [
     "Volt Absorb",
     "Quick Feet"
@@ -17356,6 +17491,7 @@
     "spe": 65
    },
    "color": "Red",
+   "weightkg": 25,
    "abilities": [
     "Flash Fire",
     "Guts"
@@ -17525,6 +17661,7 @@
     "spe": 40
    },
    "color": "Pink",
+   "weightkg": 36.5,
    "abilities": [
     "Trace",
     "Download",
@@ -17654,6 +17791,7 @@
     "spe": 35
    },
    "color": "Blue",
+   "weightkg": 7.5,
    "abilities": [
     "Swift Swim",
     "Shell Armor",
@@ -17762,6 +17900,7 @@
     "spe": 55
    },
    "color": "Blue",
+   "weightkg": 35,
    "abilities": [
     "Swift Swim",
     "Shell Armor",
@@ -17872,6 +18011,7 @@
     "spe": 55
    },
    "color": "Brown",
+   "weightkg": 11.5,
    "abilities": [
     "Swift Swim",
     "Battle Armor",
@@ -17980,6 +18120,7 @@
     "spe": 80
    },
    "color": "Brown",
+   "weightkg": 40.5,
    "abilities": [
     "Swift Swim",
     "Battle Armor",
@@ -18098,6 +18239,7 @@
     "spe": 130
    },
    "color": "Purple",
+   "weightkg": 59,
    "abilities": [
     "Rock Head",
     "Pressure",
@@ -18203,6 +18345,7 @@
     "spe": 30
    },
    "color": "Black",
+   "weightkg": 460,
    "abilities": [
     "Immunity",
     "Thick Fat",
@@ -18409,6 +18552,7 @@
     "spe": 85
    },
    "color": "Blue",
+   "weightkg": 55.4,
    "abilities": [
     "Pressure",
     "Snow Cloak"
@@ -18548,6 +18692,7 @@
     "spe": 100
    },
    "color": "Yellow",
+   "weightkg": 52.6,
    "abilities": [
     "Pressure",
     "Static"
@@ -18686,6 +18831,7 @@
     "spe": 90
    },
    "color": "Yellow",
+   "weightkg": 60,
    "abilities": [
     "Pressure",
     "Flame Body"
@@ -18824,6 +18970,7 @@
     "spe": 50
    },
    "color": "Blue",
+   "weightkg": 3.3,
    "abilities": [
     "Shed Skin",
     "Marvel Scale"
@@ -18960,6 +19107,7 @@
     "spe": 70
    },
    "color": "Blue",
+   "weightkg": 16.5,
    "abilities": [
     "Shed Skin",
     "Marvel Scale"
@@ -19098,6 +19246,7 @@
     "spe": 80
    },
    "color": "Brown",
+   "weightkg": 210,
    "abilities": [
     "Inner Focus",
     "Multiscale"
@@ -19283,6 +19432,7 @@
     "spe": 130
    },
    "color": "Purple",
+   "weightkg": 122,
    "abilities": [
     "Pressure",
     "Unnerve"
@@ -19471,6 +19621,7 @@
     "spe": 100
    },
    "color": "Pink",
+   "weightkg": 4,
    "abilities": [
     "Synchronize"
    ],

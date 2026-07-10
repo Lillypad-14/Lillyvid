@@ -238,6 +238,24 @@ internal sealed partial class LillypadGoApp
                $"Power: {power}    Accuracy: {accuracy}\nPP: {pp}/{move.Pp}";
     }
 
+    // The item counterpart of BuildProfileMoveTooltip: rows and buttons show only a name, and hand
+    // the full effect text to a hover tooltip rather than squeezing it into the chrome.
+    private static string BuildItemTooltip(ItemDef item, int owned = -1)
+    {
+        var kind = ItemKindLabel(item);
+        var stock = owned >= 0 ? $"\nIn bag: {owned}" : string.Empty;
+        return $"{item.Name}\n{kind}  ·  {LgUi.Money(item.Price)}\n\n{item.Description}{stock}";
+    }
+
+    private static string ItemKindLabel(ItemDef item) => item.Category switch
+    {
+        ItemCategory.Ball => "Poké Ball",
+        ItemCategory.Potion or ItemCategory.Revive or ItemCategory.StatusHeal => "Medicine",
+        ItemCategory.HeldItem => Items.IsBerry(item.Id) ? "Berry" : "Held Item",
+        ItemCategory.EvolutionStone => "Evolution Stone",
+        _ => "Item",
+    };
+
     private static string BuildMonsterTooltip(MonsterInstance monster, string note, int? hpOverride = null)
     {
         var status = monster.Status == Status.None ? "None" : monster.Status switch
@@ -259,10 +277,15 @@ internal sealed partial class LillypadGoApp
         if (monster.ConfusionTurns > 0) volatileState.Add($"Confusion {monster.ConfusionTurns} turns");
         if (monster.HealBlockTurns > 0) volatileState.Add($"Heal Block {monster.HealBlockTurns} turns");
         var volatileText = volatileState.Count == 0 ? "None" : string.Join(", ", volatileState);
+        var held = string.IsNullOrWhiteSpace(monster.HeldItem)
+            ? "None"
+            : Items.Find(monster.HeldItem)?.Name ?? monster.HeldItem;
         return $"{monster.Name}  Lv {monster.Level}\n{Elements.Format(monster.Element, monster.SecondaryElement)}\n\n" +
                $"HP {hpOverride ?? monster.CurrentHp}/{monster.MaxHp}\nATK {monster.Atk}    DEF {monster.Def}    SPD {monster.Spd}\n" +
                $"SP. ATK {monster.SpAtk}    SP. DEF {monster.SpDef}\n" +
-               $"XP {xp}    Status: {status}\nEffects: {volatileText}\nMoves: {moves}\n\n{note}";
+               $"XP {xp}    Status: {status}\nEffects: {volatileText}\n" +
+               $"Ability: {monster.Ability}\n{AbilityInfo.Describe(monster.Ability)}\n" +
+               $"Held item: {held}\nMoves: {moves}\n\n{note}";
     }
 
     private static List<string> WrapText(string text, float maxWidth, in TextStyle style)

@@ -15,10 +15,11 @@ internal sealed partial class LillypadGoApp
 {
     // ---- Marketboard (town-only shop + Pokécenter) ----------------------------------
     // Navy/cream chrome per Ideas/UI Update/Marketboard.png: the Pokécenter heal card up top, then
-    // Items/TMs folder tabs over a navy shop list with purple price buttons.
+    // the Bag.png sort-and-filter strip over a navy shop list with purple price buttons.
 
     private float marketScroll;
-    private int marketTab; // 0 = Items, 1 = TMs
+    private ItemTab marketTab = ItemTab.Items;
+    private int marketSortMode; // 0 = Type, 1 = Name, 2 = Price
 
     private void DrawMarket(Rect content, PhoneTheme theme)
     {
@@ -47,33 +48,43 @@ internal sealed partial class LillypadGoApp
             new Vector2(right, panel.Min.Y + 66f * scale));
         DrawPokecenterCard(pokecenter, scale);
 
-        // Items vs. Gen-IX TMs.
-        var tabBounds = new Rect(new Vector2(left, pokecenter.Max.Y + 8f * scale),
-            new Vector2(right, pokecenter.Max.Y + 34f * scale));
-        var tabClicked = RosterUi.FolderTabs(tabBounds, new[] { "Items", "TMs" }, marketTab, scale);
-        if (tabClicked >= 0 && tabClicked != marketTab)
+        var filterRow = new Rect(new Vector2(left, pokecenter.Max.Y + 8f * scale),
+            new Vector2(right, pokecenter.Max.Y + (8f + ItemFilterRowHeight) * scale));
+        if (DrawItemFilterRow(filterRow, ref marketTab, ref marketSortMode, new[] { "Type", "Name", "Price" }, scale))
         {
-            marketTab = tabClicked;
             marketScroll = 0f;
         }
 
-        var listArea = new Rect(new Vector2(left, tabBounds.Max.Y + 8f * scale),
+        var listArea = new Rect(new Vector2(left, filterRow.Max.Y + 8f * scale),
             new Vector2(right + 1f * scale, panel.Max.Y - 26f * scale));
 
-        if (marketTab == 1)
+        if (marketTab == ItemTab.Tms)
         {
-            DrawScrollList(listArea, 50f * scale, 8f * scale, Tms.All.Count, ref marketScroll, scale,
-                (i, rowRect) => DrawTmRow(Tms.All[i], rowRect, theme, scale));
+            var stock = marketSortMode switch
+            {
+                1 => Tms.All.OrderBy(tm => tm.Move.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+                2 => Tms.All.OrderBy(tm => tm.Price).ThenBy(tm => tm.Number).ToList(),
+                _ => Tms.All.ToList(), // Type = TM number order
+            };
+            DrawScrollList(listArea, 50f * scale, 8f * scale, stock.Count, ref marketScroll, scale,
+                (i, rowRect) => DrawTmRow(stock[i], rowRect, theme, scale));
         }
         else
         {
-            DrawScrollList(listArea, 50f * scale, 8f * scale, Items.All.Count, ref marketScroll, scale,
-                (i, rowRect) => DrawShopRow(Items.All[i], rowRect, theme, scale));
+            var stock = Items.All.Where(item => Items.InTab(item, marketTab)).ToList();
+            stock = marketSortMode switch
+            {
+                1 => stock.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+                2 => stock.OrderBy(item => item.Price).ThenBy(item => item.Name).ToList(),
+                _ => stock, // Type = catalogue order (already category-grouped)
+            };
+            DrawScrollList(listArea, 50f * scale, 8f * scale, stock.Count, ref marketScroll, scale,
+                (i, rowRect) => DrawShopRow(stock[i], rowRect, theme, scale));
         }
 
         var status = bagStatus.Length > 0
             ? bagStatus
-            : marketTab == 1
+            : marketTab == ItemTab.Tms
                 ? "Buy a TM here, then teach it from a creature's Moves screen if it can learn it."
                 : "Buy supplies";
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Max.Y - 14f * scale),
@@ -108,7 +119,7 @@ internal sealed partial class LillypadGoApp
         if (RosterUi.ColorButton(healRect, wiped ? "Revive" : "Heal", green, scale, needsCare))
         {
             State.HealAllMonsters();
-            bagStatus = "Your team was fully restored. Thank you for waiting!";
+            bagStatus = "Your team was fully restored!";
         }
 
         if (ImGui.IsMouseHoveringRect(healRect.Min, healRect.Max))
@@ -152,6 +163,10 @@ internal sealed partial class LillypadGoApp
         if (!canAfford && LgUi.Interactive && ImGui.IsMouseHoveringRect(buyRect.Min, buyRect.Max))
         {
             ShowTooltip($"You need {LgUi.Money(item.Price - State.Money)} more.");
+        }
+        else if (hovered)
+        {
+            ShowTooltip(BuildItemTooltip(item, owned));
         }
     }
 

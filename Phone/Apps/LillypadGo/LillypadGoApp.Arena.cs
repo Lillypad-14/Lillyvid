@@ -52,7 +52,7 @@ internal sealed partial class LillypadGoApp
         var infoText = wiped
             ? "Your team has fainted — revive at a town Marketboard first."
             : arenaTab == 0
-                ? "Battle randomized trainers near your level to grind XP."
+                ? "Battle trainers near your level for XP."
                 : "Beat a gym leader to earn a badge.";
         var infoColor = wiped ? GamePalette.Darken(RosterUi.Red, 0.1f) : RosterUi.InkTan;
         ProgressRing.CenterIcon(drawList, new Vector2(panel.Min.X + 18f * scale, infoY),

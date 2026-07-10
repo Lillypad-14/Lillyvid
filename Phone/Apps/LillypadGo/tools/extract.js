@@ -439,6 +439,7 @@ const outSpecies = species.map((s) => ({
   types: s.types.map(elem),
   stats: s.baseStats,
   color: s.color,
+  weightkg: s.weightkg,
   abilities: abilitiesOf(s),
   maleRatio: maleRatioOf(s),
   prevo: s.prevo || null,

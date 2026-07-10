@@ -36,6 +36,29 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    private void DrawBattleEvolutionPulse(ImDrawListPtr dl, Vector2 center, MonsterInstance monster, float scale)
+    {
+        var t = Math.Clamp(1f - battleEvolutionPulse / 1.45f, 0f, 1f);
+        var fade = MathF.Sin(Math.Clamp(t * 1.2f, 0f, 1f) * MathF.PI);
+        var tone = Elements.Color(monster.Element);
+        for (var i = 0; i < 4; i++)
+        {
+            var radius = (18f + i * 13f + t * 36f) * scale;
+            dl.AddCircle(center, radius, ImGui.GetColorU32(tone with { W = fade * (0.72f - i * 0.13f) }),
+                32, 2.2f * scale);
+        }
+
+        for (var i = 0; i < 10; i++)
+        {
+            var angle = t * 9f + i * MathF.Tau / 10f;
+            var point = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (22f + t * 48f) * scale;
+            dl.AddCircleFilled(point, 2.5f * scale, ImGui.GetColorU32(tone with { W = fade }));
+        }
+
+        Typography.DrawCentered(new Vector2(center.X, center.Y - 66f * scale), "EVOLVING!",
+            new Vector4(1f, 1f, 1f, fade), TextStyles.SubheadlineEmphasized);
+    }
+
     // Draws the capture ball at its current position, with an opening flash, wobble rotation, and —
     // on a successful catch — a click ring and expanding sparkles.
     private void DrawCaptureBall(ImDrawListPtr dl, Vector2 pos, float angle, float flash, CaptureFx cap, float scale)

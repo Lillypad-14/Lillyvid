@@ -95,6 +95,9 @@ internal static class AppIconArt
             case "games":
                 DrawGames(dl, center, extent, inkColor, holeColor);
                 return true;
+            case "lillypadgo":
+                DrawLillypadGo(dl, center, extent, inkColor, holeColor);
+                return true;
             case "minesweeper":
                 DrawMine(dl, center, extent, inkColor, holeColor);
                 return true;
@@ -435,6 +438,25 @@ internal static class AppIconArt
 
         dl.AddCircleFilled(center, extent * 0.62f, ink, 48);
         dl.AddCircleFilled(center, extent * 0.26f, hole, 24);
+    }
+
+    private static void DrawLillypadGo(ImDrawListPtr dl, Vector2 center, float extent, uint ink, uint hole)
+    {
+        // A compact Poké Ball with two lily leaves, matching the app's green accent while still
+        // reading clearly against the dark launcher tile.
+        var leafLeft = At(center, extent, -0.38f, -0.82f);
+        var leafRight = At(center, extent, 0.38f, -0.82f);
+        dl.AddCircleFilled(leafLeft, extent * 0.34f, ink, 24);
+        dl.AddCircleFilled(leafRight, extent * 0.34f, ink, 24);
+        dl.AddLine(center + new Vector2(0f, -extent * 0.66f), center + new Vector2(0f, -extent * 0.28f),
+            ink, extent * 0.12f);
+
+        dl.AddCircleFilled(center, extent * 0.86f, ink, 32);
+        dl.AddCircleFilled(center, extent * 0.64f, hole, 32);
+        dl.AddLine(center - new Vector2(extent * 0.64f, 0f), center + new Vector2(extent * 0.64f, 0f),
+            ink, extent * 0.14f);
+        dl.AddCircleFilled(center, extent * 0.22f, ink, 24);
+        dl.AddCircle(center, extent * 0.11f, hole, 20, extent * 0.07f);
     }
 
     private static void DrawGames(ImDrawListPtr dl, Vector2 center, float extent, uint ink, uint hole)

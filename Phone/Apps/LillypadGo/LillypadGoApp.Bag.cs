@@ -17,9 +17,58 @@ internal sealed partial class LillypadGoApp
     private string bagStatus = string.Empty;
     private float bagScroll;
     private int bagSortMode;  // 0 = Type, 1 = Name, 2 = Count
+    private ItemTab bagTab = ItemTab.Items;
 
     // The item awaiting a target choice: while set, the bag shows a "use on which creature?" picker.
     private ItemDef? bagUseItem;
+
+    // The Bag.png category strip, shared by the Bag and the Marketboard. Held Items replaces the
+    // mockup's Key Items tab; tab_held.png is that same painted key, recut and hue-rotated to
+    // held-item violet (tools/cut_held_tab.py), so it sits in the strip at the mockup's fidelity.
+    private static readonly CategoryTab[] ItemFilterTabs =
+    {
+        new("Items", "tab_items", FontAwesomeIcon.ShoppingBag, RosterUi.Gold),
+        new("Medicine", "tab_medicine", FontAwesomeIcon.PrescriptionBottle, LgUi.ItemTint(ItemCategory.Potion)),
+        new("Poké Balls", "tab_ball", FontAwesomeIcon.Bullseye, LgUi.ItemTint(ItemCategory.Ball)),
+        new("Berries", "tab_berry", FontAwesomeIcon.Leaf, LgUi.ItemTint(ItemCategory.HeldItem)),
+        new("Held Items", "tab_held", FontAwesomeIcon.Gem, LgUi.ItemTint(ItemCategory.HeldItem)),
+        new("TMs", "tab_tm", FontAwesomeIcon.CompactDisc, RosterUi.CountBlue),
+    };
+
+    // Unscaled height of the sort-and-filter block: the Sort capsule's line, a gap, then the tabs.
+    private const float ItemFilterRowHeight = 86f;
+
+    // The mockup's sort-and-filter row, stacked. The mockup fits the Sort capsule beside all six
+    // category tabs, but it is 941px wide; the phone canvas goes down to 280px (PhoneSizeCatalog),
+    // which leaves each tab ~37px — too narrow for both the capsule's label and the tab labels. So
+    // the capsule takes its own line and the tabs get the full width.
+    // Returns true when the tab or sort mode changed (callers reset scroll).
+    private bool DrawItemFilterRow(Rect row, ref ItemTab tab, ref int sortMode, string[] sortLabels, float scale)
+    {
+        var changed = false;
+        var sortW = MathF.Min(row.Width, RosterUi.SortButtonWidth(sortLabels, scale));
+        var sortRect = new Rect(row.Min, new Vector2(row.Min.X + sortW, row.Min.Y + 26f * scale));
+        if (RosterUi.SortButton(sortRect, sortLabels[sortMode], scale, true))
+        {
+            sortMode = (sortMode + 1) % sortLabels.Length;
+            changed = true;
+        }
+
+        if (LgUi.Interactive && ImGui.IsMouseHoveringRect(sortRect.Min, sortRect.Max))
+        {
+            ShowTooltip($"Sorted by {sortLabels[sortMode].ToLowerInvariant()}. Tap to cycle.");
+        }
+
+        var tabs = new Rect(new Vector2(row.Min.X, sortRect.Max.Y + 6f * scale), row.Max);
+        var clicked = RosterUi.CategoryTabs(tabs, ItemFilterTabs, (int)tab, scale);
+        if (clicked >= 0 && clicked != (int)tab)
+        {
+            tab = (ItemTab)clicked;
+            changed = true;
+        }
+
+        return changed;
+    }
 
     private void DrawBag(Rect content, PhoneTheme theme)
     {
@@ -43,7 +92,7 @@ internal sealed partial class LillypadGoApp
             new Vector2(content.Max.X - 7f * scale, navTop - 7f * scale));
         RosterUi.CreamPanel(drawList, panel, scale);
 
-        var owned = State.Bag.Contents().ToList();
+        var owned = State.Bag.Contents().Where(e => Items.InTab(e.Def, bagTab)).ToList();
         owned = bagSortMode switch
         {
             1 => owned.OrderBy(e => e.Def.Name, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -51,33 +100,51 @@ internal sealed partial class LillypadGoApp
             _ => owned, // Type = catalogue order (already category-grouped)
         };
 
-        var listTop = panel.Min.Y + 8f * scale;
-        if (owned.Count > 0)
+        // The bag's TMs pocket lists the machines you own (they never leave the bag once bought).
+        var ownedTms = bagTab == ItemTab.Tms
+            ? Tms.All.Where(tm => State.OwnedTms.Contains(tm.MoveId)).ToList()
+            : new List<TmDef>();
+        if (bagTab == ItemTab.Tms && bagSortMode == 1)
         {
-            var sortRect = new Rect(new Vector2(panel.Min.X + 9f * scale, listTop),
-                new Vector2(panel.Min.X + 125f * scale, listTop + 24f * scale));
-            if (RosterUi.BlueButton(sortRect,
-                    $"SORT: {new[] { "TYPE", "NAME", "COUNT" }[bagSortMode]}", scale, true))
-            {
-                bagSortMode = (bagSortMode + 1) % 3;
-                bagScroll = 0f;
-            }
-
-            listTop += 32f * scale;
+            ownedTms = ownedTms.OrderBy(tm => tm.Move.Name, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        // The Marketboard button doubles as the stats strip: wins/captures (or the latest item
-        // message) ride along as its sub-line, like the reference mockup.
+        var listTop = panel.Min.Y + 8f * scale;
+        var filterRow = new Rect(new Vector2(panel.Min.X + 9f * scale, listTop),
+            new Vector2(panel.Max.X - 8f * scale, listTop + ItemFilterRowHeight * scale));
+        if (DrawItemFilterRow(filterRow, ref bagTab, ref bagSortMode, new[] { "Type", "Name", "Count" }, scale))
+        {
+            bagScroll = 0f;
+        }
+
+        listTop = filterRow.Max.Y + 8f * scale;
+
+        // The Marketboard button carries the latest item message as its sub-line, if there is one.
         var inTown = State.InTown;
         var marketRect = CenteredAt(new Vector2(panel.Center.X, panel.Max.Y - 29f * scale),
             new Vector2(MathF.Min(238f * scale, panel.Width - 40f * scale), 40f * scale));
         var listArea = new Rect(new Vector2(panel.Min.X + 9f * scale, listTop),
             new Vector2(panel.Max.X - 8f * scale, marketRect.Min.Y - 8f * scale));
 
-        if (owned.Count == 0)
+        if (bagTab == ItemTab.Tms)
+        {
+            if (ownedTms.Count == 0)
+            {
+                LgUi.EmptyState(listArea.Center, FontAwesomeIcon.CompactDisc,
+                    "No TMs yet. Buy them at a town Marketboard.", theme, scale);
+            }
+            else
+            {
+                DrawScrollList(listArea, 50f * scale, 8f * scale, ownedTms.Count, ref bagScroll, scale,
+                    (i, rowRect) => DrawTmRow(ownedTms[i], rowRect, theme, scale));
+            }
+        }
+        else if (owned.Count == 0)
         {
             LgUi.EmptyState(listArea.Center, FontAwesomeIcon.SuitcaseRolling,
-                "Your bag is empty. Buy supplies at a town Marketboard.", theme, scale);
+                bagTab == ItemTab.Items
+                    ? "Bag's empty. Restock at a Marketboard."
+                    : "Nothing in this pocket yet.", theme, scale);
         }
         else
         {
@@ -85,10 +152,13 @@ internal sealed partial class LillypadGoApp
                 (i, rowRect) => DrawBagItemRow(owned[i].Def, owned[i].Count, rowRect, theme, scale));
         }
 
-        var sub = bagStatus.Length > 0 ? bagStatus : $"{State.BattlesWon} wins  ·  {State.Captures} captures";
+        // Only the latest item message rides along as the button's sub-line; with nothing to say the
+        // button is a single centred label (ColorButton drops the second line when `sub` is null).
+        var sub = bagStatus.Length > 0
+            ? FitLabel(bagStatus, marketRect.Max.X - marketRect.Min.X - 24f * scale, TextStyles.Caption2)
+            : null;
         if (RosterUi.ColorButton(marketRect, "Open Marketboard", inTown ? RosterUi.Blue : RosterUi.NavyInset, scale,
-                inTown, "box_cube", FitLabel(sub, marketRect.Max.X - marketRect.Min.X - 24f * scale,
-                    TextStyles.Caption2)))
+                inTown, "box_cube", sub))
         {
             bagStatus = string.Empty;
             marketScroll = 0f;
@@ -178,6 +248,10 @@ internal sealed partial class LillypadGoApp
             ItemCategory.StatusHeal => target is null
                 ? "No creature has a matching condition."
                 : "Tap to choose which creature to cure.",
+            ItemCategory.HeldItem => Items.IsBerry(item.Id)
+                ? "Give this to a creature from its Team profile. It is eaten automatically in battle."
+                : "Equip this from a creature's Team profile. It activates automatically in battle.",
+            ItemCategory.EvolutionStone => "Use this from a compatible creature's Team profile.",
             _ => string.Empty,
         };
         return $"{item.Name}  ·  {LgUi.Money(item.Price)}\n{ItemStatsLine(item)}\n\n{item.Description}\n\n{action}";
@@ -192,6 +266,8 @@ internal sealed partial class LillypadGoApp
         ItemCategory.StatusHeal => item.CuresAllStatus
             ? "Cures any status condition"
             : $"Cures {StatusWord(item.CuresStatus)}",
+        ItemCategory.HeldItem => item.Blurb,
+        ItemCategory.EvolutionStone => "Evolves a compatible creature",
         _ => string.Empty,
     };
 

@@ -259,6 +259,11 @@ internal sealed partial class LillypadGoApp
         }
 
         DrawImpactFx(drawList, playerPos, playerAnim.Hurt, Elements.Color(player.Element), scale);
+        if (battleEvolutionPulse > 0f)
+        {
+            battleEvolutionPulse -= dt;
+            DrawBattleEvolutionPulse(drawList, playerPos, player, scale);
+        }
         var playerPanel = new Rect(
             new Vector2(content.Max.X - 194f * scale, content.Min.Y + content.Height * 0.5f),
             new Vector2(content.Max.X - 8f * scale, content.Min.Y + content.Height * 0.5f + 68f * scale));
@@ -529,6 +534,7 @@ internal sealed partial class LillypadGoApp
                         Color = Accent,
                     });
                     playerAnim.Reset();
+                    battleEvolutionPulse = 1.45f;
                 }
 
                 break;

@@ -360,9 +360,9 @@ internal sealed partial class LillypadGoApp
     private void DrawMoveMenu(Rect panel, PhoneTheme theme, float scale)
     {
         var moves = battle!.Active.Moves;
-        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale), "Choose a move",
+        Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale), MoveMenuHeading(),
             new Vector4(1f, 1f, 1f, 0.75f), TextStyles.Caption2);
-        if (battle.Active.Pp.All(value => value <= 0))
+        if (battle.MustStruggle)
         {
             var recover = Centered(panel, 0.48f, new Vector2(panel.Width * 0.72f, panel.Height * 0.3f));
             if (RosterUi.ColorButton(recover, "Struggle", RosterUi.Red, scale, true,
@@ -388,7 +388,7 @@ internal sealed partial class LillypadGoApp
             var cy = panel.Min.Y + (i < 2 ? 0.3f : 0.62f) * panel.Height;
             var size = new Vector2(panel.Width * 0.44f, panel.Height * 0.28f);
             var rect = new Rect(new Vector2(cx, cy) - size * 0.5f, new Vector2(cx, cy) + size * 0.5f);
-            var enabled = battle.Active.Pp[i] > 0;
+            var enabled = battle.CanSelectMove(i);
             var fill = enabled ? Elements.Color(move.Element) : GamePalette.CellSunken;
             var effectiveness = move.IsStatus ? 1f : Elements.Effectiveness(move.Element, battle.Wild.Element,
                 battle.Wild.SecondaryElement);
@@ -405,6 +405,27 @@ internal sealed partial class LillypadGoApp
         }
 
         BackButton(panel, theme, scale);
+    }
+
+    // The move buttons grey themselves out on their own; this line says who took the choice away, so a
+    // dimmed Swords Dance reads as "the Assault Vest forbids it" rather than as a bug.
+    private string MoveMenuHeading()
+    {
+        var active = battle!.Active;
+        var item = string.IsNullOrEmpty(active.HeldItem) ? null : Items.Find(active.HeldItem)?.Name;
+        if (item is null)
+        {
+            return "Choose a move";
+        }
+
+        if (battle.ChoiceLockedMove(active) is { } locked)
+        {
+            return $"{item} locks {active.Name} into {locked.Name}";
+        }
+
+        return active.Moves.Any(move => battle.IsMoveBlockedByItem(active, move))
+            ? $"{item} blocks status moves"
+            : "Choose a move";
     }
 
     private bool DrawMoveButton(Rect rect, MoveDef move, int pp, float effectiveness, Vector4 fill, PhoneTheme theme,
@@ -563,6 +584,8 @@ internal sealed partial class LillypadGoApp
         ItemCategory.Potion => $"x{count}   ·   {(item.RestoresFullHp ? "full" : "+" + item.HealAmount)} HP",
         ItemCategory.Revive => $"x{count}   ·   revive a fainted ally",
         ItemCategory.StatusHeal => $"x{count}   ·   {(item.CuresAllStatus ? "cure any status" : "cure " + StatusWord(item.CuresStatus))}",
+        ItemCategory.HeldItem => $"x{count} - equip from Team",
+        ItemCategory.EvolutionStone => $"x{count} - use from Team",
         _ => "x" + count,
     };
 
@@ -583,6 +606,8 @@ internal sealed partial class LillypadGoApp
             ItemCategory.StatusHeal => battle!.CanUseItem(item)
                 ? $"Cures {battle.Active.Name}'s condition."
                 : $"{battle.Active.Name} has no matching condition to cure.",
+            ItemCategory.HeldItem => "Equip this from a creature's Team profile. Its effect activates automatically in battle.",
+            ItemCategory.EvolutionStone => "Use this from a compatible creature's Team profile.",
             _ => item.Description,
         };
         return $"{item.Name}\n{ItemStatsLine(item)}\n\n{item.Description}\n\n{line}\nUsing an item takes your turn.";

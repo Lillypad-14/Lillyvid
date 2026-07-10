@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using VideoSyncPrototype.Phone.Apps.Games.Framework;
@@ -7,6 +8,11 @@ using VideoSyncPrototype.Phone.Core;
 using VideoSyncPrototype.Phone.Windows.Components;
 
 namespace VideoSyncPrototype.Phone.Apps.LillypadGo;
+
+// One tab of RosterUi.CategoryTabs: a roster sprite icon above a short label, with a tinted
+// FontAwesome glyph standing in while the sprite streams (or when no sprite asset exists).
+internal readonly record struct CategoryTab(string Label, string? Sprite, FontAwesomeIcon Fallback,
+    Vector4 FallbackTint);
 
 // The chunky "monster battler" UI kit introduced with the Roster & Box overhaul: navy headers,
 // cream panels, thick-bordered glossy cards and sprite-based icons. Sprites are cropped from the
@@ -486,5 +492,179 @@ internal static class RosterUi
         }
 
         return clicked;
+    }
+
+    // The tab strip is far narrower than the mockup's render, so a label ("Poké Balls", "Medicine")
+    // rarely fits Caption2 on one line. Rather than ellipsize — which hides which pocket a tab is —
+    // wrap it at its space, then step the type size down until both lines fit. The ladder has to
+    // reach far enough down for the unwrappable single words ("Medicine", "Berries") to survive a
+    // 280px canvas, where six tabs leave each one about 37px.
+    private static (string[] Lines, TextStyle Style) FitTabLabel(string label, float maxWidth)
+    {
+        Span<float> sizes = stackalloc float[] { 0.60f, 0.55f, 0.50f, 0.46f, 0.42f, 0.38f };
+        var space = label.LastIndexOf(' ');
+        foreach (var size in sizes)
+        {
+            var style = new TextStyle(size, FontWeight.Medium);
+            if (Typography.Measure(label, style).X <= maxWidth)
+            {
+                return (new[] { label }, style);
+            }
+
+            if (space > 0)
+            {
+                var head = label[..space];
+                var tail = label[(space + 1)..];
+                if (MathF.Max(Typography.Measure(head, style).X, Typography.Measure(tail, style).X) <= maxWidth)
+                {
+                    return (new[] { head, tail }, style);
+                }
+            }
+        }
+
+        var last = new TextStyle(sizes[^1], FontWeight.Medium);
+        return space > 0
+            ? (new[] { Ellipsize(label[..space], maxWidth, last), Ellipsize(label[(space + 1)..], maxWidth, last) },
+                last)
+            : (new[] { Ellipsize(label, maxWidth, last) }, last);
+    }
+
+    // The Bag mockup's category filter strip: chunky icon-over-label tabs, the selected one glossy
+    // green with outlined white text, the rest raised cream tiles. Returns the clicked index or -1.
+    public static int CategoryTabs(Rect bounds, IReadOnlyList<CategoryTab> tabs, int selected, float scale)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var clicked = -1;
+        var gap = 5f * scale;
+        var tabW = (bounds.Width - gap * (tabs.Count - 1)) / tabs.Count;
+        for (var i = 0; i < tabs.Count; i++)
+        {
+            var min = new Vector2(bounds.Min.X + i * (tabW + gap), bounds.Min.Y);
+            var r = new Rect(min, new Vector2(min.X + tabW, bounds.Max.Y));
+            var isSelected = i == selected;
+            var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(r.Min, r.Max);
+            var radius = 9f * scale;
+            if (isSelected)
+            {
+                ChunkyCard(dl, r.Min, r.Max, radius, scale, GamePalette.Lighten(Green, 0.16f),
+                    GamePalette.Darken(Green, 0.06f), GamePalette.Darken(Green, 0.30f));
+            }
+            else
+            {
+                ChunkyCard(dl, r.Min, r.Max, radius, scale,
+                    GamePalette.Lighten(TileCream, hovered ? 0.05f : 0.02f), TileCream, TileEdge, hovered);
+            }
+
+            // Fit the label first — a wrapped label eats into the icon's share of the tab.
+            var tab = tabs[i];
+            var (lines, labelStyle) = FitTabLabel(tab.Label, tabW - 4f * scale);
+            var lineHeight = Typography.Measure("Xg", labelStyle).Y;
+            var textBlock = lines.Length * lineHeight;
+            var iconZone = r.Height - textBlock - 8f * scale;
+
+            var iconCenter = new Vector2(r.Center.X, r.Min.Y + 4f * scale + iconZone * 0.5f);
+            var iconSize = MathF.Min(tabW - 6f * scale, iconZone);
+            if (tab.Sprite is null || !Sprite(dl, tab.Sprite, iconCenter, iconSize))
+            {
+                ProgressRing.CenterIcon(dl, iconCenter, tab.Fallback,
+                    isSelected ? new Vector4(1f, 1f, 1f, 0.96f) : tab.FallbackTint, iconSize * 0.5f);
+            }
+
+            var lineY = r.Max.Y - 3f * scale - textBlock + lineHeight * 0.5f;
+            foreach (var line in lines)
+            {
+                var lineCenter = new Vector2(r.Center.X, lineY);
+                if (isSelected)
+                {
+                    TextOutlined(lineCenter, line, new Vector4(1f, 1f, 1f, 1f),
+                        GamePalette.Darken(Green, 0.35f), labelStyle, scale);
+                }
+                else
+                {
+                    Typography.DrawCentered(lineCenter, line, InkNavy with { W = hovered ? 1f : 0.85f }, labelStyle);
+                }
+
+                lineY += lineHeight;
+            }
+
+            if (hovered)
+            {
+                ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                if (!isSelected && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                {
+                    clicked = i;
+                }
+            }
+        }
+
+        return clicked;
+    }
+
+    // Space the chevron and its divider occupy on the capsule's right edge.
+    private const float SortChevronZone = 17f;
+
+    // The width a Sort capsule needs to show its *longest* value without ellipsizing. Callers size
+    // the capsule once from every label it can cycle through, so the text never shifts or clips.
+    public static float SortButtonWidth(IReadOnlyList<string> values, float scale)
+    {
+        var widest = 0f;
+        foreach (var value in values)
+        {
+            widest = MathF.Max(widest, Typography.Measure($"Sort: {value}", TextStyles.FootnoteEmphasized).X);
+        }
+
+        return widest + (SortChevronZone + 16f) * scale;
+    }
+
+    // The mockup's navy "Sort: Type ▾" capsule: left-aligned label, a hairline divider and a
+    // chevron on the right. Clicking cycles the sort mode; returns true on click-release.
+    public static bool SortButton(Rect r, string value, float scale, bool enabled)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var hovered = enabled && LgUi.Interactive && ImGui.IsMouseHoveringRect(r.Min, r.Max);
+        var pressed = hovered && ImGui.IsMouseDown(ImGuiMouseButton.Left);
+        var radius = MathF.Min(11f * scale, r.Height * 0.5f);
+        var fill = enabled ? Blue : GamePalette.Darken(Blue, 0.25f) with { X = 0.28f, Y = 0.33f, Z = 0.40f };
+        var top = GamePalette.Lighten(fill, pressed ? 0.02f : hovered ? 0.16f : 0.10f);
+        var bottom = GamePalette.Darken(fill, pressed ? 0.22f : 0.10f);
+
+        dl.AddRectFilled(r.Min + new Vector2(0f, 2f * scale), r.Max + new Vector2(0f, 2f * scale),
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.20f)), radius);
+        Squircle.FillVerticalGradient(dl, r.Min, r.Max, radius, ImGui.GetColorU32(top), ImGui.GetColorU32(bottom));
+        Squircle.Stroke(dl, r.Min, r.Max, radius, ImGui.GetColorU32(NavyEdge), 1.6f * scale);
+        dl.AddLine(new Vector2(r.Min.X + radius, r.Min.Y + 2f * scale),
+            new Vector2(r.Max.X - radius, r.Min.Y + 2f * scale),
+            ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.35f)), 1.2f * scale);
+
+        var ink = new Vector4(1f, 1f, 1f, enabled ? 1f : 0.45f);
+        var chevronZone = SortChevronZone * scale;
+        var divX = r.Max.X - chevronZone;
+        dl.AddLine(new Vector2(divX, r.Min.Y + 5f * scale), new Vector2(divX, r.Max.Y - 5f * scale),
+            ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.30f)), 1f * scale);
+        var chev = new Vector2(divX + chevronZone * 0.5f, r.Center.Y);
+        var cw = 3.4f * scale;
+        dl.AddLine(chev + new Vector2(-cw, -cw * 0.55f), chev + new Vector2(0f, cw * 0.55f),
+            ImGui.GetColorU32(ink), 1.8f * scale);
+        dl.AddLine(chev + new Vector2(0f, cw * 0.55f), chev + new Vector2(cw, -cw * 0.55f),
+            ImGui.GetColorU32(ink), 1.8f * scale);
+
+        var label = $"Sort: {value}";
+        var labelWidth = r.Width - chevronZone - 14f * scale;
+        var style = TextStyles.FootnoteEmphasized;
+        if (Typography.Measure(label, style).X > labelWidth)
+        {
+            style = TextStyles.Caption2;
+        }
+
+        label = Ellipsize(label, labelWidth, style);
+        var size = Typography.Measure(label, style);
+        Typography.Draw(new Vector2(r.Min.X + 8f * scale, r.Center.Y - size.Y * 0.5f), label, ink, style);
+
+        if (hovered)
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+        }
+
+        return hovered && ImGui.IsMouseReleased(ImGuiMouseButton.Left);
     }
 }

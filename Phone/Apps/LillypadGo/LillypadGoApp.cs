@@ -158,6 +158,14 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private readonly List<BattlePopup> battlePopups = new();
     private MoveFx? moveFx;
     private MonsterInstance? detailMonster;
+    private MonsterInstance? heldItemPicker;
+    private bool heldItemPickerAwaitingRelease;
+    private int heldItemPickerTab;  // 0 = All, 1 = Berries, 2 = Held Items
+    private int heldItemPickerSort; // 0 = Type, 1 = Name, 2 = Count
+    private string heldItemPickerSearch = string.Empty;
+    private float heldItemPickerScroll;
+    private float detailEvolutionPulse;
+    private float battleEvolutionPulse;
     private bool releaseConfirm;
     private int draggingMoveIndex = -1; // drag-and-drop move reordering in the Team detail screen
     private MonsterInstance? draggingRosterMon; // drag-and-drop party reordering on the Roster screen

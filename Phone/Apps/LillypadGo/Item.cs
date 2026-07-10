@@ -8,6 +8,21 @@ internal enum ItemCategory : byte
     Potion,
     Revive,
     StatusHeal,
+    HeldItem,
+    EvolutionStone,
+}
+
+// The Bag/Marketboard filter pockets (per Ideas/UI Update/Bag.png). Items is the whole non-TM
+// catalogue; the others are narrower pockets. Berries and Held Items split the HeldItem
+// category (a berry is a held item, but it gets its own tab).
+internal enum ItemTab : byte
+{
+    Items,
+    Medicine,
+    Balls,
+    Berries,
+    Held,
+    Tms,
 }
 
 // A purchasable/usable item. Balls capture wild Pokémon; potions restore HP; revives bring back
@@ -110,17 +125,56 @@ internal static class Items
         "fullheal", "Full Heal", "Cures any status.", "Cures any status condition on a single Pokémon.",
         600, ItemCategory.StatusHeal, FontAwesomeIcon.Star, curesAllStatus: true);
 
-    // Everything that exists, in a stable display order (also the shop's stock order).
+    public static readonly ItemDef FireStone = Stone("firestone", "Fire Stone", "Fire Stone");
+    public static readonly ItemDef WaterStone = Stone("waterstone", "Water Stone", "Water Stone");
+    public static readonly ItemDef ThunderStone = Stone("thunderstone", "Thunder Stone", "Thunder Stone");
+    public static readonly ItemDef LeafStone = Stone("leafstone", "Leaf Stone", "Leaf Stone");
+    public static readonly ItemDef MoonStone = Stone("moonstone", "Moon Stone", "Moon Stone");
+
+    // Everything that exists, in a stable display order (also the shop's stock order). The held-item
+    // and Berry pockets come from HeldItems, which owns both their presentation and their battle data.
     public static readonly IReadOnlyList<ItemDef> All = new[]
-    {
-        PokeBall, GreatBall, UltraBall,
-        Potion, SuperPotion, HyperPotion,
-        Revive,
-        Antidote, ParalyzeHeal, BurnHeal, IceHeal, FullHeal,
-    };
+        {
+            PokeBall, GreatBall, UltraBall,
+            Potion, SuperPotion, HyperPotion,
+            Revive,
+            Antidote, ParalyzeHeal, BurnHeal, IceHeal, FullHeal,
+        }
+        .Concat(HeldItems.All)
+        .Append(FireStone).Append(WaterStone).Append(ThunderStone).Append(LeafStone).Append(MoonStone)
+        .ToList();
 
     private static readonly Dictionary<string, ItemDef> ById =
         All.ToDictionary(item => item.Id, StringComparer.Ordinal);
 
     public static ItemDef? Find(string id) => ById.TryGetValue(id, out var item) ? item : null;
+
+    public static bool IsBerry(string itemId) => HeldItems.IsBerry(itemId);
+
+    // Whether an item belongs in a filter pocket. TMs are not ItemDefs, so the Tms tab matches
+    // nothing here — screens special-case it to their TM lists.
+    public static bool InTab(ItemDef item, ItemTab tab) => tab switch
+    {
+        ItemTab.Items => true,
+        ItemTab.Medicine => item.Category is ItemCategory.Potion or ItemCategory.Revive or ItemCategory.StatusHeal,
+        ItemTab.Balls => item.Category == ItemCategory.Ball,
+        ItemTab.Berries => item.Category == ItemCategory.HeldItem && IsBerry(item.Id),
+        ItemTab.Held => item.Category == ItemCategory.HeldItem && !IsBerry(item.Id),
+        _ => false,
+    };
+
+    public static ItemDef? StoneFor(string? evolutionMethod) => evolutionMethod switch
+    {
+        "Fire Stone" => FireStone,
+        "Water Stone" => WaterStone,
+        "Thunder Stone" => ThunderStone,
+        "Leaf Stone" => LeafStone,
+        "Moon Stone" => MoonStone,
+        _ => null,
+    };
+
+    private static ItemDef Stone(string id, string name, string method) => new(
+        id, name, $"Evolves a compatible PokÃ©mon.",
+        $"A special stone used to evolve PokÃ©mon that respond to a {method}.",
+        2100, ItemCategory.EvolutionStone, FontAwesomeIcon.Star);
 }

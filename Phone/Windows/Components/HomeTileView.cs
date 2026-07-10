@@ -82,7 +82,13 @@ internal static class HomeTileView
         var labelCenter = new Vector2(center.X, center.Y + size * 0.5f + 11f * scale);
         var halo = Palette.WithAlpha(new Vector4(0f, 0f, 0f, 1f), 0.22f * labelAlpha);
         var text = Palette.WithAlpha(theme.TextStrong, 0.98f * labelAlpha);
+        var labelStyle = TextStyles.IconLabel;
+        if (Typography.Measure(label, labelStyle).X > labelWidth * 0.92f)
+        {
+            labelStyle = TextStyles.Caption2;
+        }
+
         Typography.DrawCenteredHalo(labelCenter, label, text, halo, 1.3f * scale, labelWidth * 0.92f,
-            TextStyles.IconLabel);
+            labelStyle);
     }
 }

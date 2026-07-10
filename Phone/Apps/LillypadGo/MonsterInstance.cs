@@ -86,6 +86,16 @@ internal sealed class MonsterInstance
     public string HeldItem { get; set; } = string.Empty;
     public bool HasHeldItem => !string.IsNullOrWhiteSpace(HeldItem);
     public bool HeldBerryConsumed { get; set; }
+
+    // The Choice trio locks its holder into the first move it executes, for as long as it stays in.
+    public MoveDef? ChoiceLockedMove { get; set; }
+
+    // Set each turn once the order is known, so Zoom Lens knows whether it is striking second.
+    public bool MovingSecond { get; set; }
+
+    // White Herb / Weakness Policy fire once per battle; Air Balloon pops instead of being eaten.
+    public bool HeldItemTriggered { get; set; }
+    public MonsterSpecies? LastEvolutionFrom { get; private set; }
     public bool DamagedThisTurn { get; set; }
     public bool LastMoveFailed { get; set; }
     public int RageHits { get; set; }
@@ -247,6 +257,9 @@ internal sealed class MonsterInstance
         FuryCutterHits = 0;
         RolloutTurns = 0;
         HeldBerryConsumed = false;
+        ChoiceLockedMove = null;
+        MovingSecond = false;
+        HeldItemTriggered = false;
         LockedMove = null;
         LockedTurns = 0;
         RevertTransform(); // a copy from Transform is lost on switch/at battle start
@@ -487,15 +500,34 @@ internal sealed class MonsterInstance
         while (Species.EvolveLevel > 0 && Level >= Species.EvolveLevel && Dex.EvolutionOf(Species) is { } next)
         {
             var before = Name;
-            var beforeHp = MaxHp;
-            Species = next;
-            RecomputeStats();
-            if (CurrentHp > 0)
-            {
-                CurrentHp = Math.Min(MaxHp, CurrentHp + (MaxHp - beforeHp));
-            }
+            EvolveInto(next);
 
             evolutions.Add($"{before} evolved into {Species.Name}!");
+        }
+    }
+
+    public bool TryEvolveWithStone(string stoneId)
+    {
+        var stone = Items.StoneFor(Species.EvolveMethod);
+        if (stone is null || !string.Equals(stone.Id, stoneId, StringComparison.OrdinalIgnoreCase) ||
+            Dex.EvolutionOf(Species) is not { } next)
+        {
+            return false;
+        }
+
+        EvolveInto(next);
+        return true;
+    }
+
+    private void EvolveInto(MonsterSpecies next)
+    {
+        LastEvolutionFrom = Species;
+        var beforeHp = MaxHp;
+        Species = next;
+        RecomputeStats();
+        if (CurrentHp > 0)
+        {
+            CurrentHp = Math.Min(MaxHp, CurrentHp + (MaxHp - beforeHp));
         }
     }
 
