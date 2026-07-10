@@ -191,6 +191,7 @@ public sealed partial class MainWindow : Window, IDisposable
     private float captureFps;
     private string realRendererProbe = "Not probed yet.";
     private readonly PresentHookProbe presentHookProbe = new();
+    private readonly Phone.Apps.LillypadGo.FollowerRenderer pokemonFollower = new();
     private readonly PlayerSearch.PlayerSearchTab playerSearchTab = new();
     private readonly EmoteRemapperTab emoteRemapperTab;
     private readonly FunTab funTab;

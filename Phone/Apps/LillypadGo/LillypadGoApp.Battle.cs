@@ -308,6 +308,11 @@ internal sealed partial class LillypadGoApp
         DrawMoveFx(drawList, content, playerBase, wildBase, sceneMap, scale);
         DrawBattlePopups(wildPos, playerPos, theme, scale);
 
+        // Mirror this frame onto the in-world battle stage (billboards in front of the
+        // player). The phone stays the source of truth; the world renders in tandem.
+        PublishWorldStage(player, playerHidden, wildHidden, capWildAlpha, capWildScale,
+            sendOutAlpha, sendOutScale, alphaScale);
+
         // Once the battle is decided, the Victory / Defeat / Forfeit screen takes over the bottom
         // message box; the arena and creatures stay visible above it.
         if (awaitingResult)
@@ -367,6 +372,117 @@ internal sealed partial class LillypadGoApp
         {
             DrawBattleHistory(panel, theme, scale);
         }
+    }
+
+    // Publishes the per-frame snapshot the world battle stage renders from. The multipliers
+    // mirror exactly what DrawBattle just composed for the phone arena; the traced move
+    // animation is passed by reference so the world re-evaluates it against its own 3D
+    // scene map. NOTE: the capture-ball timings here must stay in sync with the capture
+    // switch in DrawBattle above.
+    private void PublishWorldStage(MonsterInstance player, float playerHidden, float wildHidden,
+        float capWildAlpha, float capWildScale, float sendOutAlpha, float sendOutScale, float alphaScale)
+    {
+        if (battle is null || !State.WorldBattlesEnabled)
+        {
+            return;
+        }
+
+        var snap = new WorldBattleStage.Snapshot
+        {
+            PlayerSpeciesId = player.Species.Id,
+            WildSpeciesId = battle.Wild.Species.Id,
+            PlayerAlpha = playerAnim.Alpha * playerHidden,
+            PlayerHurt = playerAnim.Hurt,
+            PlayerLunge = playerAnim.Lunge,
+            PlayerFainted = displayedPlayerHp <= 0,
+            WildAlpha = wildAnim.Alpha * wildHidden * capWildAlpha * sendOutAlpha,
+            WildHurt = wildAnim.Hurt,
+            WildLunge = wildAnim.Lunge,
+            WildFainted = displayedWildHp <= 0,
+            WildBaseScale = alphaScale,
+            WildScale = capWildScale * sendOutScale,
+            WildPullT = Math.Clamp(MathF.Max(1f - capWildAlpha, 1f - sendOutAlpha), 0f, 1f),
+            FxEffectScale = Math.Clamp(State.BattleEffectScale, MinBattleEffectScale, MaxBattleEffectScale),
+        };
+
+        if (moveFx is { Playback: { } playback } fx)
+        {
+            snap.FxPlayback = playback;
+            snap.FxAgeMs = fx.Age * 1000f;
+        }
+
+        if (captureFx is { } cap)
+        {
+            snap.BallSpriteId = cap.BallId;
+            switch (cap.Phase)
+            {
+                case CaptureFx.Stage.Throw:
+                    snap.BallVisible = true;
+                    if (cap.Age < 0.45f)
+                    {
+                        snap.BallArcT = cap.Age / 0.45f;
+                        snap.BallAngle = snap.BallArcT * 9f;
+                    }
+                    else if (cap.Age < 0.95f)
+                    {
+                        snap.BallArcT = 1f;
+                        snap.BallFlash = 1f - ((cap.Age - 0.45f) / 0.5f);
+                    }
+                    else
+                    {
+                        snap.BallArcT = 1f;
+                        snap.BallGrounded = true;
+                    }
+
+                    break;
+                case CaptureFx.Stage.Wait:
+                    snap.BallVisible = true;
+                    snap.BallArcT = 1f;
+                    snap.BallGrounded = true;
+                    var wobbleAge = cap.Age - cap.LastShake;
+                    if (wobbleAge is >= 0f and < 0.5f)
+                    {
+                        snap.BallAngle = MathF.Sin(wobbleAge * 20f) * 0.6f * MathF.Exp(-wobbleAge * 4.5f);
+                    }
+
+                    break;
+                case CaptureFx.Stage.Success:
+                    snap.BallVisible = true;
+                    snap.BallArcT = 1f;
+                    snap.BallGrounded = true;
+                    break;
+                default: // break free
+                    snap.BallVisible = cap.StageAge < 0.22f;
+                    snap.BallArcT = 1f;
+                    snap.BallGrounded = true;
+                    snap.BallFlash = Math.Clamp(1f - (cap.StageAge / 0.3f), 0f, 1f);
+                    break;
+            }
+        }
+        else if (sendOutFx is { } sendOut)
+        {
+            snap.BallSpriteId = "pokeball";
+            snap.BallVisible = sendOut.Age < 0.5f;
+            snap.BallArcT = 1f;
+            snap.BallGrounded = true;
+            snap.BallAngle = sendOut.Age < 0.16f ? 0f : MathF.Sin((sendOut.Age - 0.16f) * 18f) * 0.11f;
+            snap.BallFlash = Math.Clamp(1f - (MathF.Abs(sendOut.Age - 0.38f) / 0.16f), 0f, 1f);
+        }
+
+        if (battlePopups.Count > 0)
+        {
+            var popups = new WorldBattleStage.PopupSnap[battlePopups.Count];
+            for (var i = 0; i < battlePopups.Count; i++)
+            {
+                var popup = battlePopups[i];
+                popups[i] = new WorldBattleStage.PopupSnap(popup.OnWild, popup.Value, popup.Label,
+                    popup.Color, popup.Age);
+            }
+
+            snap.Popups = popups;
+        }
+
+        WorldBattleStage.Publish(snap);
     }
 
     // The battle's bottom box: navy gradient, dark outline, light inner hairline and a top shine,

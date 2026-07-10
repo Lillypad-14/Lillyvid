@@ -319,6 +319,7 @@ public sealed partial class MainWindow
     {
         this.UpdateAudioBridge();
         this.TickNativeScreenRecovery();
+        this.pokemonFollower.Update(this.presentHookProbe);
 
         if (!this.worldScreenEnabled || this.worldScreenAnchor is not { } anchor)
         {

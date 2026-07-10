@@ -36,6 +36,12 @@ internal sealed class LillypadGoState
     public bool BattleLogEnabled { get; set; } = true;
     public bool BackgroundTrackingEnabled { get; set; } = true;
 
+    // Shows the lead party Pokémon walking behind the player in the game world.
+    public bool FollowerEnabled { get; set; } = true;
+
+    // Mirrors phone battles into the game world (battlers + move effects in front of the player).
+    public bool WorldBattlesEnabled { get; set; } = true;
+
     // Transient (not serialized).
     public MonsterInstance? Pending { get; set; }
     public bool InBattle { get; set; }
@@ -295,6 +301,8 @@ internal sealed class LillypadGoState
                 BattleSpeed = BattleSpeed,
                 BattleLogEnabled = BattleLogEnabled,
                 BackgroundTrackingEnabled = BackgroundTrackingEnabled,
+                FollowerEnabled = FollowerEnabled,
+                WorldBattlesEnabled = WorldBattlesEnabled,
                 Seen = Seen.ToArray(),
                 Badges = Badges.ToArray(),
                 OwnedTms = OwnedTms.ToArray(),
@@ -351,6 +359,8 @@ internal sealed class LillypadGoState
         BattleSpeed = dto.BattleSpeed <= 0f ? 1f : Math.Clamp(dto.BattleSpeed, 0.5f, 2.5f);
         BattleLogEnabled = dto.BattleLogEnabled ?? true;
         BackgroundTrackingEnabled = dto.BackgroundTrackingEnabled ?? true;
+        FollowerEnabled = dto.FollowerEnabled ?? true;
+        WorldBattlesEnabled = dto.WorldBattlesEnabled ?? true;
         if (dto.Seen is not null)
         {
             foreach (var id in dto.Seen)
@@ -494,6 +504,8 @@ internal sealed class LillypadGoState
         public float BattleSpeed { get; set; }
         public bool? BattleLogEnabled { get; set; }
         public bool? BackgroundTrackingEnabled { get; set; }
+        public bool? FollowerEnabled { get; set; }
+        public bool? WorldBattlesEnabled { get; set; }
         public string[]? Seen { get; set; }
         public int[]? Badges { get; set; }
         public string[]? OwnedTms { get; set; }

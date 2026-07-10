@@ -19,6 +19,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
     private readonly object quadLock = new();
     private NativeQuad nativeQuad;
     private NativeDecorQuad[] decorations = [];
+    private NativeWorldSprite[] worldSprites = [];
     private nint textureSrv;
     private nint pendingSharedHandle;
     private nint openedSharedHandle;
@@ -34,6 +35,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
     private ID3D11DepthStencilState* sceneDepthLessEqualReadState;
     private ID3D11RasterizerState* rasterizerState;
     private ID3D11SamplerState* samplerState;
+    private ID3D11SamplerState* pointSamplerState;
     private ID3D11Buffer* quadConstantBuffer;
     private bool resourcesReady;
     private string lastError = string.Empty;
@@ -81,7 +83,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             var sharedState = this.sharedTextureSrv is not null
                 ? "streaming"
                 : this.pendingSharedHandle != 0 ? "pending" : "none";
-            return $"Native scene draw: {(this.Enabled ? "enabled" : "disabled")}\nNative screen probe: {(this.ScreenSpaceProbeEnabled ? "enabled" : "disabled")}\nNative quad set: {this.nativeQuad.Enabled}\nNative decorations: {this.decorations.Length}\nNative texture: {(this.textureSrv != 0 ? "bound" : "none")}\nShared texture: {sharedState}\nResources ready: {this.resourcesReady}\nDraw attempts: {this.DrawAttempts}\nDraw successes: {this.DrawSuccesses}{error}{sharedError}";
+            return $"Native scene draw: {(this.Enabled ? "enabled" : "disabled")}\nNative screen probe: {(this.ScreenSpaceProbeEnabled ? "enabled" : "disabled")}\nNative quad set: {this.nativeQuad.Enabled}\nNative decorations: {this.decorations.Length}\nNative world sprites: {this.worldSprites.Length}\nNative texture: {(this.textureSrv != 0 ? "bound" : "none")}\nShared texture: {sharedState}\nResources ready: {this.resourcesReady}\nDraw attempts: {this.DrawAttempts}\nDraw successes: {this.DrawSuccesses}{error}{sharedError}";
         }
     }
 
@@ -111,6 +113,58 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             this.nativeQuad = default;
             this.decorations = [];
         }
+    }
+
+    public bool HasWorldSprites
+    {
+        get
+        {
+            lock (this.quadLock)
+            {
+                return this.worldSprites.Length > 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Places the world sprite billboards (the Pokémon follower / battle stage). Drawn in
+    /// the same scene pass as the TV quad but independent of it, in list order, each with
+    /// the texture's own alpha. A sprite with a zero SRV renders as a solid tinted quad
+    /// (used for background washes). U0/U1 select a frame slice of an animated spritesheet.
+    /// </summary>
+    public void SetWorldSprites(IReadOnlyList<NativeWorldSprite> sprites)
+    {
+        var next = new NativeWorldSprite[sprites.Count];
+        for (var i = 0; i < sprites.Count; i++)
+        {
+            next[i] = sprites[i];
+        }
+
+        lock (this.quadLock)
+        {
+            foreach (var sprite in next)
+            {
+                if (sprite.TextureSrv != 0)
+                {
+                    ((IUnknown*)sprite.TextureSrv)->AddRef();
+                }
+            }
+
+            var previous = this.worldSprites;
+            this.worldSprites = next;
+            foreach (var sprite in previous)
+            {
+                if (sprite.TextureSrv != 0)
+                {
+                    ((IUnknown*)sprite.TextureSrv)->Release();
+                }
+            }
+        }
+    }
+
+    public void ClearWorldSprites()
+    {
+        this.SetWorldSprites([]);
     }
 
     public void SetDecorations(IReadOnlyList<NativeDecorQuad> decorationQuads)
@@ -182,7 +236,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         Matrix4x4 viewMatrix,
         Matrix4x4 projectionMatrix)
     {
-        if (!this.Enabled || context is null || targetRtv == 0 || depthStencils.Length == 0)
+        if (context is null || targetRtv == 0 || depthStencils.Length == 0)
         {
             return;
         }
@@ -195,6 +249,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             NativeQuad quad;
             NativeDecorQuad[] decorations;
             nint srv;
+            NativeWorldSprite[] sprites;
             lock (this.quadLock)
             {
                 quad = this.nativeQuad;
@@ -204,11 +259,25 @@ public sealed unsafe class NativeTestRenderer : IDisposable
                 {
                     ((IUnknown*)srv)->AddRef();
                 }
+
+                sprites = this.worldSprites;
+                foreach (var sprite in sprites)
+                {
+                    if (sprite.TextureSrv != 0)
+                    {
+                        ((IUnknown*)sprite.TextureSrv)->AddRef();
+                    }
+                }
             }
 
             try
             {
-                if (!quad.Enabled)
+                // The TV quad only draws while the world screen is enabled; the sprite
+                // billboards draw whenever they are placed, so the follower and battle
+                // stage work with the world screen off.
+                var drawTv = this.Enabled && quad.Enabled;
+                var drawSprite = sprites.Length > 0;
+                if (!drawTv && !drawSprite)
                 {
                     this.lastError = "No native quad has been placed yet. Show/place the world screen first.";
                     return;
@@ -285,27 +354,55 @@ public sealed unsafe class NativeTestRenderer : IDisposable
                     {
                         context->OMSetRenderTargets(1, &target, (ID3D11DepthStencilView*)dsvPtr);
 
-                        ID3D11ShaderResourceView* noTexture = null;
-                        context->PSSetShaderResources(0, 1, &noTexture);
-                        context->OMSetDepthStencilState(
-                            reversedDepth
-                                ? this.sceneDepthGreaterEqualReadState
-                                : this.sceneDepthLessEqualReadState,
-                            0);
-                        foreach (var decoration in decorations)
+                        if (drawTv)
                         {
-                            this.UpdateDecorConstants(context, decoration, viewMatrix, projectionMatrix);
+                            ID3D11ShaderResourceView* noTexture = null;
+                            context->PSSetShaderResources(0, 1, &noTexture);
+                            context->OMSetDepthStencilState(
+                                reversedDepth
+                                    ? this.sceneDepthGreaterEqualReadState
+                                    : this.sceneDepthLessEqualReadState,
+                                0);
+                            foreach (var decoration in decorations)
+                            {
+                                this.UpdateDecorConstants(context, decoration, viewMatrix, projectionMatrix);
+                                context->Draw(6, 0);
+                            }
+
+                            this.UpdateQuadConstants(context, quad, viewMatrix, projectionMatrix, srv != 0);
+                            context->PSSetShaderResources(0, 1, &textureView);
+                            context->OMSetDepthStencilState(
+                                reversedDepth
+                                    ? this.sceneDepthGreaterEqualState
+                                    : this.sceneDepthLessEqualState,
+                                0);
                             context->Draw(6, 0);
                         }
 
-                        this.UpdateQuadConstants(context, quad, viewMatrix, projectionMatrix, srv != 0);
-                        context->PSSetShaderResources(0, 1, &textureView);
-                        context->OMSetDepthStencilState(
-                            reversedDepth
-                                ? this.sceneDepthGreaterEqualState
-                                : this.sceneDepthLessEqualState,
-                            0);
-                        context->Draw(6, 0);
+                        if (drawSprite)
+                        {
+                            // World sprites draw in list order (back to front). Read-only
+                            // depth so the world occludes them without their transparent
+                            // texels ever writing into the depth buffer.
+                            context->OMSetDepthStencilState(
+                                reversedDepth
+                                    ? this.sceneDepthGreaterEqualReadState
+                                    : this.sceneDepthLessEqualReadState,
+                                0);
+                            foreach (var sprite in sprites)
+                            {
+                                var spriteView = (ID3D11ShaderResourceView*)sprite.TextureSrv;
+                                // Point sampling keeps mon pixel art crisp; move fx glows
+                                // scale/rotate a lot and look better filtered.
+                                var spriteSampler = sprite.PointSample ? this.pointSamplerState : this.samplerState;
+                                context->PSSetSamplers(0, 1, &spriteSampler);
+                                this.UpdateSpriteConstants(context, sprite, viewMatrix, projectionMatrix);
+                                context->PSSetShaderResources(0, 1, &spriteView);
+                                context->Draw(6, 0);
+                            }
+
+                            context->PSSetSamplers(0, 1, &sampler);
+                        }
                     }
 
                     this.DrawSuccesses++;
@@ -359,6 +456,14 @@ public sealed unsafe class NativeTestRenderer : IDisposable
                 {
                     ((IUnknown*)srv)->Release();
                 }
+
+                foreach (var sprite in sprites)
+                {
+                    if (sprite.TextureSrv != 0)
+                    {
+                        ((IUnknown*)sprite.TextureSrv)->Release();
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -366,6 +471,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             this.lastError = $"{ex.GetType().Name}: {ex.Message}";
             Plugin.Log.Warning(ex, "Native scene renderer failed.");
             this.Enabled = false;
+            this.ClearWorldSprites();
         }
     }
 
@@ -571,6 +677,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
     {
         this.SetTexture(0);
         this.SetSharedTextureHandle(0);
+        this.ClearWorldSprites();
         lock (this.quadLock)
         {
             if (this.sharedTextureSrv is not null)
@@ -592,6 +699,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         Release(this.sceneDepthLessEqualReadState);
         Release(this.rasterizerState);
         Release(this.samplerState);
+        Release(this.pointSamplerState);
         Release(this.quadConstantBuffer);
         this.vertexShader = null;
         this.pixelShader = null;
@@ -603,6 +711,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         this.sceneDepthLessEqualReadState = null;
         this.rasterizerState = null;
         this.samplerState = null;
+        this.pointSamplerState = null;
         this.quadConstantBuffer = null;
         this.resourcesReady = false;
     }
@@ -793,6 +902,17 @@ public sealed unsafe class NativeTestRenderer : IDisposable
 
         this.samplerState = createdSampler;
 
+        samplerDesc.Filter = D3D11_FILTER.D3D11_FILTER_MIN_MAG_MIP_POINT;
+        ID3D11SamplerState* createdPointSampler = null;
+        hr = device->CreateSamplerState(&samplerDesc, &createdPointSampler);
+        if (Failed(hr))
+        {
+            this.lastError = $"CreateSamplerState (point) failed: 0x{(uint)hr.Value:X8}";
+            return false;
+        }
+
+        this.pointSamplerState = createdPointSampler;
+
         var constantBufferDesc = new D3D11_BUFFER_DESC
         {
             ByteWidth = QuadConstantBytes,
@@ -830,8 +950,30 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             viewMatrix,
             projectionMatrix,
             new Vector4(0.02f, 0.02f, 0.02f, 1.0f),
-            useTexture,
+            useTexture ? 1f : 0f,
             0.1f);
+    }
+
+    private void UpdateSpriteConstants(
+        ID3D11DeviceContext* context,
+        in NativeWorldSprite sprite,
+        Matrix4x4 viewMatrix,
+        Matrix4x4 projectionMatrix)
+    {
+        this.UpdateConstants(
+            context,
+            sprite.TopLeft,
+            sprite.TopRight,
+            sprite.BottomRight,
+            sprite.BottomLeft,
+            viewMatrix,
+            projectionMatrix,
+            sprite.Tint,
+            // No texture: a solid tinted quad (background washes, glow flashes).
+            mode: sprite.TextureSrv != 0 ? 2f : 0f,
+            depthOffset: 0f,
+            sprite.U0,
+            sprite.U1);
     }
 
     private void UpdateDecorConstants(
@@ -849,7 +991,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             viewMatrix,
             projectionMatrix,
             quad.Color,
-            useTexture: false,
+            mode: 0f,
             quad.DepthOffset);
     }
 
@@ -862,8 +1004,10 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         Matrix4x4 viewMatrix,
         Matrix4x4 projectionMatrix,
         Vector4 color,
-        bool useTexture,
-        float depthOffset)
+        float mode,
+        float depthOffset,
+        float u0 = 0f,
+        float u1 = 1f)
     {
         var data = stackalloc float[QuadConstantFloats];
         WritePoint(data, 0, topLeft);
@@ -880,10 +1024,12 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         data[58] = color.Z;
         data[59] = color.W;
 
-        data[60] = useTexture ? 1.0f : 0.0f;
+        // flags: x = draw mode (0 solid colour, 1 video, 2 sprite), y = view-space depth
+        // offset, zw = the horizontal UV sub-rect (frame slice of a spritesheet).
+        data[60] = mode;
         data[61] = depthOffset;
-        data[62] = 0f;
-        data[63] = 0f;
+        data[62] = u0;
+        data[63] = u1;
 
         // upscale: texel size (x,y), filter mode (z), sharpen amount (w).
         data[64] = this.srcTexelWidth;
@@ -920,7 +1066,7 @@ public sealed unsafe class NativeTestRenderer : IDisposable
         data[60] = 0f;
         data[61] = 0f;
         data[62] = 0f;
-        data[63] = 0f;
+        data[63] = 1f;
         data[64] = 0f;
         data[65] = 0f;
         data[66] = 0f;
@@ -1049,7 +1195,9 @@ public sealed unsafe class NativeTestRenderer : IDisposable
             float4 viewPos = mul(positions[id], view);
             viewPos.z += flags.y;
             output.pos = mul(viewPos, projection);
-            output.uv = uvs[id];
+            float2 uv = uvs[id];
+            uv.x = lerp(flags.z, flags.w, uv.x); // spritesheet frame slice; 0..1 for full quads
+            output.uv = uv;
             return output;
         }
         """;
@@ -1193,6 +1341,12 @@ public sealed unsafe class NativeTestRenderer : IDisposable
 
         float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         {
+            // Sprite mode: a plain sample keeping the texture's own alpha, tinted by color.
+            if (flags.x > 1.5)
+            {
+                return screenTexture.Sample(screenSampler, uv) * color;
+            }
+
             if (flags.x > 0.5)
             {
                 int mode = (int)(upscale.z + 0.5);
@@ -1263,3 +1417,19 @@ public readonly record struct NativeDecorQuad(
     Vector3 BottomLeft,
     Vector4 Color,
     float DepthOffset);
+
+/// <summary>
+/// One world-space sprite billboard drawn in the scene pass: a textured quad with the
+/// texture's own alpha multiplied by <see cref="Tint"/>. A zero <see cref="TextureSrv"/>
+/// draws a solid tinted quad instead. U0/U1 pick the horizontal slice of a spritesheet.
+/// </summary>
+public readonly record struct NativeWorldSprite(
+    Vector3 TopLeft,
+    Vector3 TopRight,
+    Vector3 BottomRight,
+    Vector3 BottomLeft,
+    nint TextureSrv,
+    float U0,
+    float U1,
+    Vector4 Tint,
+    bool PointSample);

@@ -3,7 +3,7 @@
     "Author":  "Lillypad",
     "Name":  "Lillypad Toolkit",
     "InternalName":  "VideoSyncPrototype",
-    "AssemblyVersion":  "7.0.17.0",
+    "AssemblyVersion":  "7.0.18.0",
     "Description":  "Use responsibly",
     "Punchline":  "Shared watch rooms, in-world TV, player tools, and emote remapping.",
     "ApplicableVersion":  "any",
@@ -24,9 +24,9 @@
     "IsHide":  false,
     "IsTestingExclusive":  false,
     "DownloadCount":  0,
-    "DownloadLinkInstall":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-7.0.17.0.zip",
-    "DownloadLinkUpdate":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-7.0.17.0.zip",
+    "DownloadLinkInstall":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-7.0.18.0.zip",
+    "DownloadLinkUpdate":  "https://raw.githubusercontent.com/Lillypad-14/Lillyvid/main/release/VideoSyncPrototype-7.0.18.0.zip",
     "DownloadLinkTesting":  null,
-    "LastUpdate":  1783706739
+    "LastUpdate":  1783720252
 }
 ]

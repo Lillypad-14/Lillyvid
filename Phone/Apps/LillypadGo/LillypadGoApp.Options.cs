@@ -64,19 +64,37 @@ internal sealed partial class LillypadGoApp
         }
 
         var trackingMin = new Vector2(content.Min.X + 14f * scale, content.Min.Y + 68f * scale);
-        var trackingMax = new Vector2(content.Max.X - 14f * scale, trackingMin.Y + 86f * scale);
+        var trackingMax = new Vector2(content.Max.X - 14f * scale, trackingMin.Y + 146f * scale);
         LgUi.Card(drawList, trackingMin, trackingMax, 14f * scale, scale);
 
-        Typography.Draw(new Vector2(trackingMin.X + 14f * scale, trackingMin.Y + 12f * scale), "Background tracking",
+        Typography.Draw(new Vector2(trackingMin.X + 14f * scale, trackingMin.Y + 12f * scale), "Overworld",
             theme.TextStrong, TextStyles.SubheadlineEmphasized);
         Typography.Draw(new Vector2(trackingMin.X + 14f * scale, trackingMin.Y + 34f * scale),
             "Find wild encounters while the phone or app is closed.", theme.TextMuted, TextStyles.Caption1);
         var tracking = State.BackgroundTrackingEnabled;
-        var checkboxRect = new Rect(new Vector2(trackingMin.X + 14f * scale, trackingMax.Y - 34f * scale),
-            new Vector2(trackingMax.X - 14f * scale, trackingMax.Y - 10f * scale));
+        var checkboxRect = new Rect(new Vector2(trackingMin.X + 14f * scale, trackingMin.Y + 54f * scale),
+            new Vector2(trackingMax.X - 14f * scale, trackingMin.Y + 78f * scale));
         if (DrawCheckboxRow(checkboxRect, theme, scale, ref tracking, "Run Lillypad Go in the background"))
         {
             State.BackgroundTrackingEnabled = tracking;
+            State.Save();
+        }
+
+        var follower = State.FollowerEnabled;
+        var followerRect = new Rect(new Vector2(trackingMin.X + 14f * scale, trackingMin.Y + 84f * scale),
+            new Vector2(trackingMax.X - 14f * scale, trackingMin.Y + 108f * scale));
+        if (DrawCheckboxRow(followerRect, theme, scale, ref follower, "Lead Pokémon follows you in the world"))
+        {
+            State.FollowerEnabled = follower;
+            State.Save();
+        }
+
+        var worldBattles = State.WorldBattlesEnabled;
+        var worldBattlesRect = new Rect(new Vector2(trackingMin.X + 14f * scale, trackingMax.Y - 34f * scale),
+            new Vector2(trackingMax.X - 14f * scale, trackingMax.Y - 10f * scale));
+        if (DrawCheckboxRow(worldBattlesRect, theme, scale, ref worldBattles, "Battles also play out in the world"))
+        {
+            State.WorldBattlesEnabled = worldBattles;
             State.Save();
         }
 
@@ -390,7 +408,7 @@ internal sealed partial class LillypadGoApp
             hovered ? theme.TextStrong : theme.TextMuted, TextStyles.Subheadline);
 
         ImGui.SetCursorScreenPos(rect.Min);
-        ImGui.InvisibleButton("##lillypad-go-background-tracking", rect.Max - rect.Min);
+        ImGui.InvisibleButton($"##lillypad-go-toggle-{label}", rect.Max - rect.Min);
         if (hovered)
         {
             ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);

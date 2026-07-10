@@ -137,6 +137,10 @@ internal readonly struct SceneMap
 // spritesheet frames (used by Double Team, Quick Attack, and other self-copy effects).
 internal delegate bool MonFrameResolver(bool attackerSprite, out ImTextureID tex, out Vector2 uv0, out Vector2 uv1);
 
+// Receives one evaluated effect quad (center/half in SceneMap output units). The phone draws
+// these into an ImGui draw list; the world battle stage maps them onto its 3D battle plane.
+internal delegate void FxQuadSink(ImTextureID tex, Vector2 center, Vector2 half, Vector2 uv0, Vector2 uv1, float alpha);
+
 internal static class MoveAnims
 {
     private sealed class FxMeta
@@ -567,6 +571,65 @@ internal static class MoveAnims
     public static void DrawEffects(ImDrawListPtr dl, in MoveAnimPlayback playback, float ms, in SceneMap map,
         float effectScale, MonFrameResolver? monFrames)
     {
+        EvaluateEffects(playback, ms, map, effectScale, monFrames,
+            (tex, center, half, uv0, uv1, alpha) => dl.AddImage(tex, center - half, center + half, uv0, uv1,
+                ImGui.GetColorU32(new Vector4(1f, 1f, 1f, alpha))));
+    }
+
+    // The combined colour of the currently active background flashes, for renderers that
+    // can't paint the gradient/image versions (the world stage draws a flat tinted plane).
+    // Alpha is the flash strength; false while no flash is active.
+    public static bool BackgroundWash(in MoveAnimPlayback playback, float ms, out Vector4 color)
+    {
+        color = default;
+        foreach (var bg in playback.Variant.Bg)
+        {
+            var t = ms - bg.Delay;
+            if (t < 0f || t > bg.Dur + 250f)
+            {
+                continue;
+            }
+
+            float alpha;
+            if (t < 250f)
+            {
+                alpha = bg.Opacity * Ease(EaseSwing, t / 250f);
+            }
+            else if (t <= bg.Dur)
+            {
+                alpha = bg.Opacity;
+            }
+            else
+            {
+                alpha = bg.Opacity * (1f - Ease(EaseSwing, (t - bg.Dur) / 250f));
+            }
+
+            alpha = Math.Clamp(alpha, 0f, 1f);
+            if (alpha <= color.W)
+            {
+                continue;
+            }
+
+            if (bg.Img is not null)
+            {
+                // Image backdrops (space, weather photos) reduce to a dark wash in the world.
+                color = new Vector4(0.05f, 0.05f, 0.12f, alpha);
+                continue;
+            }
+
+            color = new Vector4(
+                (((bg.C0 >> 16) & 0xFF) + ((bg.C1 >> 16) & 0xFF)) / 510f,
+                (((bg.C0 >> 8) & 0xFF) + ((bg.C1 >> 8) & 0xFF)) / 510f,
+                ((bg.C0 & 0xFF) + (bg.C1 & 0xFF)) / 510f,
+                alpha);
+        }
+
+        return color.W > 0.004f;
+    }
+
+    public static void EvaluateEffects(in MoveAnimPlayback playback, float ms, in SceneMap map,
+        float effectScale, MonFrameResolver? monFrames, FxQuadSink sink)
+    {
         foreach (var seg in playback.Variant.Fx)
         {
             if (ms < seg.A.Time)
@@ -654,8 +717,7 @@ internal static class MoveAnims
 
             var center = map.Map(cur.Left + cur.W / 2f, cur.Top + cur.H / 2f);
             var half = new Vector2(cur.W, cur.H) * (0.5f * map.SUniform * effectScale);
-            dl.AddImage(tex, center - half, center + half, uv0, uv1,
-                ImGui.GetColorU32(new Vector4(1f, 1f, 1f, alpha)));
+            sink(tex, center, half, uv0, uv1, alpha);
         }
     }
 }

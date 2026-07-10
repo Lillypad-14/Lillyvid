@@ -193,6 +193,21 @@ public sealed unsafe class PresentHookProbe : IDisposable
         this.nativeTestRenderer.ClearQuad();
     }
 
+    /// <summary>
+    /// Places the world sprite billboards (follower / battle stage), drawn in list order.
+    /// Independent of the TV quad and of <see cref="NativeTestDrawEnabled"/>, so they render
+    /// with the world screen off.
+    /// </summary>
+    public void SetNativeWorldSprites(IReadOnlyList<NativeWorldSprite> sprites)
+    {
+        this.nativeTestRenderer.SetWorldSprites(sprites);
+    }
+
+    public void ClearNativeWorldSprites()
+    {
+        this.nativeTestRenderer.ClearWorldSprites();
+    }
+
     public void SetNativeTexture(nint shaderResourceView)
     {
         this.nativeTestRenderer.SetTexture(shaderResourceView);
@@ -385,7 +400,8 @@ public sealed unsafe class PresentHookProbe : IDisposable
             return;
         }
 
-        if (!this.nativeTestRenderer.Enabled || !this.nativeTestRenderer.HasQuad)
+        var wantsTv = this.nativeTestRenderer.Enabled && this.nativeTestRenderer.HasQuad;
+        if (!wantsTv && !this.nativeTestRenderer.HasWorldSprites)
         {
             return;
         }
@@ -398,6 +414,7 @@ public sealed unsafe class PresentHookProbe : IDisposable
         {
             this.lastError = $"{ex.GetType().Name}: {ex.Message}";
             this.nativeTestRenderer.Enabled = false;
+            this.nativeTestRenderer.ClearWorldSprites();
             Plugin.Log.Warning(ex, "Scene pass tracking failed; disabled the native world screen.");
         }
     }
