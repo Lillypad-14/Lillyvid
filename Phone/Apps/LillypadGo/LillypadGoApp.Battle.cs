@@ -86,7 +86,10 @@ internal sealed partial class LillypadGoApp
 
         var wildAnimPose = MonAnimPose(false, sceneMap);
         var wildPos = wildBase + wildAnimPose.Offset;
-        DrawGroundShadow(drawList, wildBase + new Vector2(wildAnimPose.Offset.X, 32f * scale), 40f * scale);
+        // Alphas loom: the sprite, its shadow and its aura all scale up together.
+        var alphaScale = battle.Wild.IsAlpha ? Alphas.BattleScale : 1f;
+        DrawGroundShadow(drawList, wildBase + new Vector2(wildAnimPose.Offset.X, 32f * scale),
+            40f * scale * alphaScale);
 
         // Capture animation: while the wild is inside the ball it fades out and shrinks toward it.
         var capWildAlpha = 1f;
@@ -202,10 +205,17 @@ internal sealed partial class LillypadGoApp
         }
 
         var wildHidden = battle.Wild.SemiInvulnerable ? 0.2f : 1f; // underground / in the air during a charge
-        MonsterArt.Draw(drawList, capWildPos, 42f * scale * wildAnimPose.ScaleMul * capWildScale * sendOutScale,
+        var wildVisibility = wildAnim.Alpha * wildAnimPose.Alpha * wildHidden * capWildAlpha * sendOutAlpha;
+        if (battle.Wild.Trait is { } wildAlphaTrait && displayedWildHp > 0)
+        {
+            DrawAlphaAura(drawList, capWildPos, 44f * scale * alphaScale, Alphas.TraitColor(wildAlphaTrait),
+                time, wildVisibility, strength: 2.4f);
+        }
+
+        MonsterArt.Draw(drawList, capWildPos,
+            42f * scale * alphaScale * wildAnimPose.ScaleMul * capWildScale * sendOutScale,
             battle.Wild.Species, -1f,
-            new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt,
-                wildAnim.Alpha * wildAnimPose.Alpha * wildHidden * capWildAlpha * sendOutAlpha, displayedWildHp <= 0),
+            new MonsterPose(time, wildAnim.Lunge, wildAnim.Hurt, wildVisibility, displayedWildHp <= 0),
             back: false);
         if (sendOutAlpha > 0f)
         {
@@ -226,7 +236,13 @@ internal sealed partial class LillypadGoApp
         if (wildPanel.Contains(ImGui.GetMousePos()))
         {
             string note;
-            if (battle.IsTrainerBattle)
+            if (battle.IsAlphaBattle)
+            {
+                note = battle.Wild.Trait is { } trait
+                    ? $"The apex of this territory.\n{Alphas.TraitName(trait)}: {Alphas.TraitBlurb(trait)}\nIt cannot be caught."
+                    : "The apex of this territory. It cannot be caught.";
+            }
+            else if (battle.IsTrainerBattle)
             {
                 note = $"{battle.TrainerName}'s Pokémon.";
             }

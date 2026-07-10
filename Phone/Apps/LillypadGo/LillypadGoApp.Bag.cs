@@ -252,6 +252,7 @@ internal sealed partial class LillypadGoApp
                 ? "Give this to a creature from its Team profile. It is eaten automatically in battle."
                 : "Equip this from a creature's Team profile. It activates automatically in battle.",
             ItemCategory.EvolutionStone => "Use this from a compatible creature's Team profile.",
+            ItemCategory.AbilityItem => "Use this from a creature's Team profile to preview and change its ability.",
             _ => string.Empty,
         };
         return $"{item.Name}  ·  {LgUi.Money(item.Price)}\n{ItemStatsLine(item)}\n\n{item.Description}\n\n{action}";
@@ -268,6 +269,7 @@ internal sealed partial class LillypadGoApp
             : $"Cures {StatusWord(item.CuresStatus)}",
         ItemCategory.HeldItem => item.Blurb,
         ItemCategory.EvolutionStone => "Evolves a compatible creature",
+        ItemCategory.AbilityItem => "Changes or unlocks an ability",
         _ => string.Empty,
     };
 

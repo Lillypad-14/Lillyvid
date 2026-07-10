@@ -19,6 +19,7 @@ internal sealed class EncounterService : IDisposable
     private readonly Random rng = new();
     private Vector3 lastPos;
     private bool hasLast;
+    private uint lastAlphaNoticeTerritory;
 
     public EncounterService(LillypadGoState state, IClientState clientState, IObjectTable objectTable,
         IFramework framework)
@@ -36,12 +37,15 @@ internal sealed class EncounterService : IDisposable
         if (player is null)
         {
             hasLast = false;
+            state.PlayerPosition = null;
             return;
         }
 
+        state.PlayerPosition = player.Position;
         state.Territory = clientState.TerritoryType;
         state.CurrentBiome = ArrZones.Find(state.Territory)?.Biome ?? Biomes.ForTerritory(state.Territory);
         state.ZoneWeather = ReadZoneWeather();
+        AnnounceAlphaTerritory();
         if (!state.BackgroundTrackingEnabled)
         {
             hasLast = false;
@@ -133,6 +137,34 @@ internal sealed class EncounterService : IDisposable
             }
 
             return;
+        }
+    }
+
+    // A one-time chat whisper on entering a territory whose Alpha is currently alive, so the
+    // landmark announces itself the way the wild-encounter ping does.
+    private void AnnounceAlphaTerritory()
+    {
+        if (state.Territory == lastAlphaNoticeTerritory)
+        {
+            return;
+        }
+
+        lastAlphaNoticeTerritory = state.Territory;
+        if (!state.HasAnyMonster || Alphas.ForTerritory(state.Territory) is not { } alpha ||
+            !state.IsAlphaAlive(alpha.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            global::VideoSyncPrototype.Plugin.ChatGui.Print(
+                $"[Lillypad Go] An overwhelming presence rules this land — {alpha.DisplayName} (Lv{alpha.Level}) " +
+                $"lairs at {alpha.CoordsLabel}. Travel there to challenge it.");
+        }
+        catch
+        {
+            // Chat unavailable (e.g. not logged in yet) — the map card still shows the lair.
         }
     }
 

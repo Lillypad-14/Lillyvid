@@ -102,7 +102,8 @@ function emitDex() {
     const tms = (s.tms || []).map(csStr).join(', ');
     L.push(`        Add(${csStr(s.id)}, ${csStr(s.name)}, Element.${s.types[0]}, ${type2}, ${st.hp}, ${st.atk}, ${st.def}, ${st.spa}, ${st.spd}, ${st.spe}, ${s.capture}, ${s.num},`);
     L.push(`            ${artSpec(s)},`);
-    L.push(`            new (int, string)[] { ${ls} }, ${evoTo}, ${evoLevel}, ${evoMethod}, ${f(s.maleRatio)}, new[] { ${abilities} }, new string[] { ${tms} }, ${f(s.weightkg)});`);
+    const hiddenAbility = s.hiddenAbility ? csStr(s.hiddenAbility) : 'null';
+    L.push(`            new (int, string)[] { ${ls} }, ${evoTo}, ${evoLevel}, ${evoMethod}, ${f(s.maleRatio)}, new[] { ${abilities} }, new string[] { ${tms} }, ${f(s.weightkg)}, ${hiddenAbility});`);
   }
   L.push('    }');
   L.push('}');

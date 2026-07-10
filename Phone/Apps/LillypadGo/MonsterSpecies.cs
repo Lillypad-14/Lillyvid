@@ -52,7 +52,7 @@ internal sealed class MonsterSpecies
         int baseSpd, int catchRate, (int Level, MoveDef Move)[] learnset, Element? secondaryElement = null,
         int? baseSpAtk = null, int? baseSpDef = null, int dexNumber = 0, string? evolvesToId = null,
         int evolveLevel = 0, string? evolveMethod = null, float maleRatio = 0.5f, string[]? abilities = null,
-        string[]? tmMoves = null, float weightKg = 0f)
+        string[]? tmMoves = null, float weightKg = 0f, string? hiddenAbility = null)
     {
         Id = id;
         Name = name;
@@ -73,6 +73,7 @@ internal sealed class MonsterSpecies
         EvolveMethod = evolveMethod;
         MaleRatio = maleRatio;
         Abilities = abilities is { Length: > 0 } ? abilities : new[] { "Pressure" };
+        HiddenAbility = hiddenAbility;
         TmMoveIds = tmMoves ?? Array.Empty<string>();
         WeightKg = weightKg > 0f ? weightKg : 1f;
     }
@@ -102,9 +103,13 @@ internal sealed class MonsterSpecies
     public int EvolveLevel { get; }
     public string? EvolveMethod { get; }
 
-    // Fraction male (0..1); -1 means genderless. Abilities[0] is the primary, [^1] may be hidden.
+    // Fraction male (0..1); -1 means genderless. Regular abilities remain in Abilities; the
+    // generator preserves Showdown's H slot separately so hidden rarity is not guessed.
     public float MaleRatio { get; }
     public string[] Abilities { get; }
+    public string? HiddenAbility { get; }
+    public IReadOnlyList<string> RegularAbilities =>
+        Abilities.Where(ability => !string.Equals(ability, HiddenAbility, StringComparison.OrdinalIgnoreCase)).ToArray();
     public bool Genderless => MaleRatio < 0f;
 
     // Move ids this species can learn from a Generation-IX TM (legality straight from Showdown data).
@@ -161,10 +166,10 @@ internal static partial class Dex
     private static void Add(string id, string name, Element type, Element? type2, int hp, int atk, int def,
         int spAtk, int spDef, int spd, int catchRate, int dexNumber, ArtSpec art, (int lvl, string id)[] learnset,
         string? evolvesToId = null, int evolveLevel = 0, string? evolveMethod = null, float maleRatio = 0.5f,
-        string[]? abilities = null, string[]? tmMoves = null, float weightKg = 0f)
+        string[]? abilities = null, string[]? tmMoves = null, float weightKg = 0f, string? hiddenAbility = null)
         => Register(new MonsterSpecies(id, name, type, art, hp, atk, def, spd, catchRate, LS(learnset), type2,
             spAtk, spDef, dexNumber, evolvesToId, evolveLevel, evolveMethod, maleRatio, abilities, tmMoves,
-            weightKg));
+            weightKg, hiddenAbility));
 
     public static MonsterSpecies? Find(string id) => ById.TryGetValue(id, out var species) ? species : null;
 

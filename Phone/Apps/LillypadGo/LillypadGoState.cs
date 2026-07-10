@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.Json;
 
 namespace VideoSyncPrototype.Phone.Apps.LillypadGo;
@@ -39,6 +40,10 @@ internal sealed class LillypadGoState
     public MonsterInstance? Pending { get; set; }
     public bool InBattle { get; set; }
     public uint Territory { get; set; }
+
+    // The player's live world position (sampled every frame by EncounterService), used to gate
+    // Alpha challenges on standing near the lair. Null while no local player is loaded.
+    public Vector3? PlayerPosition { get; set; }
     public Biome CurrentBiome { get; set; } = Biome.Grassland;
     public float StepProgress { get; set; }
 
@@ -58,6 +63,62 @@ internal sealed class LillypadGoState
     public int BadgeCount => Badges.Count;
 
     public bool HasBadge(int gymIndex) => Badges.Contains(gymIndex);
+
+    // ---- Region Alphas ---------------------------------------------------------------
+    // Per-alpha defeat history: how many times it has fallen and when it last fell (drives the
+    // few-hour respawn window). First clear = the Region Trophy / Alpha Badge for that region.
+
+    private sealed class AlphaRecord
+    {
+        public int Kills { get; set; }
+        public DateTime? LastDefeatUtc { get; set; }
+    }
+
+    private readonly Dictionary<string, AlphaRecord> alphaRecords = new(StringComparer.Ordinal);
+
+    public int AlphaKills(string alphaId) =>
+        alphaRecords.TryGetValue(alphaId, out var record) ? record.Kills : 0;
+
+    public bool AlphaFirstCleared(string alphaId) => AlphaKills(alphaId) > 0;
+
+    public int AlphaTrophyCount => alphaRecords.Count(entry => entry.Value.Kills > 0);
+
+    public bool IsAlphaAlive(string alphaId) => AlphaRespawnIn(alphaId) <= TimeSpan.Zero;
+
+    // Time until the alpha reclaims its territory; zero or negative when it is alive right now.
+    public TimeSpan AlphaRespawnIn(string alphaId)
+    {
+        if (!alphaRecords.TryGetValue(alphaId, out var record) || record.LastDefeatUtc is not { } fell)
+        {
+            return TimeSpan.Zero;
+        }
+
+        return fell + Alphas.RespawnTime - DateTime.UtcNow;
+    }
+
+    // Debug: clears every Alpha's respawn timer (keeping kill history) so they are all alive again.
+    public void DebugRespawnAlphas()
+    {
+        foreach (var record in alphaRecords.Values)
+        {
+            record.LastDefeatUtc = null;
+        }
+
+        Save();
+    }
+
+    public void RecordAlphaDefeat(string alphaId)
+    {
+        if (!alphaRecords.TryGetValue(alphaId, out var record))
+        {
+            record = new AlphaRecord();
+            alphaRecords[alphaId] = record;
+        }
+
+        record.Kills++;
+        record.LastDefeatUtc = DateTime.UtcNow;
+        Save();
+    }
 
     // Per-tier chosen training level range (a sub-band the player picks inside the tier's bounds).
     private int[]? trainingMin;
@@ -146,6 +207,7 @@ internal sealed class LillypadGoState
         Seen.Clear();
         Badges.Clear();
         OwnedTms.Clear();
+        alphaRecords.Clear();
         Bag.Clear();
         trainingMin = null;
         trainingMax = null;
@@ -236,6 +298,13 @@ internal sealed class LillypadGoState
                 Seen = Seen.ToArray(),
                 Badges = Badges.ToArray(),
                 OwnedTms = OwnedTms.ToArray(),
+                Alphas = alphaRecords.ToDictionary(entry => entry.Key, entry => new AlphaDto
+                {
+                    Kills = entry.Value.Kills,
+                    LastDefeatUnix = entry.Value.LastDefeatUtc is { } fell
+                        ? new DateTimeOffset(fell).ToUnixTimeSeconds()
+                        : 0,
+                }),
                 TrainingMin = trainingMin,
                 TrainingMax = trainingMax,
                 Party = Party.Select(ToDto).ToArray(),
@@ -305,6 +374,21 @@ internal sealed class LillypadGoState
             foreach (var tm in dto.OwnedTms)
             {
                 OwnedTms.Add(tm);
+            }
+        }
+
+        alphaRecords.Clear();
+        if (dto.Alphas is not null)
+        {
+            foreach (var (alphaId, record) in dto.Alphas)
+            {
+                alphaRecords[alphaId] = new AlphaRecord
+                {
+                    Kills = Math.Max(0, record.Kills),
+                    LastDefeatUtc = record.LastDefeatUnix > 0
+                        ? DateTimeOffset.FromUnixTimeSeconds(record.LastDefeatUnix).UtcDateTime
+                        : null,
+                };
             }
         }
 
@@ -413,10 +497,17 @@ internal sealed class LillypadGoState
         public string[]? Seen { get; set; }
         public int[]? Badges { get; set; }
         public string[]? OwnedTms { get; set; }
+        public Dictionary<string, AlphaDto>? Alphas { get; set; }
         public int[]? TrainingMin { get; set; }
         public int[]? TrainingMax { get; set; }
         public MonsterDto[]? Party { get; set; }
         public MonsterDto[]? Box { get; set; }
+    }
+
+    private sealed class AlphaDto
+    {
+        public int Kills { get; set; }
+        public long LastDefeatUnix { get; set; }
     }
 
     private sealed class MonsterDto

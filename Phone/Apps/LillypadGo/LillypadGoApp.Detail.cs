@@ -165,10 +165,29 @@ internal sealed partial class LillypadGoApp
         RosterUi.DarkCard(drawList, abil, 9f * scale, scale);
         Typography.Draw(new Vector2(abil.Min.X + 11f * scale, abil.Min.Y + 8f * scale), "ABILITY",
             RosterUi.CountGreen, TextStyles.Caption2);
+        var abilityAction = CenteredAt(new Vector2(abil.Max.X - 40f * scale, abil.Min.Y + 16f * scale),
+            new Vector2(68f * scale, 22f * scale));
+        var canChangeAbility = (State.Bag.Has(Items.AbilityCapsule.Id) &&
+                                AbilityItemTarget(monster, Items.AbilityCapsule) is not null) ||
+                               (State.Bag.Has(Items.AbilityPatch.Id) &&
+                                AbilityItemTarget(monster, Items.AbilityPatch) is not null);
+        if (RosterUi.ColorButton(abilityAction, "CHANGE", LgUi.ItemTint(ItemCategory.AbilityItem), scale, canChangeAbility))
+        {
+            abilityItemTarget = monster;
+            abilityItemPreview = null;
+            abilityItemAwaitingRelease = true;
+        }
+        if (ImGui.IsMouseHoveringRect(abilityAction.Min, abilityAction.Max))
+        {
+            ShowTooltip(canChangeAbility
+                ? "Preview an Ability Capsule or Ability Patch before applying it."
+                : "You need an applicable Ability Capsule or Ability Patch.");
+        }
         Typography.Draw(new Vector2(abil.Min.X + 64f * scale, abil.Min.Y + 6f * scale),
-            FitLabel(monster.Ability, abil.Width - 76f * scale, TextStyles.SubheadlineEmphasized),
+            FitLabel(monster.HasHiddenAbility ? monster.Ability + " (Hidden)" : monster.Ability,
+                abil.Width - 150f * scale, TextStyles.SubheadlineEmphasized),
             RosterUi.CardInk, TextStyles.SubheadlineEmphasized);
-        var abilLines = WrapText(AbilityInfo.Describe(monster.Ability), abil.Width - 24f * scale,
+        var abilLines = WrapText(AbilityInfo.Describe(monster.Ability), abil.Width - 150f * scale,
             TextStyles.Caption2);
         for (var i = 0; i < abilLines.Count && i < 2; i++)
         {
@@ -245,6 +264,11 @@ internal sealed partial class LillypadGoApp
             if (heldItemPicker is not null)
             {
                 DrawHeldItemPicker(content, theme, heldItemPicker, scale);
+            }
+
+            if (abilityItemTarget is not null)
+            {
+                DrawAbilityItemPicker(content, theme, abilityItemTarget, scale);
             }
 
             return;
@@ -341,6 +365,11 @@ internal sealed partial class LillypadGoApp
         if (heldItemPicker is not null)
         {
             DrawHeldItemPicker(content, theme, heldItemPicker, scale);
+        }
+
+        if (abilityItemTarget is not null)
+        {
+            DrawAbilityItemPicker(content, theme, abilityItemTarget, scale);
         }
     }
 
@@ -473,6 +502,156 @@ internal sealed partial class LillypadGoApp
         finally
         {
             LgUi.Interactive = wasInteractive;
+        }
+    }
+
+    private static string? AbilityItemTarget(MonsterInstance monster, ItemDef item)
+    {
+        if (item.Id == Items.AbilityCapsule.Id)
+        {
+            // Lillypad Go allows Capsules to leave a hidden ability as a convenience feature;
+            // they still cannot create or unlock the hidden slot.
+            return monster.AlternateRegularAbility;
+        }
+
+        if (item.Id == Items.AbilityPatch.Id)
+        {
+            return monster.Species.HiddenAbility is { } hidden && !monster.HasHiddenAbility ? hidden : null;
+        }
+
+        return null;
+    }
+
+    private static string AbilityItemStatus(MonsterInstance monster, ItemDef item)
+    {
+        if (AbilityItemTarget(monster, item) is not null)
+        {
+            return item.Blurb;
+        }
+
+        if (item.Id == Items.AbilityCapsule.Id)
+        {
+            return "This species has only one other ability.";
+        }
+
+        return monster.Species.HiddenAbility is null
+            ? "This species has no hidden ability."
+            : "This Pokemon already has its hidden ability.";
+    }
+
+    private void DrawAbilityItemPicker(Rect content, PhoneTheme theme, MonsterInstance monster, float scale)
+    {
+        var wasInteractive = LgUi.Interactive;
+        var suppressOpeningTap = abilityItemAwaitingRelease;
+        if (abilityItemAwaitingRelease && !ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
+            !ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            abilityItemAwaitingRelease = false;
+        }
+        if (suppressOpeningTap)
+        {
+            LgUi.Interactive = false;
+        }
+
+        try
+        {
+            var dl = ImGui.GetWindowDrawList();
+            dl.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.70f)));
+            var preview = abilityItemPreview is not null;
+            var cardHeight = preview ? MathF.Min(content.Height - 36f * scale, 360f * scale) :
+                MathF.Min(content.Height - 36f * scale, 260f * scale);
+            var card = CenteredAt(content.Center, new Vector2(content.Width - 24f * scale, cardHeight));
+            RosterUi.DarkCard(dl, card, 12f * scale, scale, accent: LgUi.ItemTint(ItemCategory.AbilityItem));
+
+            Typography.DrawCentered(new Vector2(card.Center.X, card.Min.Y + 17f * scale),
+                preview ? "Confirm ability change" : "Choose ability item", RosterUi.CardInk,
+                TextStyles.SubheadlineEmphasized);
+            var close = CenteredAt(new Vector2(card.Max.X - 20f * scale, card.Min.Y + 17f * scale),
+                new Vector2(28f * scale, 20f * scale));
+            if (RosterUi.ColorButton(close, "X", RosterUi.Red, scale, true))
+            {
+                abilityItemTarget = null;
+                abilityItemPreview = null;
+                return;
+            }
+
+            var previewItem = abilityItemPreview;
+            if (!preview)
+            {
+                Typography.DrawCentered(new Vector2(card.Center.X, card.Min.Y + 37f * scale),
+                    FitLabel("Preview the exact replacement before spending an item.", card.Width - 44f * scale,
+                        TextStyles.Caption2), RosterUi.CardMuted, TextStyles.Caption2);
+                var choices = Items.All.Where(item => item.Category == ItemCategory.AbilityItem && State.Bag.Has(item.Id)).ToList();
+                var y = card.Min.Y + 54f * scale;
+                foreach (var item in choices)
+                {
+                    var target = AbilityItemTarget(monster, item);
+                    var row = new Rect(new Vector2(card.Min.X + 12f * scale, y),
+                        new Vector2(card.Max.X - 12f * scale, y + 58f * scale));
+                    if (RosterUi.ColorButton(row, item.Name, target is not null ? LgUi.ItemTint(ItemCategory.AbilityItem) : RosterUi.NavyInset,
+                            scale, target is not null, sub: AbilityItemStatus(monster, item)))
+                    {
+                        abilityItemPreview = item;
+                    }
+                    y += 66f * scale;
+                }
+
+                if (choices.Count == 0)
+                {
+                    Typography.DrawCentered(new Vector2(card.Center.X, card.Center.Y),
+                        "Buy an Ability Capsule or earn an Ability Patch first.", RosterUi.CardMuted,
+                        TextStyles.Caption1);
+                }
+            }
+            else if (previewItem is not null && AbilityItemTarget(monster, previewItem) is { } nextAbility)
+            {
+                var current = new Rect(new Vector2(card.Min.X + 12f * scale, card.Min.Y + 50f * scale),
+                    new Vector2(card.Max.X - 12f * scale, card.Min.Y + 142f * scale));
+                var next = new Rect(new Vector2(card.Min.X + 12f * scale, card.Min.Y + 150f * scale),
+                    new Vector2(card.Max.X - 12f * scale, card.Min.Y + 242f * scale));
+                DrawAbilitySummary(current, "CURRENT", monster.Ability, scale);
+                DrawAbilitySummary(next, "AFTER", nextAbility, scale);
+
+                var confirm = CenteredAt(new Vector2(card.Center.X - 54f * scale, card.Max.Y - 25f * scale),
+                    new Vector2(92f * scale, 30f * scale));
+                var cancel = CenteredAt(new Vector2(card.Center.X + 54f * scale, card.Max.Y - 25f * scale),
+                    new Vector2(92f * scale, 30f * scale));
+                if (RosterUi.ColorButton(cancel, "CANCEL", RosterUi.NavyInset, scale, true))
+                {
+                    abilityItemPreview = null;
+                }
+                else if (RosterUi.ColorButton(confirm, "CONFIRM", RosterUi.Green, scale, true))
+                {
+                    if (State.Bag.Consume(previewItem.Id))
+                    {
+                        monster.SetAbility(nextAbility);
+                        State.Save();
+                        abilityItemTarget = null;
+                        abilityItemPreview = null;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            LgUi.Interactive = wasInteractive;
+        }
+    }
+
+    private static void DrawAbilitySummary(Rect rect, string label, string ability, float scale)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        RosterUi.DarkCard(dl, rect, 9f * scale, scale, accent: LgUi.ItemTint(ItemCategory.AbilityItem));
+        Typography.Draw(new Vector2(rect.Min.X + 10f * scale, rect.Min.Y + 7f * scale), label,
+            RosterUi.CountGreen, TextStyles.Caption2);
+        Typography.Draw(new Vector2(rect.Min.X + 72f * scale, rect.Min.Y + 5f * scale),
+            FitLabel(ability, rect.Width - 84f * scale, TextStyles.SubheadlineEmphasized), RosterUi.CardInk,
+            TextStyles.SubheadlineEmphasized);
+        var lines = WrapText(AbilityInfo.Describe(ability), rect.Width - 20f * scale, TextStyles.Caption2);
+        for (var i = 0; i < lines.Count && i < 3; i++)
+        {
+            Typography.Draw(new Vector2(rect.Min.X + 10f * scale, rect.Min.Y + (29f + i * 13f) * scale),
+                lines[i], RosterUi.CardMuted, TextStyles.Caption2);
         }
     }
 

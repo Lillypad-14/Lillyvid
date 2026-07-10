@@ -231,31 +231,51 @@ internal sealed partial class LillypadGoApp
         // Showdown's sandstorm is a tan haze that streams sideways: a warm wash, a few translucent
         // scrolling bands, wind streaks, then fine fast grains — all confined to the arena.
         var sand = new Vector4(0.80f, 0.58f, 0.31f, 1f);
-        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(sand with { W = 0.16f }));
-        for (var i = 0; i < 4; i++)
+        dl.AddRectFilled(arena.Min, arena.Max, ImGui.GetColorU32(sand with { W = 0.24f }));
+        dl.AddRectFilled(arena.Min, arena.Min + new Vector2(arena.Width, arena.Height * 0.34f),
+            ImGui.GetColorU32(new Vector4(1f, 0.86f, 0.57f, 0.08f)));
+        for (var i = 0; i < 8; i++)
         {
             var h = arena.Height * (0.26f + i * 0.03f);
             var y = arena.Min.Y + (((i * 0.27f + clock * 0.05f) % 1f) * (arena.Height + h)) - h;
             dl.AddRectFilled(new Vector2(arena.Min.X, y), new Vector2(arena.Max.X, y + h),
-                ImGui.GetColorU32(sand with { W = 0.05f }));
+                ImGui.GetColorU32(sand with { W = 0.09f }));
         }
 
-        for (var i = 0; i < 30; i++)
+        for (var i = 0; i < 54; i++)
         {
             var seed = i * 61.3f;
             var y = arena.Min.Y + (seed * 13f) % arena.Height;
             var x = arena.Min.X + ((seed * 9f + clock * 460f * scale) % (arena.Width + 80f * scale)) - 80f * scale;
             var len = (30f + i % 4 * 12f) * scale;
             dl.AddLine(new Vector2(x, y), new Vector2(x + len, y + MathF.Sin(clock + i) * 2f * scale),
-                ImGui.GetColorU32(sand with { W = 0.20f }), 1.5f * scale);
+                ImGui.GetColorU32(sand with { W = 0.34f }), 1.8f * scale);
         }
 
-        for (var i = 0; i < 48; i++)
+        for (var i = 0; i < 96; i++)
         {
             var seed = i * 53.17f;
             var x = arena.Min.X + ((seed * 13f + clock * 320f * scale) % (arena.Width + 20f * scale)) - 10f * scale;
             var y = arena.Min.Y + ((seed * 5f + MathF.Sin(clock + i) * 18f) % arena.Height);
-            dl.AddCircleFilled(new Vector2(x, y), (0.8f + i % 3) * scale, ImGui.GetColorU32(sand with { W = 0.22f }));
+            dl.AddCircleFilled(new Vector2(x, y), (0.9f + i % 4) * scale, ImGui.GetColorU32(sand with { W = 0.34f }));
+        }
+
+        // Fast, pale gust ribbons are intentionally brighter than the terrain so a storm remains
+        // readable over the desert backdrop rather than blending into it.
+        var dust = new Vector4(1f, 0.86f, 0.57f, 1f);
+        for (var i = 0; i < 12; i++)
+        {
+            var seed = i * 41.71f;
+            var y = arena.Min.Y + (seed * 11f % arena.Height);
+            var x = arena.Min.X + ((seed * 17f + clock * (210f + i % 3 * 48f) * scale) %
+                (arena.Width + 150f * scale)) - 150f * scale;
+            var length = (76f + (i % 4) * 28f) * scale;
+            var slope = (3f + i % 4 * 1.5f) * scale;
+            var alpha = 0.18f + (i % 3) * 0.045f;
+            dl.AddLine(new Vector2(x, y), new Vector2(x + length * 0.55f, y - slope),
+                ImGui.GetColorU32(dust with { W = alpha }), (2.2f + i % 2) * scale);
+            dl.AddLine(new Vector2(x + length * 0.55f, y - slope), new Vector2(x + length, y + slope * 0.35f),
+                ImGui.GetColorU32(sand with { W = alpha * 0.82f }), (1.5f + i % 2) * scale);
         }
     }
 

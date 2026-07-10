@@ -46,6 +46,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     {
         Region,
         National,
+        Alphas,
     }
 
     private struct Anim
@@ -125,6 +126,11 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private Menu menu = Menu.Root;
     private Battle? battle;
     private int pendingGymIndex = -1;
+    // The Alpha currently being fought, its spoils (rolled at engage time so the result screen can
+    // show them before FinishBattle grants them), and whether this win would be the first clear.
+    private AlphaDef? pendingAlpha;
+    private bool pendingAlphaFirstClear;
+    private readonly List<AlphaLoot> pendingAlphaDrops = new();
     private bool confirmingRun;
     private float gymIntroTimer; // >0 while the pre-gym-battle leader intro is playing
     private GymDef? gymIntroGym;
@@ -164,6 +170,9 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     private int heldItemPickerSort; // 0 = Type, 1 = Name, 2 = Count
     private string heldItemPickerSearch = string.Empty;
     private float heldItemPickerScroll;
+    private MonsterInstance? abilityItemTarget;
+    private ItemDef? abilityItemPreview;
+    private bool abilityItemAwaitingRelease;
     private float detailEvolutionPulse;
     private float battleEvolutionPulse;
     private bool releaseConfirm;

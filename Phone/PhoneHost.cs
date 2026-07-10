@@ -30,6 +30,7 @@ internal static class Plugin
     public static IPluginLog Log => global::VideoSyncPrototype.Plugin.Log;
     public static ITextureProvider TextureProvider => global::VideoSyncPrototype.Plugin.TextureProvider;
     public static IClientState ClientState => global::VideoSyncPrototype.Plugin.ClientState;
+    public static IGameGui GameGui => global::VideoSyncPrototype.Plugin.GameGui;
     public static IObjectTable ObjectTable => global::VideoSyncPrototype.Plugin.ObjectTable;
     public static IFramework Framework => global::VideoSyncPrototype.Plugin.Framework;
 

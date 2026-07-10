@@ -115,6 +115,8 @@ internal readonly record struct MoveLearnChoice(MonsterInstance Monster, MoveDef
 // Turn-based battle engine using modern mainline-style type, stat, damage and status rules.
 internal sealed partial class Battle
 {
+    public const int CatchLevelGrace = 15;
+
     private readonly List<MonsterInstance> party;
     private readonly Bag bag;
     private readonly Random rng;
@@ -153,6 +155,7 @@ internal sealed partial class Battle
     private MonsterInstance? futureSightTarget;
     private int futureSightTurns;
     private bool resolvingFutureSight;
+    private readonly int highestOwnedLevel;
     private MoveDef? playerTurnMove;
     private MoveDef? wildTurnMove;
 
@@ -162,12 +165,39 @@ internal sealed partial class Battle
 
     // Wild encounter: a lone opponent that can be caught.
     public Battle(List<MonsterInstance> party, MonsterInstance wild, Bag bag, Random rng,
-        BattleWeather startingWeather = BattleWeather.None)
-        : this(party, bag, rng, startingWeather)
+        BattleWeather startingWeather = BattleWeather.None, int highestOwnedLevel = 0)
+        : this(party, bag, rng, startingWeather, highestOwnedLevel)
     {
         Wild = wild;
         Wild.ResetBattleState();
         Log.Enqueue(new BattleMessage($"A wild {Wild.Name} appeared!", BattleCue.Info));
+        EnqueueAmbientWeather();
+        ApplyEntryAbility(Active, Wild);
+        ApplyEntryAbility(Wild, Active);
+    }
+
+    // Alpha challenge: the region's territorial boss. Never catchable, but always safe to retreat
+    // from — it holds its ground rather than chasing. The trait's shield/turn effects hook in here
+    // and in the damage/turn pipeline via Wild.Trait.
+    public Battle(List<MonsterInstance> party, MonsterInstance alpha, AlphaDef alphaDef, Bag bag, Random rng,
+        BattleWeather startingWeather = BattleWeather.None)
+        : this(party, bag, rng, startingWeather)
+    {
+        IsAlphaBattle = true;
+        Wild = alpha;
+        Wild.ResetBattleState();
+        Log.Enqueue(new BattleMessage("Alpha power surges through it: reinforced HP and battle stats!", BattleCue.Buff,
+            Wild));
+        Log.Enqueue(new BattleMessage($"The air trembles — {Wild.Name} looms before you!", BattleCue.Info));
+        Log.Enqueue(new BattleMessage(
+            $"{Alphas.TraitName(alphaDef.Trait)}: {Alphas.TraitBlurb(alphaDef.Trait)}", BattleCue.Buff, Wild));
+        if (alphaDef.Trait == AlphaTrait.IronHide)
+        {
+            Wild.ShieldHp = Math.Max(1, Wild.MaxHp / 4);
+            Log.Enqueue(new BattleMessage($"{Wild.Name}'s iron hide glimmers — a shield guards it!",
+                BattleCue.Buff, Wild, stateAfter: BattleSnapshot.Capture(Wild)));
+        }
+
         EnqueueAmbientWeather();
         ApplyEntryAbility(Active, Wild);
         ApplyEntryAbility(Wild, Active);
@@ -191,11 +221,14 @@ internal sealed partial class Battle
         ApplyEntryAbility(Wild, Active);
     }
 
-    private Battle(List<MonsterInstance> party, Bag bag, Random rng, BattleWeather startingWeather)
+    private Battle(List<MonsterInstance> party, Bag bag, Random rng, BattleWeather startingWeather,
+        int highestOwnedLevel = 0)
     {
         this.party = party;
         this.bag = bag;
         this.rng = rng;
+        this.highestOwnedLevel = Math.Max(highestOwnedLevel,
+            party.Count == 0 ? 0 : party.Max(monster => monster.Level));
         activeIndex = party.FindIndex(m => !m.Fainted);
         if (activeIndex < 0)
         {
@@ -239,7 +272,12 @@ internal sealed partial class Battle
     public int XpGained { get; private set; } // XP the active creature earned across the battle
     public string? TrainerName { get; }
     public bool IsTrainerBattle => enemyTeam is not null;
-    public bool CanCatch => enemyTeam is null;
+    public bool IsAlphaBattle { get; }
+    public bool CanCatch => enemyTeam is null && !IsAlphaBattle && !IsCatchLevelRestricted;
+    public bool IsCatchLevelRestricted => enemyTeam is null && !IsAlphaBattle &&
+        Wild.Level > highestOwnedLevel + CatchLevelGrace;
+    public int HighestOwnedLevel => highestOwnedLevel;
+    public int CatchLevelCap => highestOwnedLevel + CatchLevelGrace;
     public MoveLearnChoice? PendingMoveChoice => pendingMoveChoices.Count > 0 ? pendingMoveChoices.Peek() : null;
 
     public bool RequiresSwitch { get; private set; }
@@ -281,6 +319,11 @@ internal sealed partial class Battle
     // The odds a given Ball captures the wild creature right now (accounts for its catch bonus).
     public float CaptureChanceWith(ItemDef ball)
     {
+        if (IsCatchLevelRestricted)
+        {
+            return 0f;
+        }
+
         var rate = CaptureCheckChance(ball.CatchBonus);
         return Math.Clamp(rate + rate * rate * rate - rate * rate * rate * rate, 0f, 1f);
     }
@@ -354,6 +397,12 @@ internal sealed partial class Battle
                 Log.Enqueue(new BattleMessage($"{quick.Name}'s Quick Claw let it move first!", BattleCue.Info,
                     quick));
             }
+        }
+
+        // A Swift Alpha strikes first no matter what — Speed, priority and Quick Claws included.
+        if (IsAlphaBattle && Wild.Trait == AlphaTrait.Swift)
+        {
+            playerFirst = false;
         }
 
         // Zoom Lens pays out only for whoever strikes second.
@@ -481,7 +530,7 @@ internal sealed partial class Battle
 
         return item.Category switch
         {
-            ItemCategory.Ball => !IsTrainerBattle,
+            ItemCategory.Ball => CanCatch,
             ItemCategory.Potion => !Active.Fainted && Active.CurrentHp < Active.MaxHp,
             ItemCategory.Revive => party.Any(monster => monster.Fainted),
             ItemCategory.StatusHeal => item.CuresAllStatus
@@ -543,7 +592,7 @@ internal sealed partial class Battle
 
     private void UseBall(ItemDef ball)
     {
-        if (!CanAct || IsTrainerBattle || !bag.Has(ball.Id))
+        if (!CanAct || !CanCatch || !bag.Has(ball.Id))
         {
             return;
         }
@@ -593,6 +642,16 @@ internal sealed partial class Battle
     {
         if (!CanAct)
         {
+            return;
+        }
+
+        // An Alpha is territorial, not predatory: retreating always succeeds and costs nothing —
+        // the boss simply stays in its lair for another attempt.
+        if (IsAlphaBattle)
+        {
+            Outcome = BattleOutcome.Fled;
+            Log.Enqueue(new BattleMessage($"You backed away. {Wild.Name} watches you leave its territory.",
+                BattleCue.Fled));
             return;
         }
 
@@ -927,6 +986,11 @@ internal sealed partial class Battle
 
     private float CaptureCheckChance(float ballBonus)
     {
+        if (IsCatchLevelRestricted)
+        {
+            return 0f;
+        }
+
         var hpTerm = (3f * Wild.MaxHp - 2f * Wild.CurrentHp) / (3f * Wild.MaxHp);
         var statusBonus = Wild.Status != Status.None ? 1.5f : 1f;
         return Math.Clamp(hpTerm * (Wild.Species.CatchRate / 255f) * ballBonus * statusBonus, 0.03f, 1f);
@@ -1074,11 +1138,14 @@ internal sealed partial class Battle
             case BattleWeather.Sun:
                 lines.Add("Fire-type moves deal 1.5x damage.");
                 lines.Add("Water-type moves deal 0.5x damage.");
+                lines.Add("Solar Beam fires without charging.");
+                lines.Add("Thunder / Hurricane are less accurate.");
                 lines.Add("Solar Power / Dry Skin scorch their holders.");
                 break;
             case BattleWeather.Rain:
                 lines.Add("Water-type moves deal 1.5x damage.");
                 lines.Add("Fire-type moves deal 0.5x damage.");
+                lines.Add("Thunder / Hurricane never miss.");
                 lines.Add("Rain Dish / Dry Skin restore HP each turn.");
                 break;
             case BattleWeather.Sandstorm:
@@ -1087,7 +1154,9 @@ internal sealed partial class Battle
                 lines.Add("All others lose 1/16 max HP each turn.");
                 break;
             case BattleWeather.Snow:
+                lines.Add("Ice-types gain +50% Def.");
                 lines.Add("Ice-type moves get a small boost.");
+                lines.Add("Blizzard never misses.");
                 lines.Add("Ice Body restores HP each turn.");
                 break;
             default:
@@ -1148,6 +1217,7 @@ internal sealed partial class Battle
                 if (ab is "Slush Rush") lines.Add("Slush Rush: Speed x2.");
                 if (ab is "Ice Body") lines.Add("Ice Body: restores HP each turn.");
                 if (ab is "Snow Cloak") lines.Add("Snow Cloak: +25% evasion.");
+                if (mon.HasType(Element.Ice)) lines.Add("Ice-type: +50% Def in the snow.");
                 break;
         }
 
@@ -1181,6 +1251,12 @@ internal sealed partial class Battle
             indicators.Add(new BattleIndicator("Terrain", $"{Terrain} Terrain", Elements.Color(element)));
         }
 
+        if (IsAlphaBattle && Wild.Trait is { } alphaTrait)
+        {
+            indicators.Add(new BattleIndicator("Alpha", Alphas.TraitName(alphaTrait),
+                Alphas.TraitColor(alphaTrait)));
+        }
+
         AddSideIndicators(indicators, true);
         AddSideIndicators(indicators, false);
         AddMonsterIndicators(indicators, Active, "You");
@@ -1207,6 +1283,7 @@ internal sealed partial class Battle
 
     private static void AddMonsterIndicators(List<BattleIndicator> indicators, MonsterInstance monster, string side)
     {
+        if (monster.ShieldHp > 0) indicators.Add(new BattleIndicator(side, $"Iron Hide {monster.ShieldHp} HP", new Vector4(0.68f, 0.72f, 0.80f, 1f)));
         if (monster.SubstituteHp > 0) indicators.Add(new BattleIndicator(side, "Substitute", new Vector4(0.35f, 0.9f, 0.55f, 1f)));
         if (monster.TauntTurns > 0) indicators.Add(new BattleIndicator(side, $"Taunt {monster.TauntTurns}", new Vector4(1f, 0.35f, 0.35f, 1f)));
         if (monster.BindingTurns > 0) indicators.Add(new BattleIndicator(side, $"Bound {monster.BindingTurns}", new Vector4(0.95f, 0.55f, 0.2f, 1f)));
@@ -2150,6 +2227,21 @@ internal sealed partial class Battle
                 acc *= 0.8f;
             }
 
+            // Signature weather-accuracy moves: Thunder/Hurricane never miss in rain (and are
+            // shaky in sun), and Blizzard never misses in snow — as in the mainline games.
+            if (!WeatherSuppressed)
+            {
+                if ((Weather == BattleWeather.Rain && move.Name is "Thunder" or "Hurricane") ||
+                    (Weather == BattleWeather.Snow && move.Name is "Blizzard"))
+                {
+                    acc = float.MaxValue; // bypasses the miss roll entirely
+                }
+                else if (Weather == BattleWeather.Sun && move.Name is "Thunder" or "Hurricane")
+                {
+                    acc = 50f;
+                }
+            }
+
             if (rng.NextDouble() * 100f >= acc)
             {
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s attack missed!", BattleCue.Info));
@@ -2246,6 +2338,13 @@ internal sealed partial class Battle
             // Rock-types get +50% Sp. Def in a sandstorm.
             if (!WeatherSuppressed && Weather == BattleWeather.Sandstorm && defender.HasType(Element.Rock) &&
                 move.Category == MoveCategory.Special)
+            {
+                defMul *= 1.5f;
+            }
+
+            // Ice-types get +50% Def in snow (the Gen-9 counterpart to sandstorm's Rock boost).
+            if (!WeatherSuppressed && Weather == BattleWeather.Snow && defender.HasType(Element.Ice) &&
+                move.Category == MoveCategory.Physical)
             {
                 defMul *= 1.5f;
             }
@@ -2368,6 +2467,26 @@ internal sealed partial class Battle
                 if (focusSash)
                 {
                     defender.HeldItem = string.Empty;
+                }
+            }
+
+            // Iron Hide (Alpha trait): the shield soaks damage before HP or a substitute is touched.
+            if (defender.ShieldHp > 0)
+            {
+                var absorbed = Math.Min(defender.ShieldHp, appliedDamage);
+                defender.ShieldHp -= absorbed;
+                appliedDamage -= absorbed;
+                Log.Enqueue(new BattleMessage($"{defender.Name}'s iron hide absorbed {absorbed} damage!",
+                    BattleCue.Info, defender));
+                if (defender.ShieldHp <= 0)
+                {
+                    Log.Enqueue(new BattleMessage($"{defender.Name}'s iron hide shattered!", BattleCue.Info,
+                        defender));
+                }
+
+                if (appliedDamage <= 0)
+                {
+                    return;
                 }
             }
 
@@ -3466,7 +3585,9 @@ internal sealed partial class Battle
             return true;
         }
 
-        PrizeMoney = enemyTeam is not null ? trainerPrize : 40 + Wild.Level * 20;
+        PrizeMoney = enemyTeam is not null ? trainerPrize
+            : IsAlphaBattle ? 300 + Wild.Level * 60
+            : 40 + Wild.Level * 20;
         Outcome = BattleOutcome.Won;
         return true;
     }
@@ -3522,7 +3643,8 @@ internal sealed partial class Battle
             }
 
             var active = ReferenceEquals(m, Active);
-            var gain = XpAward(Wild.Level, m.Level, active);
+            // Felling an Alpha pays double XP on top of its already-inflated level.
+            var gain = XpAward(Wild.Level, m.Level, active) * (IsAlphaBattle ? 2 : 1);
             if (gain <= 0)
             {
                 continue;
@@ -3665,7 +3787,23 @@ internal sealed partial class Battle
         HeldItemEndOfTurn(Wild);
         EndOfTurnAbilities(Active);
         EndOfTurnAbilities(Wild);
+        AlphaRegenTick();
         AdvanceFieldTimers();
+    }
+
+    // Regenerator (Alpha trait): the boss knits 1/16 of its max HP closed at the end of every turn.
+    private void AlphaRegenTick()
+    {
+        if (!IsAlphaBattle || Wild.Trait != AlphaTrait.Regenerator || Wild.Fainted ||
+            Wild.CurrentHp >= Wild.MaxHp)
+        {
+            return;
+        }
+
+        var amount = Math.Max(1, Wild.MaxHp / 16);
+        Wild.Heal(amount);
+        Log.Enqueue(new BattleMessage($"{Wild.Name}'s wounds knit closed! (+{amount})", BattleCue.Heal, Wild,
+            Wild.CurrentHp, stateAfter: BattleSnapshot.Capture(Wild)));
     }
 
     private void FieldHealingTick(MonsterInstance monster)

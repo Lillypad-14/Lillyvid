@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using VideoSyncPrototype.Phone.Apps.Games.Framework;
 using VideoSyncPrototype.Phone.Core;
@@ -36,7 +37,8 @@ internal sealed partial class LillypadGoApp
 
         var sortBounds = new Rect(new Vector2(content.Min.X + 12f * scale, headerBottom + 8f * scale),
             new Vector2(content.Max.X - 12f * scale, headerBottom + 36f * scale));
-        var changedSort = RosterUi.FolderTabs(sortBounds, new[] { "REGION", "NATIONAL" }, (int)dexSort, scale);
+        var changedSort = RosterUi.FolderTabs(sortBounds, new[] { "REGION", "NATIONAL", "ALPHAS" }, (int)dexSort,
+            scale);
         if (changedSort >= 0)
         {
             dexSort = (DexSort)changedSort;
@@ -59,6 +61,10 @@ internal sealed partial class LillypadGoApp
         if (dexSort == DexSort.National)
         {
             DrawDexNational(list, caughtIds, ref y, theme, scale);
+        }
+        else if (dexSort == DexSort.Alphas)
+        {
+            DrawDexAlphas(list, ref y, theme, scale);
         }
         else
         {
@@ -344,12 +350,139 @@ internal sealed partial class LillypadGoApp
         y += (all.Length + cols - 1) / cols * (cellH + gap);
     }
 
+    // The ALPHAS tab: one hero card per region Alpha — where it lairs, its trait, whether it is
+    // alive right now (or how long until it returns), the defeat tally, the first-clear trophy,
+    // and its possible spoils. Alphas are landmarks, so every card is fully visible from the start.
+    private const float AlphaCardHeight = 118f;
+
+    private void DrawDexAlphas(Rect clip, ref float y, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var mouse = ImGui.GetMousePos();
+        Typography.DrawCentered(new Vector2(clip.Center.X, y + 10f * scale),
+            FitLabel("One Alpha rules each region. Fell it for rare spoils — it returns hours later.",
+                clip.Width - 20f * scale, TextStyles.Caption2), RosterUi.InkTan, TextStyles.Caption2);
+        y += 24f * scale;
+
+        foreach (var alphaDef in Alphas.All)
+        {
+            var height = AlphaCardHeight * scale;
+            var rect = new Rect(new Vector2(clip.Min.X + 6f * scale, y),
+                new Vector2(clip.Max.X - 4f * scale, y + height));
+            y += height + 6f * scale;
+            if (!RowVisible(rect, clip) || alphaDef.Species is not { } species)
+            {
+                continue;
+            }
+
+            var alive = State.IsAlphaAlive(alphaDef.Id);
+            var kills = State.AlphaKills(alphaDef.Id);
+            var seen = State.Seen.Contains(species.Id);
+            var traitColor = Alphas.TraitColor(alphaDef.Trait);
+            var hovered = clip.Contains(mouse) && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
+            RosterUi.DarkCard(drawList, rect, 10f * scale, scale, hovered, false, accent: traitColor);
+
+            var portrait = new Vector2(rect.Min.X + 38f * scale, rect.Min.Y + 46f * scale);
+            if (alive)
+            {
+                DrawAlphaAura(drawList, portrait, 26f * scale, traitColor, time + alphaDef.Level);
+            }
+
+            MonsterArt.Draw(drawList, portrait, 24f * scale, species, 1f,
+                new MonsterPose(time + alphaDef.Level, 0f, 0f, alive ? 1f : 0.4f, !alive));
+
+            var textX = rect.Min.X + 74f * scale;
+            var rightEdge = rect.Max.X - 10f * scale;
+            var name = FitLabel(alphaDef.DisplayName, rightEdge - textX - 92f * scale,
+                TextStyles.SubheadlineEmphasized);
+            Typography.Draw(new Vector2(textX, rect.Min.Y + 8f * scale), name, RosterUi.Gold,
+                TextStyles.SubheadlineEmphasized);
+            if (kills > 0)
+            {
+                var nameWidth = Typography.Measure(name, TextStyles.SubheadlineEmphasized).X;
+                ProgressRing.CenterIcon(drawList, new Vector2(textX + nameWidth + 12f * scale,
+                    rect.Min.Y + 16f * scale), FontAwesomeIcon.Trophy, RosterUi.Gold, 10f * scale);
+            }
+
+            var status = alive ? "PROWLING" : FormatRespawn(State.AlphaRespawnIn(alphaDef.Id));
+            var statusColor = alive ? RosterUi.CountGreen : new Vector4(0.93f, 0.76f, 0.36f, 1f);
+            var statusSize = Typography.Measure(status, TextStyles.Caption1);
+            Typography.Draw(new Vector2(rightEdge - statusSize.X, rect.Min.Y + 10f * scale), status,
+                statusColor, TextStyles.Caption1);
+
+            Typography.Draw(new Vector2(textX, rect.Min.Y + 28f * scale),
+                FitLabel($"Lv {alphaDef.Level}  ·  {alphaDef.ZoneName} {alphaDef.CoordsLabel}",
+                    rightEdge - textX - 70f * scale, TextStyles.Caption1), RosterUi.CardInk, TextStyles.Caption1);
+            var tally = kills > 0 ? $"x{kills}" : "Undefeated";
+            var tallySize = Typography.Measure(tally, TextStyles.Caption2);
+            Typography.Draw(new Vector2(rightEdge - tallySize.X, rect.Min.Y + 29f * scale), tally,
+                kills > 0 ? RosterUi.CountGreen : RosterUi.CardMuted, TextStyles.Caption2);
+
+            Typography.Draw(new Vector2(textX, rect.Min.Y + 46f * scale),
+                FitLabel($"{alphaDef.Lair} — {alphaDef.Lore}", rightEdge - textX, TextStyles.Caption2),
+                RosterUi.CardMuted, TextStyles.Caption2);
+
+            // Trait pill + its one-line effect.
+            var traitLabel = Alphas.TraitName(alphaDef.Trait).ToUpperInvariant();
+            var traitSize = Typography.Measure(traitLabel, TextStyles.Caption2);
+            var pillMin = new Vector2(textX, rect.Min.Y + 64f * scale);
+            var pillMax = pillMin + new Vector2(traitSize.X + 12f * scale, 16f * scale);
+            Squircle.Fill(drawList, pillMin, pillMax, 8f * scale,
+                ImGui.GetColorU32(traitColor with { W = 0.28f }));
+            Typography.Draw(new Vector2(pillMin.X + 6f * scale, pillMin.Y + 2f * scale), traitLabel,
+                GamePalette.Lighten(traitColor, 0.25f), TextStyles.Caption2);
+            Typography.Draw(new Vector2(pillMax.X + 8f * scale, pillMin.Y + 2f * scale),
+                FitLabel(Alphas.TraitBlurb(alphaDef.Trait), rightEdge - pillMax.X - 8f * scale,
+                    TextStyles.Caption2), RosterUi.CardMuted, TextStyles.Caption2);
+
+            Typography.Draw(new Vector2(rect.Min.X + 12f * scale, rect.Max.Y - 20f * scale),
+                FitLabel($"Spoils: {Alphas.DropSummary(alphaDef)}", rect.Width - 24f * scale,
+                    TextStyles.Caption2), RosterUi.CardMuted, TextStyles.Caption2);
+
+            if (hovered)
+            {
+                ShowTooltip($"{alphaDef.DisplayName}  ·  Lv {alphaDef.Level}\n" +
+                    $"{alphaDef.Region} — {alphaDef.ZoneName} {alphaDef.CoordsLabel}\n{alphaDef.Lore}\n\n" +
+                    $"{Alphas.TraitName(alphaDef.Trait)}: {Alphas.TraitBlurb(alphaDef.Trait)}\n" +
+                    (Alphas.WeatherLabel(alphaDef.Weather) is { Length: > 0 } weather
+                        ? $"Lair weather: {weather}.\n"
+                        : string.Empty) +
+                    $"Possible spoils: {Alphas.DropSummary(alphaDef)}\n" +
+                    "First clear: Region Trophy, Alpha Badge and a Dex-completion gil bonus.\n\n" +
+                    (alive
+                        ? $"It prowls its den at {alphaDef.CoordsLabel} right now — travel within " +
+                          $"{Alphas.ChallengeRadius:0} yalms and challenge it from the Map tab."
+                        : $"Defeated. It reclaims its lair in {FormatRespawn(State.AlphaRespawnIn(alphaDef.Id))}.") +
+                    (seen ? "\nClick to open the species entry." : ""));
+                if (seen && LgUi.Interactive)
+                {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                    {
+                        dexEntrySpecies = species;
+                        learnsetMonster = null;
+                        teachPendingMove = null;
+                        dexEntryTab = 0;
+                        dexEntryScroll = 0f;
+                        dexEntryReturnView = View.Dex;
+                        view = View.DexEntry;
+                    }
+                }
+            }
+        }
+    }
+
     private float MeasureDexContentHeight(float scale)
     {
         if (dexSort == DexSort.National)
         {
             var rows = (Dex.All.Count + 1) / 2;
             return rows * 58f * scale;
+        }
+
+        if (dexSort == DexSort.Alphas)
+        {
+            return (24f + Alphas.All.Count * (AlphaCardHeight + 6f)) * scale;
         }
 
         var total = 0f;

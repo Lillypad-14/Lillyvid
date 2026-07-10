@@ -17,6 +17,50 @@ internal sealed partial class LillypadGoApp
     // content.Max.Y - (NavBarHeight + ~4) * scale.
     internal const float NavBarHeight = 52f;
 
+    // The territorial aura drawn behind an Alpha wherever it appears (battle, map lair card,
+    // Alphas dex tab): a breathing glow in the trait's colour plus slow-orbiting motes. `strength`
+    // scales it up for the large battle sprite (which sits on a bright arena photo) while leaving
+    // the calibrated dex/map portraits untouched at the default of 1.
+    private static void DrawAlphaAura(ImDrawListPtr drawList, Vector2 center, float radius, Vector4 color,
+        float t, float alpha = 1f, float strength = 1f)
+    {
+        if (alpha <= 0.05f)
+        {
+            return;
+        }
+
+        var scale = ImGuiHelpers.GlobalScale;
+        var pulse = 0.5f + 0.5f * MathF.Sin(t * 2.2f);
+        ProgressRing.Glow(center, radius * (1.05f + pulse * 0.12f), color, (0.30f + pulse * 0.18f) * strength * alpha);
+
+        // Defined breathing halo rings that read against any backdrop. Gated on the extra strength
+        // so the smaller dex/map auras (strength == 1) keep their exact calibrated look.
+        var boost = Math.Clamp(strength - 1f, 0f, 2f);
+        if (boost > 0f)
+        {
+            for (var ring = 0; ring < 2; ring++)
+            {
+                var ringRadius = radius * (1.1f + ring * 0.16f + pulse * 0.07f);
+                var ringAlpha = (0.34f - ring * 0.12f) * boost * alpha * (0.6f + pulse * 0.4f);
+                drawList.AddCircle(center, ringRadius,
+                    ImGui.GetColorU32(color with { W = Math.Clamp(ringAlpha, 0f, 0.7f) }), 48,
+                    (1.6f - ring * 0.5f) * scale);
+            }
+        }
+
+        var moteScale = MathF.Min(1.8f, strength);
+        for (var i = 0; i < 7; i++)
+        {
+            var phase = t * 0.9f + i * (MathF.Tau / 7f);
+            var orbit = radius * (1.0f + 0.16f * MathF.Sin(t * 1.7f + i * 1.3f));
+            var pos = center + new Vector2(MathF.Cos(phase) * orbit,
+                MathF.Sin(phase) * orbit * 0.45f - radius * 0.1f);
+            var twinkle = 0.4f + 0.6f * (0.5f + 0.5f * MathF.Sin(t * 3.1f + i * 2.4f));
+            drawList.AddCircleFilled(pos, (1.2f + twinkle * 1.6f) * moteScale * scale,
+                ImGui.GetColorU32(color with { W = (0.25f + twinkle * 0.45f) * alpha }));
+        }
+    }
+
     // The game-style bottom tab bar: a navy dock with sprite icons (Assets/pokemon/roster) and
     // labels for Map/Team/Dex/Bag/Arena, a green sliding highlight behind the active tab, and a
     // bordered Settings gear tile on the right.
@@ -198,9 +242,14 @@ internal sealed partial class LillypadGoApp
                 ("Sp. Def", species.BaseSpDef), ("Speed", species.BaseSpd),
             }
             .MaxBy(stat => stat.Item2).Item1;
+        var abilities = string.Join(", ", species.RegularAbilities);
+        var hidden = species.HiddenAbility is { } hiddenAbility
+            ? $"\nHidden ability: {hiddenAbility} (5% wild roll)"
+            : string.Empty;
         return $"{species.Name}\n{Elements.Format(species.Element, species.SecondaryElement)} creature\n\n" +
                $"Specialty: {specialty}\nBase HP {species.BaseHp}    ATK {species.BaseAtk}    DEF {species.BaseDef}\n" +
                $"SP. ATK {species.BaseSpAtk}    SP. DEF {species.BaseSpDef}    SPD {species.BaseSpd}\n\n" +
+               $"Abilities: {abilities}{hidden}\n\n" +
                $"Click for the full entry and learnset.\n{note}";
     }
 
@@ -242,6 +291,12 @@ internal sealed partial class LillypadGoApp
     // the full effect text to a hover tooltip rather than squeezing it into the chrome.
     private static string BuildItemTooltip(ItemDef item, int owned = -1)
     {
+        var source = Alphas.IsExclusiveDrop(item.Id) ? "\n\n" + Alphas.DropSourceText(item.Id) : string.Empty;
+        return BuildBaseItemTooltip(item, owned) + source;
+    }
+
+    private static string BuildBaseItemTooltip(ItemDef item, int owned = -1)
+    {
         var kind = ItemKindLabel(item);
         var stock = owned >= 0 ? $"\nIn bag: {owned}" : string.Empty;
         return $"{item.Name}\n{kind}  ·  {LgUi.Money(item.Price)}\n\n{item.Description}{stock}";
@@ -253,6 +308,7 @@ internal sealed partial class LillypadGoApp
         ItemCategory.Potion or ItemCategory.Revive or ItemCategory.StatusHeal => "Medicine",
         ItemCategory.HeldItem => Items.IsBerry(item.Id) ? "Berry" : "Held Item",
         ItemCategory.EvolutionStone => "Evolution Stone",
+        ItemCategory.AbilityItem => "Ability Item",
         _ => "Item",
     };
 

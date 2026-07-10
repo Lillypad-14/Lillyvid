@@ -52,9 +52,14 @@ internal sealed class MonsterInstance
 
     private static string RollAbility(MonsterSpecies species)
     {
-        // Pick a regular ability (Showdown lists the hidden ability last in a 3-entry set).
-        var regular = species.Abilities.Length == 3 ? 2 : species.Abilities.Length;
-        return species.Abilities[Rng.Next(Math.Max(1, regular))];
+        // Hidden abilities are rare wild rolls; ordinary abilities remain evenly distributed.
+        if (species.HiddenAbility is { Length: > 0 } hidden && Rng.NextDouble() < 0.05)
+        {
+            return hidden;
+        }
+
+        var regular = species.RegularAbilities;
+        return regular.Count == 0 ? species.Abilities[0] : regular[Rng.Next(regular.Count)];
     }
 
     public MonsterSpecies Species { get; private set; }
@@ -82,10 +87,20 @@ internal sealed class MonsterInstance
     public int[] Ivs { get; private set; }
     public int[] Evs { get; private set; }
     public string Ability { get; private set; } = "Pressure";
+    public bool HasHiddenAbility => Species.HiddenAbility is { } hidden &&
+        string.Equals(Ability, hidden, StringComparison.OrdinalIgnoreCase);
+    public string? AlternateRegularAbility => Species.RegularAbilities
+        .FirstOrDefault(ability => !string.Equals(ability, Ability, StringComparison.OrdinalIgnoreCase));
     public Gender Gender { get; private set; }
     public string HeldItem { get; set; } = string.Empty;
     public bool HasHeldItem => !string.IsNullOrWhiteSpace(HeldItem);
     public bool HeldBerryConsumed { get; set; }
+
+    // Region Alphas: the boss's battle modifier (null for ordinary creatures) and the Iron Hide
+    // damage shield that soaks hits before HP. Alphas are never caught, so neither is persisted.
+    public AlphaTrait? Trait { get; private set; }
+    public bool IsAlpha => Trait is not null;
+    public int ShieldHp { get; set; }
 
     // The Choice trio locks its holder into the first move it executes, for as long as it stays in.
     public MoveDef? ChoiceLockedMove { get; set; }
@@ -247,6 +262,7 @@ internal sealed class MonsterInstance
         ChargingMove = null;
         SemiInvulnerable = false;
         MustRecharge = false;
+        ShieldHp = 0;
         LastMove = null;
         LastPhysicalDamage = 0;
         LastSpecialDamage = 0;
@@ -400,6 +416,20 @@ internal sealed class MonsterInstance
     }
 
     public void ToggleFavorite() => IsFavorite = !IsFavorite;
+
+    // Promotes this instance into a region Alpha: perfect IVs plus the trait's stat bonuses
+    // (applied inside RecomputeStats so they survive any later recompute).
+    public void MakeAlpha(AlphaTrait trait)
+    {
+        Trait = trait;
+        for (var i = 0; i < 6; i++)
+        {
+            Ivs[i] = 31;
+        }
+
+        RecomputeStats();
+        CurrentHp = MaxHp;
+    }
 
     public void RecordBattle(bool victory)
     {
@@ -613,6 +643,30 @@ internal sealed class MonsterInstance
         SpAtk = StatOther(b.Item4, Ivs[Sa], Evs[Sa], Level);
         SpDef = StatOther(b.Item5, Ivs[Sd], Evs[Sd], Level);
         Spd = StatOther(b.Item6, Ivs[Sp], Evs[Sp], Level);
+
+        // Every Alpha gets a boss baseline in addition to perfect IVs. This keeps Swift,
+        // Regenerator, and Iron Hide Alphas threatening too, rather than only the two traits
+        // that previously changed stats directly.
+        if (Trait is not null)
+        {
+            MaxHp = (int)MathF.Round(MaxHp * 1.25f);
+            Atk = (int)MathF.Round(Atk * 1.12f);
+            Def = (int)MathF.Round(Def * 1.12f);
+            SpAtk = (int)MathF.Round(SpAtk * 1.12f);
+            SpDef = (int)MathF.Round(SpDef * 1.12f);
+            Spd = (int)MathF.Round(Spd * 1.12f);
+        }
+
+        // Alpha trait bonuses stack with the universal Alpha baseline above.
+        if (Trait == AlphaTrait.Ancient)
+        {
+            MaxHp = (int)MathF.Round(MaxHp * 1.55f);
+        }
+        else if (Trait == AlphaTrait.Frenzied)
+        {
+            Atk = (int)MathF.Round(Atk * 1.3f);
+            SpAtk = (int)MathF.Round(SpAtk * 1.3f);
+        }
     }
 
     private static int StatHp(int baseStat, int iv, int ev, int level) =>

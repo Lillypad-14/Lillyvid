@@ -414,6 +414,9 @@ function abilitiesOf(s) {
   }
   return list.length ? list : ['Pressure'];
 }
+function hiddenAbilityOf(s) {
+  return s.abilities && s.abilities.H ? s.abilities.H : null;
+}
 function maleRatioOf(s) {
   if (s.gender === 'N') return -1; // genderless
   if (s.gender === 'M') return 1;
@@ -441,6 +444,7 @@ const outSpecies = species.map((s) => ({
   color: s.color,
   weightkg: s.weightkg,
   abilities: abilitiesOf(s),
+  hiddenAbility: hiddenAbilityOf(s),
   maleRatio: maleRatioOf(s),
   prevo: s.prevo || null,
   evos: s.evos || null,

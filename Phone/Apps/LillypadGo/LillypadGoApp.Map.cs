@@ -60,7 +60,17 @@ internal sealed partial class LillypadGoApp
         }
         else if (State.Pending is { } wild)
         {
+            // A pending wild owns the card slot; the resident Alpha collapses into a slim strip
+            // beneath it so the two never fight over the same pixels.
             DrawEncounterCard(content, theme, wild, scale);
+            if (Alphas.ForTerritory(State.Territory) is { Species: not null } alphaHere)
+            {
+                DrawAlphaStrip(content, theme, alphaHere, scale);
+            }
+        }
+        else if (Alphas.ForTerritory(State.Territory) is { Species: not null } alphaDef)
+        {
+            DrawAlphaLairCard(content, theme, alphaDef, scale);
         }
         else
         {
@@ -148,6 +158,237 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    // The region Alpha's lair, drawn in the encounter-card slot whenever the player stands in its
+    // territory (and no ordinary wild is pending). The boss dens at a fixed spot: Flag pins the
+    // lair on the in-game map (the same marker Player Search drops), and Challenge only unlocks
+    // once the player has physically walked to within Alphas.ChallengeRadius of it. Defeated:
+    // a quiet marker counting down to its return.
+    private void DrawAlphaLairCard(Rect content, PhoneTheme theme, AlphaDef alphaDef, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        var species = alphaDef.Species!;
+        var traitColor = Alphas.TraitColor(alphaDef.Trait);
+        var alive = State.IsAlphaAlive(alphaDef.Id);
+        var cleared = State.AlphaFirstCleared(alphaDef.Id);
+        var distance = Alphas.DistanceToLair(alphaDef, State.PlayerPosition);
+        var inRange = alive && distance is { } near && near <= Alphas.ChallengeRadius;
+        var min = new Vector2(content.Min.X + 16f * scale, content.Min.Y + 190f * scale);
+        var max = new Vector2(content.Max.X - 16f * scale, content.Min.Y + 300f * scale);
+        LgUi.Card(drawList, min, max, 16f * scale, scale, sunken: !alive);
+        Squircle.Stroke(drawList, min, max, 16f * scale,
+            ImGui.GetColorU32(traitColor with { W = alive ? inRange ? 0.95f : 0.6f : 0.35f }), 1.6f * scale);
+
+        var portrait = new Vector2(min.X + 48f * scale, min.Y + 44f * scale);
+        if (alive)
+        {
+            DrawAlphaAura(drawList, portrait, 34f * scale, traitColor, time, inRange ? 1f : 0.55f);
+        }
+
+        MonsterArt.Draw(drawList, portrait, 34f * scale, species, -1f,
+            new MonsterPose(time, 0f, 0f, alive ? 1f : 0.35f, !alive));
+
+        var textX = min.X + 96f * scale;
+        var title = FitLabel(alphaDef.DisplayName, max.X - 82f * scale - textX, TextStyles.Headline);
+        Typography.Draw(new Vector2(textX, min.Y + 8f * scale), title, theme.TextStrong, TextStyles.Headline);
+        if (cleared)
+        {
+            var titleWidth = Typography.Measure(title, TextStyles.Headline).X;
+            ProgressRing.CenterIcon(drawList, new Vector2(textX + titleWidth + 14f * scale, min.Y + 18f * scale),
+                FontAwesomeIcon.Trophy, RosterUi.Gold, 12f * scale);
+        }
+
+        var kills = State.AlphaKills(alphaDef.Id);
+        var tally = kills > 0 ? $"x{kills}" : "Undefeated";
+        var tallySize = Typography.Measure(tally, TextStyles.Caption2);
+        Typography.Draw(new Vector2(max.X - 12f * scale - tallySize.X, min.Y + 11f * scale), tally,
+            kills > 0 ? RosterUi.CountGreen : theme.TextMuted, TextStyles.Caption2);
+
+        Typography.Draw(new Vector2(textX, min.Y + 28f * scale),
+            $"Lv {alphaDef.Level}  ·  {Alphas.TraitName(alphaDef.Trait)}", traitColor, TextStyles.Caption1);
+        Typography.Draw(new Vector2(textX, min.Y + 44f * scale),
+            FitLabel($"{alphaDef.Lair} — {Alphas.TraitBlurb(alphaDef.Trait)}", max.X - 12f * scale - textX,
+                TextStyles.Caption2), theme.TextMuted, TextStyles.Caption2);
+
+        // Where the den is and how far away the player stands. Green once inside challenge range.
+        var (locationText, locationColor) = !alive
+            ? ($"Lair at {alphaDef.CoordsLabel}", theme.TextMuted)
+            : inRange
+                ? ("You stand in its domain — challenge it!", RosterUi.CountGreen)
+                : distance is { } far
+                    ? ($"Lair at {alphaDef.CoordsLabel}  ·  {far:0} yalms away", theme.TextMuted)
+                    : ($"Lair at {alphaDef.CoordsLabel}", theme.TextMuted);
+        Typography.Draw(new Vector2(textX, min.Y + 60f * scale),
+            FitLabel(locationText, max.X - 12f * scale - textX, TextStyles.Caption2), locationColor,
+            TextStyles.Caption2);
+
+        // Flag drops the map pin; it works alive or not so the spot can be marked for later.
+        var flag = CenteredAt(new Vector2(max.X - 156f * scale, max.Y - 21f * scale),
+            new Vector2(58f * scale, 28f * scale));
+        if (LgUi.Button(flag, "Flag", GamePalette.Cell, theme, true))
+        {
+            Alphas.TryFlagLair(alphaDef);
+        }
+
+        if (ImGui.IsMouseHoveringRect(flag.Min, flag.Max))
+        {
+            ShowTooltip("Opens your map with a flag pinned on the lair.");
+        }
+
+        if (alive)
+        {
+            var challenge = CenteredAt(new Vector2(max.X - 66f * scale, max.Y - 21f * scale),
+                new Vector2(100f * scale, 28f * scale));
+            if (LgUi.Button(challenge, "Challenge", traitColor, theme, inRange && !State.AllMonstersFainted))
+            {
+                EngageAlpha(alphaDef);
+            }
+
+            if (ImGui.IsMouseHoveringRect(challenge.Min, challenge.Max) && !inRange)
+            {
+                ShowTooltip(distance is { } d
+                    ? $"Too far from the lair — get within {Alphas.ChallengeRadius:0} yalms ({d:0} away)."
+                    : $"Travel to the lair at {alphaDef.CoordsLabel} to challenge it.");
+            }
+        }
+        else
+        {
+            Typography.Draw(new Vector2(min.X + 14f * scale, max.Y - 30f * scale),
+                $"Returns in {FormatRespawn(State.AlphaRespawnIn(alphaDef.Id))}",
+                new Vector4(0.93f, 0.76f, 0.36f, 1f), TextStyles.Caption1);
+        }
+
+        if (ImGui.IsMouseHoveringRect(min, new Vector2(max.X, max.Y - 40f * scale)))
+        {
+            ShowTooltip(BuildAlphaTooltip(alphaDef, alive));
+        }
+    }
+
+    // Slim companion banner for the resident Alpha while a wild encounter occupies the main card
+    // slot: portrait, live status line, and one context action — Challenge when standing at the
+    // lair, otherwise Flag to pin it on the map. On short windows it drops rather than colliding
+    // with the party strip below.
+    private void DrawAlphaStrip(Rect content, PhoneTheme theme, AlphaDef alphaDef, float scale)
+    {
+        var min = new Vector2(content.Min.X + 16f * scale, content.Min.Y + 308f * scale);
+        var max = new Vector2(content.Max.X - 16f * scale, content.Min.Y + 352f * scale);
+        if (max.Y > content.Max.Y - 112f * scale)
+        {
+            return; // not enough headroom above the party strip
+        }
+
+        var drawList = ImGui.GetWindowDrawList();
+        var species = alphaDef.Species!;
+        var traitColor = Alphas.TraitColor(alphaDef.Trait);
+        var alive = State.IsAlphaAlive(alphaDef.Id);
+        var distance = Alphas.DistanceToLair(alphaDef, State.PlayerPosition);
+        var inRange = alive && distance is { } near && near <= Alphas.ChallengeRadius;
+        LgUi.Card(drawList, min, max, 12f * scale, scale, sunken: !alive);
+        Squircle.Stroke(drawList, min, max, 12f * scale,
+            ImGui.GetColorU32(traitColor with { W = alive ? inRange ? 0.85f : 0.5f : 0.25f }), 1.3f * scale);
+
+        var portrait = new Vector2(min.X + 24f * scale, (min.Y + max.Y) * 0.5f);
+        if (alive)
+        {
+            DrawAlphaAura(drawList, portrait, 15f * scale, traitColor, time, inRange ? 0.9f : 0.45f);
+        }
+
+        MonsterArt.Draw(drawList, portrait, 14f * scale, species, -1f,
+            new MonsterPose(time, 0f, 0f, alive ? 1f : 0.35f, !alive));
+
+        var textX = min.X + 46f * scale;
+        var buttonWidth = 78f * scale;
+        var textLimit = max.X - buttonWidth - 22f * scale - textX;
+        Typography.Draw(new Vector2(textX, min.Y + 6f * scale),
+            FitLabel($"{alphaDef.DisplayName}  ·  Lv {alphaDef.Level}", textLimit,
+                TextStyles.FootnoteEmphasized), theme.TextStrong, TextStyles.FootnoteEmphasized);
+        var (status, statusColor) = !alive
+            ? ($"Returns in {FormatRespawn(State.AlphaRespawnIn(alphaDef.Id))}",
+                new Vector4(0.93f, 0.76f, 0.36f, 1f))
+            : inRange
+                ? ("In its domain — ready to challenge!", RosterUi.CountGreen)
+                : distance is { } far
+                    ? ($"Lair at {alphaDef.CoordsLabel}  ·  {far:0} yalms away", theme.TextMuted)
+                    : ($"Lair at {alphaDef.CoordsLabel}", theme.TextMuted);
+        Typography.Draw(new Vector2(textX, min.Y + 23f * scale),
+            FitLabel(status, textLimit, TextStyles.Caption2), statusColor, TextStyles.Caption2);
+
+        var button = CenteredAt(new Vector2(max.X - buttonWidth * 0.5f - 10f * scale, (min.Y + max.Y) * 0.5f),
+            new Vector2(buttonWidth, 26f * scale));
+        if (inRange)
+        {
+            if (LgUi.Button(button, "Challenge", traitColor, theme, !State.AllMonstersFainted))
+            {
+                EngageAlpha(alphaDef);
+            }
+        }
+        else if (LgUi.Button(button, "Flag", GamePalette.Cell, theme, true))
+        {
+            Alphas.TryFlagLair(alphaDef);
+        }
+
+        if (ImGui.IsMouseHoveringRect(button.Min, button.Max))
+        {
+            ShowTooltip(inRange
+                ? "Begin the Alpha challenge."
+                : "Opens your map with a flag pinned on the lair.");
+        }
+        else if (ImGui.IsMouseHoveringRect(min, max))
+        {
+            ShowTooltip(BuildAlphaTooltip(alphaDef, alive));
+        }
+    }
+
+    // The shared hover blurb for the map lair card and the slim strip.
+    private string BuildAlphaTooltip(AlphaDef alphaDef, bool alive) =>
+        $"{alphaDef.DisplayName}  ·  Lv {alphaDef.Level}\n{alphaDef.Lore}\n\n" +
+        $"{Alphas.TraitName(alphaDef.Trait)}: {Alphas.TraitBlurb(alphaDef.Trait)}\n" +
+        (Alphas.WeatherLabel(alphaDef.Weather) is { Length: > 0 } weather
+            ? $"Its lair rages with {weather.ToLowerInvariant()}.\n"
+            : string.Empty) +
+        $"Possible spoils: {Alphas.DropSummary(alphaDef)}\n\n" +
+        (alive
+            ? $"It dens at {alphaDef.CoordsLabel} — walk within {Alphas.ChallengeRadius:0} yalms to " +
+              "challenge it.\nAn Alpha cannot be caught, and retreating from it is always safe."
+            : $"It was defeated recently and returns in {FormatRespawn(State.AlphaRespawnIn(alphaDef.Id))}.");
+
+    private static string FormatRespawn(TimeSpan remaining)
+    {
+        if (remaining <= TimeSpan.Zero)
+        {
+            return "moments";
+        }
+
+        return remaining.TotalHours >= 1
+            ? $"{(int)remaining.TotalHours}h {remaining.Minutes:D2}m"
+            : remaining.TotalMinutes >= 1 ? $"{remaining.Minutes}m" : "under a minute";
+    }
+
+    // Starts the Alpha challenge: builds the boss, rolls this attempt's spoils (shown on the result
+    // screen, granted in FinishBattle), and opens the battle. Only reachable while physically
+    // standing at the lair — the card disables the button, and this re-checks in case of drift.
+    private void EngageAlpha(AlphaDef alphaDef)
+    {
+        if (State.AllMonstersFainted || !State.IsAlphaAlive(alphaDef.Id) ||
+            !Alphas.IsWithinLair(alphaDef, State.PlayerPosition) ||
+            Alphas.BuildInstance(alphaDef) is not { } alpha)
+        {
+            return;
+        }
+
+        PrepPartyForBattle();
+        pendingAlpha = alphaDef;
+        pendingAlphaFirstClear = !State.AlphaFirstCleared(alphaDef.Id);
+        pendingAlphaDrops.Clear();
+        pendingAlphaDrops.AddRange(Alphas.RollDrops(alphaDef, rng, pendingAlphaFirstClear, State.OwnedTms));
+        State.Seen.Add(alpha.Species.Id);
+        // The Alpha's themed weather rules its lair; only fall back to the zone's live weather when
+        // it has none of its own.
+        var weather = alphaDef.Weather != BattleWeather.None ? alphaDef.Weather : State.ZoneWeather;
+        battle = new Battle(State.Party, alpha, alphaDef, State.Bag, rng, weather);
+        pendingGymIndex = -1;
+        EnterBattle();
+    }
+
     private void Engage(MonsterInstance wild)
     {
         if (State.AllMonstersFainted)
@@ -156,7 +397,8 @@ internal sealed partial class LillypadGoApp
         }
 
         PrepPartyForBattle();
-        battle = new Battle(State.Party, wild, State.Bag, rng, State.ZoneWeather);
+        var highestOwnedLevel = State.Party.Concat(State.Box).Select(monster => monster.Level).DefaultIfEmpty().Max();
+        battle = new Battle(State.Party, wild, State.Bag, rng, State.ZoneWeather, highestOwnedLevel);
         State.Pending = null;
         pendingGymIndex = -1;
         EnterBattle();

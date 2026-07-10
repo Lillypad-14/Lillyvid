@@ -15,12 +15,53 @@ internal sealed partial class LillypadGoApp
     private const float MaxBattleEffectScale = 2f;
 
     private bool confirmingDeleteSave;
+    private bool showDebugPanel;
+    private string debugStatus = string.Empty;
+
+    // The debug menu is gated so casual testers can't reach it. Once the password is entered the
+    // gate stays open for the rest of the session (until the app/plugin reloads).
+    private const string DebugPassword = "Lilly123";
+    private bool debugUnlocked;
+    private bool showDebugPrompt;
+    private string debugPasswordDraft = string.Empty;
+    private bool debugPasswordError;
 
     private void DrawOptions(Rect content, PhoneTheme theme)
     {
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
+        if (showDebugPrompt)
+        {
+            DrawDebugPrompt(content, theme, scale);
+            return;
+        }
+
+        if (showDebugPanel)
+        {
+            DrawDebugPanel(content, theme, scale);
+            return;
+        }
+
         LgUi.Header(content, theme, Accent, "Options", "Tune Lillypad Go behavior and visuals.", scale);
+
+        // Debug launcher — a small tap target in the header's empty right side. Prompts for the
+        // password the first time it's opened each session, then goes straight in afterwards.
+        var debugRect = new Rect(new Vector2(content.Max.X - 92f * scale, content.Min.Y + 16f * scale),
+            new Vector2(content.Max.X - 14f * scale, content.Min.Y + 42f * scale));
+        if (LgUi.Button(debugRect, "Debug", GamePalette.Cell, theme, true))
+        {
+            debugStatus = string.Empty;
+            if (debugUnlocked)
+            {
+                showDebugPanel = true;
+            }
+            else
+            {
+                showDebugPrompt = true;
+                debugPasswordDraft = string.Empty;
+                debugPasswordError = false;
+            }
+        }
 
         var trackingMin = new Vector2(content.Min.X + 14f * scale, content.Min.Y + 68f * scale);
         var trackingMax = new Vector2(content.Max.X - 14f * scale, trackingMin.Y + 86f * scale);
@@ -142,10 +183,168 @@ internal sealed partial class LillypadGoApp
         DrawNavigation(content, theme, scale);
     }
 
+    // The password gate in front of the debug menu. Modal sub-view of Options, matching the debug
+    // panel's chrome; a correct entry unlocks the menu for the rest of the session.
+    private void DrawDebugPrompt(Rect content, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(RosterUi.NavyBottom));
+        LgUi.Header(content, theme, Accent, "Debug Access", "Enter the password to continue.", scale);
+
+        var cardMin = new Vector2(content.Min.X + 14f * scale, content.Min.Y + 84f * scale);
+        var cardMax = new Vector2(content.Max.X - 14f * scale, cardMin.Y + 132f * scale);
+        LgUi.Card(drawList, cardMin, cardMax, 14f * scale, scale);
+
+        Typography.Draw(new Vector2(cardMin.X + 14f * scale, cardMin.Y + 14f * scale), "Password",
+            theme.TextStrong, TextStyles.SubheadlineEmphasized);
+
+        var inputRect = new Rect(new Vector2(cardMin.X + 14f * scale, cardMin.Y + 40f * scale),
+            new Vector2(cardMax.X - 14f * scale, cardMin.Y + 72f * scale));
+        var submitted = LgUi.Input(inputRect, "##debug-password", ref debugPasswordDraft, 32, theme, scale);
+
+        if (debugPasswordError)
+        {
+            Typography.Draw(new Vector2(cardMin.X + 14f * scale, cardMin.Y + 78f * scale),
+                "Incorrect password.", theme.Danger, TextStyles.Caption1);
+        }
+
+        var unlockRect = new Rect(new Vector2(cardMin.X + 14f * scale, cardMax.Y - 34f * scale),
+            new Vector2(cardMin.X + 118f * scale, cardMax.Y - 8f * scale));
+        var unlock = LgUi.Button(unlockRect, "Unlock", RosterUi.Green, theme, true);
+
+        var cancelRect = new Rect(new Vector2(unlockRect.Max.X + 10f * scale, unlockRect.Min.Y),
+            new Vector2(unlockRect.Max.X + 104f * scale, unlockRect.Max.Y));
+        if (LgUi.Button(cancelRect, "Cancel", GamePalette.Cell, theme, true))
+        {
+            showDebugPrompt = false;
+            debugPasswordDraft = string.Empty;
+            debugPasswordError = false;
+        }
+
+        if (unlock || submitted)
+        {
+            if (debugPasswordDraft == DebugPassword)
+            {
+                debugUnlocked = true;
+                showDebugPrompt = false;
+                showDebugPanel = true;
+                debugPasswordDraft = string.Empty;
+                debugPasswordError = false;
+            }
+            else
+            {
+                debugPasswordError = true;
+            }
+        }
+
+        DrawNavigation(content, theme, scale);
+    }
+
+    // A quick cheat panel for testing: full-heal, max gil, all items/TMs/badges, and resetting the
+    // Alpha respawn timers. Drawn as a modal sub-view of Options so the normal controls never run
+    // underneath it (no click-through), while the bottom nav stays available to leave the tab.
+    private void DrawDebugPanel(Rect content, PhoneTheme theme, float scale)
+    {
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(content.Min, content.Max, ImGui.GetColorU32(RosterUi.NavyBottom));
+        LgUi.Header(content, theme, Accent, "Debug Menu", "Testing cheats — applied instantly.", scale);
+
+        var actions = new (string Label, Vector4 Color, Action Do)[]
+        {
+            ("Full Heal Party", RosterUi.Green, () =>
+            {
+                State.HealAllMonsters();
+                debugStatus = "Party and box fully healed.";
+            }),
+            ("Max Gil", RosterUi.Gold, () =>
+            {
+                State.Money = 999_999;
+                State.Save();
+                debugStatus = "Gil set to 999,999.";
+            }),
+            ("Give All Items", RosterUi.Blue, () =>
+            {
+                foreach (var item in Items.All)
+                {
+                    State.Bag.Add(item.Id, 99);
+                }
+
+                State.Save();
+                debugStatus = $"Added x99 of every item ({Items.All.Count} kinds).";
+            }),
+            ("Unlock All TMs", RosterUi.Purple, () =>
+            {
+                foreach (var tm in Tms.All)
+                {
+                    State.OwnedTms.Add(tm.MoveId);
+                }
+
+                State.Save();
+                debugStatus = $"Unlocked all {Tms.All.Count} TMs.";
+            }),
+            ("Earn All Badges", new Vector4(0.95f, 0.62f, 0.24f, 1f), () =>
+            {
+                foreach (var gym in Gyms.All)
+                {
+                    State.EarnBadge(gym.Index);
+                }
+
+                debugStatus = $"Earned all {Gyms.All.Count} gym badges.";
+            }),
+            ("Respawn Alphas", new Vector4(0.62f, 0.5f, 0.95f, 1f), () =>
+            {
+                State.DebugRespawnAlphas();
+                debugStatus = "All region Alphas are alive again.";
+            }),
+        };
+
+        var cardMin = new Vector2(content.Min.X + 14f * scale, content.Min.Y + 72f * scale);
+        var cardMax = new Vector2(content.Max.X - 14f * scale, content.Max.Y - (NavBarHeight + 58f) * scale);
+        LgUi.Card(drawList, cardMin, cardMax, 14f * scale, scale);
+
+        const int cols = 2;
+        var pad = 14f * scale;
+        var gap = 10f * scale;
+        var cellW = (cardMax.X - cardMin.X - pad * 2f - gap * (cols - 1)) / cols;
+        var cellH = 42f * scale;
+        for (var i = 0; i < actions.Length; i++)
+        {
+            var min = new Vector2(cardMin.X + pad + i % cols * (cellW + gap),
+                cardMin.Y + pad + i / cols * (cellH + gap));
+            var rect = new Rect(min, min + new Vector2(cellW, cellH));
+            if (LgUi.Button(rect, actions[i].Label, actions[i].Color, theme, true))
+            {
+                actions[i].Do();
+            }
+        }
+
+        if (!string.IsNullOrEmpty(debugStatus))
+        {
+            Typography.DrawCentered(new Vector2(content.Center.X, cardMax.Y - 20f * scale),
+                FitLabel(debugStatus, cardMax.X - cardMin.X - 24f * scale, TextStyles.Subheadline),
+                RosterUi.CountGreen, TextStyles.Subheadline);
+        }
+
+        var closeRect = new Rect(new Vector2(content.Center.X - 74f * scale, cardMax.Y + 12f * scale),
+            new Vector2(content.Center.X + 74f * scale, cardMax.Y + 40f * scale));
+        if (LgUi.Button(closeRect, "Close", GamePalette.Cell, theme, true))
+        {
+            showDebugPanel = false;
+            debugStatus = string.Empty;
+        }
+
+        DrawNavigation(content, theme, scale);
+    }
+
     // Wipes the save and resets every screen's transient state so the app cleanly re-enters starter
     // selection as if freshly installed.
     private void DeleteSaveAndReturnToStarter()
     {
+        showDebugPanel = false;
+        showDebugPrompt = false;
+        debugPasswordDraft = string.Empty;
+        debugPasswordError = false;
+        debugStatus = string.Empty;
         State.DeleteSaveAndReset();
         battle = null;
         displayedPlayer = null;

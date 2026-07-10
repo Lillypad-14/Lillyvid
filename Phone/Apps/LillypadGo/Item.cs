@@ -10,6 +10,7 @@ internal enum ItemCategory : byte
     StatusHeal,
     HeldItem,
     EvolutionStone,
+    AbilityItem,
 }
 
 // The Bag/Marketboard filter pockets (per Ideas/UI Update/Bag.png). Items is the whole non-TM
@@ -125,6 +126,16 @@ internal static class Items
         "fullheal", "Full Heal", "Cures any status.", "Cures any status condition on a single Pokémon.",
         600, ItemCategory.StatusHeal, FontAwesomeIcon.Star, curesAllStatus: true);
 
+    public static readonly ItemDef AbilityCapsule = new(
+        "abilitycapsule", "Ability Capsule", "Switches between normal abilities.",
+        "A capsule that lets a Pokemon switch between its available abilities. It can leave a hidden ability, but cannot unlock one.",
+        5000, ItemCategory.AbilityItem, FontAwesomeIcon.Sync);
+
+    public static readonly ItemDef AbilityPatch = new(
+        "abilitypatch", "Ability Patch", "Unlocks a hidden ability.",
+        "A rare patch that replaces a Pokemon's current ability with its hidden ability, if it has one.",
+        10000, ItemCategory.AbilityItem, FontAwesomeIcon.Star);
+
     public static readonly ItemDef FireStone = Stone("firestone", "Fire Stone", "Fire Stone");
     public static readonly ItemDef WaterStone = Stone("waterstone", "Water Stone", "Water Stone");
     public static readonly ItemDef ThunderStone = Stone("thunderstone", "Thunder Stone", "Thunder Stone");
@@ -138,7 +149,8 @@ internal static class Items
             PokeBall, GreatBall, UltraBall,
             Potion, SuperPotion, HyperPotion,
             Revive,
-            Antidote, ParalyzeHeal, BurnHeal, IceHeal, FullHeal,
+        Antidote, ParalyzeHeal, BurnHeal, IceHeal, FullHeal,
+        AbilityCapsule, AbilityPatch,
         }
         .Concat(HeldItems.All)
         .Append(FireStone).Append(WaterStone).Append(ThunderStone).Append(LeafStone).Append(MoonStone)

@@ -80,4 +80,23 @@ internal static class MapCoordinateConverter
         var scaled = (world + offset) * scale;
         return ((41f / scale) * ((scaled + 1024f) / 2048f)) + 1f;
     }
+
+    /// <summary>
+    /// Inverse of <see cref="WorldToMapCoordinates"/>: turns the coordinates a player reads off
+    /// the map — e.g. (10.5, 11.2) — back into a world X/Z position. Height (Y) is not encoded
+    /// on the flat map, so it comes back as 0; use the result for flat distances and map pins.
+    /// </summary>
+    public static Vector3 MapToWorldCoordinates(Vector2 coordinates, Map map)
+    {
+        var x = InvertAxis(coordinates.X, map.OffsetX, map.SizeFactor);
+        var z = InvertAxis(coordinates.Y, map.OffsetY, map.SizeFactor);
+        return new Vector3(x, 0f, z);
+    }
+
+    private static float InvertAxis(float coordinate, short offset, ushort sizeFactor)
+    {
+        var scale = sizeFactor / 100f;
+        var scaled = (coordinate - 1f) * scale / 41f * 2048f - 1024f;
+        return scaled / scale - offset;
+    }
 }

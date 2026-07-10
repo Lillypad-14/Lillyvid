@@ -270,13 +270,15 @@ internal sealed partial class LillypadGoApp
                 var hints = new[]
                 {
                     "Choose a move. Hover over a move to inspect its power and effects.",
-                    battle.IsTrainerBattle
-                        ? "Use an item to heal, revive or cure your team."
-                        : "Throw a Poké Ball, or restore your active creature's HP.",
+                    battle.CanCatch
+                        ? "Throw a Poké Ball, or restore your active creature's HP."
+                        : "Use an item to heal, revive or cure your team.",
                     "Switch creatures. The opponent will attack after the switch.",
                     battle.IsTrainerBattle
                         ? "Forfeit the battle. Counts as a loss — no badge, money or spoils."
-                        : $"Attempt to escape. Current success chance: {battle.EscapeChance:P0}.",
+                        : battle.IsAlphaBattle
+                            ? "Retreat safely. The Alpha holds its territory — challenge it again anytime."
+                            : $"Attempt to escape. Current success chance: {battle.EscapeChance:P0}.",
                 };
                 Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + 8f * scale),
                     $"What will {battle.Active.Name} do?", new Vector4(1f, 1f, 1f, 0.75f), TextStyles.Caption2);
@@ -333,16 +335,20 @@ internal sealed partial class LillypadGoApp
     private void DrawRunConfirm(Rect panel, PhoneTheme theme, float scale)
     {
         var trainer = battle!.IsTrainerBattle;
+        var alpha = battle.IsAlphaBattle;
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.26f),
-            trainer ? "Forfeit this battle?" : "Run away?", theme.TextStrong, TextStyles.Headline);
+            trainer ? "Forfeit this battle?" : alpha ? "Retreat from the Alpha?" : "Run away?",
+            theme.TextStrong, TextStyles.Headline);
         Typography.DrawCentered(new Vector2(panel.Center.X, panel.Min.Y + panel.Height * 0.46f),
-            FitLabel(trainer ? "It counts as a loss — no badge, money or spoils." : "Give up on this wild encounter.",
+            FitLabel(trainer ? "It counts as a loss — no badge, money or spoils."
+                    : alpha ? "It will keep its territory. You can challenge it again anytime."
+                    : "Give up on this wild encounter.",
                 panel.Width - 24f * scale, TextStyles.Caption1), theme.TextStrong with { W = 0.8f },
             TextStyles.Caption1);
 
         var yes = CenteredAt(new Vector2(panel.Center.X - panel.Width * 0.22f, panel.Min.Y + panel.Height * 0.76f),
             new Vector2(panel.Width * 0.38f, panel.Height * 0.32f));
-        if (RosterUi.ColorButton(yes, trainer ? "FORFEIT" : "RUN", RosterUi.Red, scale, true))
+        if (RosterUi.ColorButton(yes, trainer ? "FORFEIT" : alpha ? "RETREAT" : "RUN", RosterUi.Red, scale, true))
         {
             confirmingRun = false;
             battle.Run();
@@ -576,11 +582,21 @@ internal sealed partial class LillypadGoApp
         }
     }
 
+    private string CatchItemSub(ItemDef item, int count)
+    {
+        if (!battle!.CanCatch && !battle.IsCatchLevelRestricted)
+        {
+            return $"x{count}   -   can't catch";
+        }
+
+        return battle.IsCatchLevelRestricted
+            ? $"x{count}   -   0% catch   -   level cap"
+            : $"x{count}   -   {battle.CaptureChanceWith(item):P0} catch";
+    }
+
     private string BattleItemSub(ItemDef item, int count) => item.Category switch
     {
-        ItemCategory.Ball => battle!.IsTrainerBattle
-            ? $"x{count}   ·   can't catch"
-            : $"x{count}   ·   {battle.CaptureChanceWith(item):P0} catch",
+        ItemCategory.Ball => CatchItemSub(item, count),
         ItemCategory.Potion => $"x{count}   ·   {(item.RestoresFullHp ? "full" : "+" + item.HealAmount)} HP",
         ItemCategory.Revive => $"x{count}   ·   revive a fainted ally",
         ItemCategory.StatusHeal => $"x{count}   ·   {(item.CuresAllStatus ? "cure any status" : "cure " + StatusWord(item.CuresStatus))}",
@@ -589,14 +605,35 @@ internal sealed partial class LillypadGoApp
         _ => "x" + count,
     };
 
+    private string BuildCatchTooltip(ItemDef item)
+    {
+        if (battle!.IsCatchLevelRestricted)
+        {
+            return $"Estimated catch chance on {battle.Wild.Name}: 0%.\n" +
+                   $"Level cap: your highest Pokemon is Lv {battle.HighestOwnedLevel}; " +
+                   $"you can catch up to Lv {battle.CatchLevelCap}.\n" +
+                   "Raise your roster before trying to catch this Pokemon.";
+        }
+
+        if (battle.IsTrainerBattle)
+        {
+            return "You can't catch another trainer's Pokemon!";
+        }
+
+        if (battle.IsAlphaBattle)
+        {
+            return "An Alpha cannot be caught - it can only be driven off for its spoils.";
+        }
+
+        return $"Estimated catch chance on {battle.Wild.Name}: {battle.CaptureChanceWith(item):P0}.\n" +
+               "Lower its HP or inflict a status to improve the odds.";
+    }
+
     private string BuildBattleItemTooltip(ItemDef item)
     {
         var line = item.Category switch
         {
-            ItemCategory.Ball => battle!.IsTrainerBattle
-                ? "You can't catch another trainer's Pokémon!"
-                : $"Estimated catch chance on {battle.Wild.Name}: {battle.CaptureChanceWith(item):P0}.\n" +
-                  "Lower its HP or inflict a status to improve the odds.",
+            ItemCategory.Ball => BuildCatchTooltip(item),
             ItemCategory.Potion => battle!.CanUseItem(item)
                 ? $"Restores {(item.RestoresFullHp ? "all" : item.HealAmount.ToString())} HP to {battle.Active.Name}."
                 : $"{battle.Active.Name} is already at full HP.",
@@ -849,6 +886,9 @@ internal sealed partial class LillypadGoApp
                 $"{battle.Wild.Name} was sent to storage.",
             BattleOutcome.Captured => $"{battle.Wild.Name} joined your team!",
             BattleOutcome.Won when battle.IsTrainerBattle => $"You defeated {battle.TrainerName}!",
+            BattleOutcome.Won when pendingAlpha is not null && pendingAlphaDrops.Count > 0 =>
+                "Spoils: " + string.Join(", ", pendingAlphaDrops.Select(loot => loot.Label)),
+            BattleOutcome.Won when pendingAlpha is not null => "The territory falls quiet.",
             BattleOutcome.Won => "",
             BattleOutcome.Whiteout => "You were unable to win.",
             _ => "You fled from the battle.",
@@ -862,6 +902,13 @@ internal sealed partial class LillypadGoApp
         {
             Typography.Draw(new Vector2(x0, subY), "But don't give up!",
                 accent with { W = 0.95f * ease }, TextStyles.FootnoteEmphasized);
+            subY += 16f * scale;
+        }
+        else if (won && pendingAlpha is not null && pendingAlphaFirstClear)
+        {
+            Typography.Draw(new Vector2(x0, subY),
+                FitLabel("★ Region Trophy & Alpha Badge earned!", contentW, TextStyles.FootnoteEmphasized),
+                gold with { W = 0.95f * ease }, TextStyles.FootnoteEmphasized);
             subY += 16f * scale;
         }
 
@@ -1042,9 +1089,37 @@ internal sealed partial class LillypadGoApp
             {
                 State.EarnBadge(pendingGymIndex);
             }
+
+            if (pendingAlpha is { } alphaDef)
+            {
+                // Grant the pre-rolled spoils, then the first-clear purse: the Region Trophy bonus
+                // plus a Dex-completion bonus scaled by how many species the trainer has caught.
+                State.RecordAlphaDefeat(alphaDef.Id);
+                foreach (var loot in pendingAlphaDrops)
+                {
+                    if (loot.Item is { } item)
+                    {
+                        State.Bag.Add(item.Id, loot.Count);
+                    }
+                    else if (loot.Tm is { } tm)
+                    {
+                        State.OwnedTms.Add(tm.MoveId);
+                    }
+                }
+
+                if (pendingAlphaFirstClear)
+                {
+                    var caughtSpecies = State.Party.Concat(State.Box).Select(m => m.Species.Id)
+                        .Distinct().Count();
+                    State.Money += 1500 + alphaDef.Level * 50 + caughtSpecies * 25;
+                }
+            }
         }
 
         pendingGymIndex = -1;
+        pendingAlpha = null;
+        pendingAlphaFirstClear = false;
+        pendingAlphaDrops.Clear();
 
         // Undo any Transform (Ditto) so nothing is stored as its copied form, and register evolved
         // forms as seen.

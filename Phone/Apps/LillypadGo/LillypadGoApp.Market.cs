@@ -133,6 +133,7 @@ internal sealed partial class LillypadGoApp
     private void DrawShopRow(ItemDef item, Rect rect, PhoneTheme theme, float scale)
     {
         var drawList = ImGui.GetWindowDrawList();
+        var alphaExclusive = Alphas.IsExclusiveDrop(item.Id);
         var canAfford = State.Money >= item.Price;
         var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
         var tint = LgUi.ItemTint(item.Category);
@@ -152,7 +153,11 @@ internal sealed partial class LillypadGoApp
 
         var buyRect = CenteredAt(new Vector2(rect.Max.X - 46f * scale, rect.Center.Y),
             new Vector2(80f * scale, 30f * scale));
-        if (RosterUi.ColorButton(buyRect, LgUi.Money(item.Price), RosterUi.Purple, scale, canAfford))
+        if (alphaExclusive)
+        {
+            RosterUi.ColorButton(buyRect, "ALPHA", RosterUi.Gold, scale, false);
+        }
+        else if (RosterUi.ColorButton(buyRect, LgUi.Money(item.Price), RosterUi.Purple, scale, canAfford))
         {
             State.Money -= item.Price;
             State.Bag.Add(item.Id, 1);
@@ -160,7 +165,11 @@ internal sealed partial class LillypadGoApp
             bagStatus = $"Bought 1 {item.Name}.";
         }
 
-        if (!canAfford && LgUi.Interactive && ImGui.IsMouseHoveringRect(buyRect.Min, buyRect.Max))
+        if (alphaExclusive && hovered)
+        {
+            ShowTooltip(BuildItemTooltip(item, owned));
+        }
+        else if (!canAfford && LgUi.Interactive && ImGui.IsMouseHoveringRect(buyRect.Min, buyRect.Max))
         {
             ShowTooltip($"You need {LgUi.Money(item.Price - State.Money)} more.");
         }
@@ -174,6 +183,7 @@ internal sealed partial class LillypadGoApp
     {
         var drawList = ImGui.GetWindowDrawList();
         var owned = State.OwnedTms.Contains(tm.MoveId);
+        var alphaExclusive = Alphas.IsExclusiveTm(tm.MoveId);
         var canAfford = State.Money >= tm.Price;
         var tint = Elements.Color(tm.Move.Element);
         var hovered = LgUi.Interactive && ImGui.IsMouseHoveringRect(rect.Min, rect.Max);
@@ -199,6 +209,10 @@ internal sealed partial class LillypadGoApp
         {
             Typography.DrawCentered(buyRect.Center, "Owned", RosterUi.CountGreen, TextStyles.Caption1);
         }
+        else if (alphaExclusive)
+        {
+            RosterUi.ColorButton(buyRect, "ALPHA", RosterUi.Gold, scale, false);
+        }
         else if (RosterUi.ColorButton(buyRect, LgUi.Money(tm.Price), RosterUi.Purple, scale, canAfford))
         {
             State.Money -= tm.Price;
@@ -209,10 +223,11 @@ internal sealed partial class LillypadGoApp
 
         if (hovered)
         {
-            ShowTooltip(BuildProfileMoveTooltip(tm.Move, tm.Move.Pp));
+            var alphaSource = alphaExclusive ? "\n\n" + Alphas.TmSourceText(tm.MoveId) : string.Empty;
+            ShowTooltip(BuildProfileMoveTooltip(tm.Move, tm.Move.Pp) + alphaSource);
         }
 
-        if (!owned && !canAfford && LgUi.Interactive && ImGui.IsMouseHoveringRect(buyRect.Min, buyRect.Max))
+        if (!owned && !alphaExclusive && !canAfford && LgUi.Interactive && ImGui.IsMouseHoveringRect(buyRect.Min, buyRect.Max))
         {
             ShowTooltip($"You need {LgUi.Money(tm.Price - State.Money)} more.");
         }
