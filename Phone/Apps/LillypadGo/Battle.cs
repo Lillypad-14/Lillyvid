@@ -128,6 +128,25 @@ internal sealed class Battle
     private int wildReflectTurns;
     private int playerLightScreenTurns;
     private int wildLightScreenTurns;
+    private int playerSafeguardTurns;
+    private int wildSafeguardTurns;
+    private int playerMistTurns;
+    private int wildMistTurns;
+    private int playerTailwindTurns;
+    private int wildTailwindTurns;
+    private int playerSpikesLayers;
+    private int wildSpikesLayers;
+    private int playerToxicSpikesLayers;
+    private int wildToxicSpikesLayers;
+    private bool playerStealthRock;
+    private bool wildStealthRock;
+    private int playerWaterSportTurns;
+    private int wildWaterSportTurns;
+    private MoveDef? futureSightMove;
+    private MonsterInstance? futureSightSource;
+    private MonsterInstance? futureSightTarget;
+    private int futureSightTurns;
+    private bool resolvingFutureSight;
 
     // Zone weather carried in from the overworld lasts the whole battle (unlike the 5-turn timer a
     // weather move sets), so use a sentinel duration that never expires mid-fight.
@@ -232,6 +251,7 @@ internal sealed class Battle
         enemyIndex++;
         Wild = enemyTeam[enemyIndex];
         Wild.ResetBattleState();
+        ApplyEntryHazards(Wild, false);
         Log.Enqueue(new BattleMessage($"{TrainerName} sent out {Wild.Name}!", BattleCue.EnemySwitch, Wild,
             stateAfter: BattleSnapshot.Capture(Wild)));
         ApplyEntryAbility(Wild, Active);
@@ -277,7 +297,9 @@ internal sealed class Battle
         Active.LastPhysicalDamage = Active.LastSpecialDamage = 0;
         Wild.LastPhysicalDamage = Wild.LastSpecialDamage = 0;
         var playerMove = Active.LockedMove ?? Active.ChargingMove ?? (struggling ? Moves.Struggle : Active.Moves[moveIndex]);
+        playerMove = ResolveForcedMove(Active, playerMove);
         var wildMove = Wild.LockedMove ?? Wild.ChargingMove ?? ChooseWildMove();
+        wildMove = ResolveForcedMove(Wild, wildMove);
         // Trick Room reverses the speed comparison for the turn order.
         var faster = EffectiveSpeed(Active) > EffectiveSpeed(Wild);
         var sameSpeed = EffectiveSpeed(Active) == EffectiveSpeed(Wild);
@@ -375,6 +397,12 @@ internal sealed class Battle
         Active.ResetBattleState();
         activeIndex = partyIndex;
         participants.Add(Active);
+        ApplyEntryHazards(Active, true);
+        if (Active.Fainted)
+        {
+            RequiresSwitch = true;
+            return;
+        }
         Log.Enqueue(new BattleMessage($"Go, {Active.Name}!", BattleCue.PlayerSwitch, Active, Active.CurrentHp,
             stateAfter: BattleSnapshot.Capture(Active)));
         ApplyEntryAbility(Active, Wild);
@@ -594,8 +622,13 @@ internal sealed class Battle
         }
 
         var struggling = moveIndex < 0;
-        var move = struggling ? Moves.Struggle : Active.Moves[moveIndex];
-        if (!struggling && Active.Pp[moveIndex] <= 0)
+        var move = ResolveForcedMove(Active, struggling ? Moves.Struggle : Active.Moves[moveIndex]);
+        if (!CanUseMove(Active, move))
+        {
+            return;
+        }
+        moveIndex = Active.Moves.IndexOf(move);
+        if (!struggling && (moveIndex < 0 || Active.Pp[moveIndex] <= 0))
         {
             Log.Enqueue(new BattleMessage($"{Active.Name} has no power left for {move.Name}!", BattleCue.Info));
             return;
@@ -645,13 +678,50 @@ internal sealed class Battle
             return;
         }
 
-        var move = selectedMove ?? ChooseWildMove();
+        var move = ResolveForcedMove(Wild, selectedMove ?? ChooseWildMove());
+        if (!CanUseMove(Wild, move))
+        {
+            return;
+        }
         var moveIndex = Wild.Moves.IndexOf(move);
         if (moveIndex >= 0 && moveIndex < Wild.Pp.Count && Wild.Pp[moveIndex] > 0)
         {
             Wild.Pp[moveIndex]--;
         }
         Execute(Wild, Active, move, BattleCue.WildAttack, BattleCue.PlayerHurt);
+    }
+
+    private static MoveDef ResolveForcedMove(MonsterInstance monster, MoveDef chosen) =>
+        monster.EncoreTurns > 0 && monster.EncoreMove is not null ? monster.EncoreMove : chosen;
+
+    private bool CanUseMove(MonsterInstance monster, MoveDef move)
+    {
+        if (move.Name == "Belch" && !monster.HeldBerryConsumed)
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name} has not eaten a Berry yet!", BattleCue.Info, monster));
+            return false;
+        }
+
+        if (move.Name == "Poltergeist" && !((ReferenceEquals(monster, Active) ? Wild : Active).HasHeldItem))
+        {
+            Log.Enqueue(new BattleMessage("But it failed! The target has no held item.", BattleCue.Info, monster));
+            return false;
+        }
+
+        if (monster.DisabledMove is not null && monster.DisableTurns > 0 && ReferenceEquals(monster.DisabledMove, move))
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name}'s {move.Name} is disabled!", BattleCue.Info, monster));
+            return false;
+        }
+
+        if (monster.TauntTurns > 0 && move.IsStatus)
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name} can't use {move.Name} after the taunt!", BattleCue.Info,
+                monster));
+            return false;
+        }
+
+        return true;
     }
 
     private bool TryAct(MonsterInstance monster)
@@ -776,6 +846,11 @@ internal sealed class Battle
     private int EffectiveSpeed(MonsterInstance monster)
     {
         var speed = monster.EffectiveSpd;
+        if (ReferenceEquals(monster, Active) ? playerTailwindTurns > 0 : wildTailwindTurns > 0)
+        {
+            speed *= 2;
+        }
+
         if (WeatherSuppressed)
         {
             return speed;
@@ -1051,14 +1126,30 @@ internal sealed class Battle
         or MoveEffect.SetSnow or MoveEffect.SetElectricTerrain or MoveEffect.SetGrassyTerrain
         or MoveEffect.SetMistyTerrain or MoveEffect.SetPsychicTerrain or MoveEffect.ReflectSide
         or MoveEffect.LightScreenSide or MoveEffect.AquaRing or MoveEffect.Ingrain or MoveEffect.BellyDrum
-        or MoveEffect.Haze or MoveEffect.CureUserStatus or MoveEffect.Acupressure or MoveEffect.NoOp;
+        or MoveEffect.Haze or MoveEffect.CureUserStatus or MoveEffect.Acupressure or MoveEffect.NoOp
+        or MoveEffect.SafeguardSide or MoveEffect.MistSide or MoveEffect.TailwindSide or MoveEffect.Spikes
+        or MoveEffect.ToxicSpikes or MoveEffect.StealthRock or MoveEffect.Substitute or MoveEffect.PerishSong
+        or MoveEffect.DestinyBond or MoveEffect.Stockpile or MoveEffect.Swallow or MoveEffect.SpitUp
+        or MoveEffect.RapidSpin or MoveEffect.LowerUserAtkDef or MoveEffect.LowerUserSpAtk
+        or MoveEffect.LowerUserSpd or MoveEffect.RaiseAllStats or MoveEffect.ClearTerrain
+        or MoveEffect.SkillSwap or MoveEffect.WaterSport or MoveEffect.WorkUp;
+
 
     // Effects that act on the target (blocked by Shield Dust when they're a damaging move's secondary).
     private static bool IsDefenderEffect(MoveEffect e) => e is MoveEffect.LowerTargetAtk or MoveEffect.LowerTargetDef
         or MoveEffect.LowerTargetSpAtk or MoveEffect.LowerTargetSpDef or MoveEffect.LowerTargetSpd
         or MoveEffect.LowerTargetAccuracy or MoveEffect.Burn or MoveEffect.Freeze or MoveEffect.Paralyze
         or MoveEffect.Sleep or MoveEffect.Poison or MoveEffect.Flinch or MoveEffect.Confuse
-        or MoveEffect.LowerTargetEvasion or MoveEffect.LeechSeed or MoveEffect.Yawn or MoveEffect.ForceSwitch;
+        or MoveEffect.LowerTargetEvasion or MoveEffect.LeechSeed or MoveEffect.Yawn or MoveEffect.ForceSwitch
+        or MoveEffect.TriStatus or MoveEffect.HealBlock;
+
+    private static bool IsBlockedBySubstitute(MoveEffect effect) => effect is MoveEffect.LowerTargetAtk
+        or MoveEffect.LowerTargetDef or MoveEffect.LowerTargetSpAtk or MoveEffect.LowerTargetSpDef
+        or MoveEffect.LowerTargetSpd or MoveEffect.LowerTargetAccuracy or MoveEffect.LowerTargetEvasion
+        or MoveEffect.Burn or MoveEffect.Freeze or MoveEffect.Sleep or MoveEffect.Paralyze or MoveEffect.Poison
+        or MoveEffect.Flinch or MoveEffect.Confuse or MoveEffect.LeechSeed or MoveEffect.Yawn or MoveEffect.Taunt
+        or MoveEffect.Encore or MoveEffect.Disable or MoveEffect.TrapTarget or MoveEffect.TrapDamage
+        or MoveEffect.HealBlock or MoveEffect.ForceSwitch;
 
     // Effectiveness, with Scrappy letting Normal/Fighting hit Ghost types.
     private static float EffectivenessWith(MonsterInstance attacker, MonsterInstance defender, MoveDef move)
@@ -1099,6 +1190,57 @@ internal sealed class Battle
     // or has Levitate — Smack Down overrides that and forces it grounded.
     private static bool IsGrounded(MonsterInstance mon) =>
         mon.Grounded || (!mon.HasType(Element.Flying) && mon.Ability is not "Levitate");
+
+    private bool HasSafeguard(MonsterInstance monster) =>
+        ReferenceEquals(monster, Active) ? playerSafeguardTurns > 0 : wildSafeguardTurns > 0;
+
+    private bool HasMist(MonsterInstance monster) =>
+        ReferenceEquals(monster, Active) ? playerMistTurns > 0 : wildMistTurns > 0;
+
+    private void ApplyEntryHazards(MonsterInstance entrant, bool playerSide)
+    {
+        if (entrant.Fainted)
+        {
+            return;
+        }
+
+        var spikes = playerSide ? playerSpikesLayers : wildSpikesLayers;
+        var toxicSpikes = playerSide ? playerToxicSpikesLayers : wildToxicSpikesLayers;
+        var stealthRock = playerSide ? playerStealthRock : wildStealthRock;
+        if (stealthRock)
+        {
+            var effectiveness = Elements.Effectiveness(Element.Rock, entrant.Element, entrant.SecondaryElement);
+            var damage = Math.Max(1, (int)(entrant.MaxHp / 8f * effectiveness));
+            IndirectDamage(entrant, damage, "Stealth Rock");
+            if (entrant.Fainted)
+            {
+                return;
+            }
+        }
+
+        if (IsGrounded(entrant) && spikes > 0)
+        {
+            var divisor = spikes switch { 1 => 8, 2 => 6, _ => 4 };
+            IndirectDamage(entrant, Math.Max(1, entrant.MaxHp / divisor), "Spikes");
+            if (entrant.Fainted)
+            {
+                return;
+            }
+        }
+
+        if (IsGrounded(entrant) && toxicSpikes > 0)
+        {
+            if (entrant.HasType(Element.Poison))
+            {
+                if (playerSide) playerToxicSpikesLayers = 0; else wildToxicSpikesLayers = 0;
+                Log.Enqueue(new BattleMessage($"{entrant.Name} absorbed the Toxic Spikes!", BattleCue.Info, entrant));
+            }
+            else if (!entrant.HasType(Element.Steel))
+            {
+                TryInflict(entrant, Status.Poison, null);
+            }
+        }
+    }
 
     // Whether a creature is prevented from fleeing or switching out by a trap effect or ability.
     private bool CannotEscape(MonsterInstance mon, MonsterInstance foe)
@@ -1309,6 +1451,12 @@ internal sealed class Battle
             return false;
         }
 
+        if (HasSafeguard(target))
+        {
+            Log.Enqueue(new BattleMessage($"{target.Name} is protected by Safeguard!", BattleCue.Info, target));
+            return false;
+        }
+
         if (Terrain == BattleTerrain.Misty || (Terrain == BattleTerrain.Electric && status == Status.Sleep))
         {
             Log.Enqueue(new BattleMessage($"{target.Name} is protected by the terrain!", BattleCue.Info, target));
@@ -1415,6 +1563,12 @@ internal sealed class Battle
     {
         if (target.Fainted)
         {
+            return false;
+        }
+
+        if (HasMist(target))
+        {
+            Log.Enqueue(new BattleMessage($"{target.Name}'s stats are protected by Mist!", BattleCue.Info, target));
             return false;
         }
 
@@ -1614,6 +1768,22 @@ internal sealed class Battle
         attacker.LastMove = move;
         lastMoveUsedInBattle = move;
 
+        if (move.Effect == MoveEffect.FutureSight && !resolvingFutureSight)
+        {
+            futureSightMove = move;
+            futureSightSource = attacker;
+            futureSightTarget = defender;
+            futureSightTurns = 2;
+            Log.Enqueue(new BattleMessage($"{attacker.Name} foresaw an attack!", BattleCue.Buff, attacker));
+            return;
+        }
+
+        if (move.Effect == MoveEffect.SpitUp && attacker.StockpileCount == 0)
+        {
+            Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+            return;
+        }
+
         // Move-calling moves run another move instead of themselves.
         if (move.Effect is MoveEffect.MirrorMove or MoveEffect.Copycat or MoveEffect.Metronome
             or MoveEffect.SleepTalk)
@@ -1752,6 +1922,25 @@ internal sealed class Battle
             var variance = 0.85f + (float)rng.NextDouble() * 0.15f;
             var attack = attacker.OffensiveStat(move.Category, isCritical);
             var defense = defender.DefensiveStat(move.Category, isCritical);
+            if (move.Name is "Body Press")
+            {
+                attack = attacker.EffectiveDef;
+            }
+
+            if (move.Name is "Psyshock" or "Psystrike")
+            {
+                defense = defender.DefensiveStat(MoveCategory.Physical, isCritical);
+            }
+
+            if (move.Name is "Foul Play")
+            {
+                attack = defender.EffectiveAtk;
+            }
+
+            if (move.Name is "Chip Away")
+            {
+                defense = move.Category == MoveCategory.Special ? defender.SpDef : defender.Def;
+            }
             var attackerStatused = attacker.Status != Status.None;
 
             // Attack / Defense stat multipliers from abilities.
@@ -1808,13 +1997,19 @@ internal sealed class Battle
             if (defAb is "Multiscale" && defender.CurrentHp == defender.MaxHp) effMul *= 0.5f;
             effMul *= WeatherPowerMultiplier(move.Element);
             effMul *= TerrainPowerMultiplier(move.Element);
+            if (move.Element == Element.Fire && (playerWaterSportTurns > 0 || wildWaterSportTurns > 0))
+            {
+                effMul *= 1f / 3f;
+            }
             effMul *= ScreenDamageMultiplier(defender, move.Category, isCritical);
 
             var burn = attacker.Status == Status.Burn && move.Category == MoveCategory.Physical &&
                 attacker.Ability is not "Guts" ? 0.5f : 1f;
 
             var effectiveDefense = Math.Max(1, (int)(defense * defMul));
-            var raw = ((2f * attacker.Level / 5f + 2f) * move.Power * attack * atkMul / effectiveDefense / 50f) + 2f;
+            var basePower = move.Effect == MoveEffect.SpitUp ? 100 * attacker.StockpileCount :
+                MovePower(attacker, defender, move);
+            var raw = ((2f * attacker.Level / 5f + 2f) * basePower * attack * atkMul / effectiveDefense / 50f) + 2f;
             var damage = Math.Max(1, (int)(raw * effectiveness * stab * crit * variance * burn * powerMul * effMul));
 
             // Fixed / level-based damage moves ignore the normal formula (immunity still blocks them,
@@ -1850,6 +2045,11 @@ internal sealed class Battle
 
             var appliedDamage = Math.Min(defender.CurrentHp, damage);
 
+            if (move.Name == "False Swipe" && defender.CurrentHp > 1)
+            {
+                appliedDamage = Math.Min(appliedDamage, defender.CurrentHp - 1);
+            }
+
             // Sturdy: survive a would-be OHKO from full HP with 1 HP left.
             var sturdy = defAb is "Sturdy" && defender.CurrentHp == defender.MaxHp &&
                 appliedDamage >= defender.CurrentHp;
@@ -1864,7 +2064,22 @@ internal sealed class Battle
                 appliedDamage = defender.CurrentHp - 1;
             }
 
+            if (defender.SubstituteHp > 0)
+            {
+                var substituteDamage = Math.Min(defender.SubstituteHp, appliedDamage);
+                defender.SubstituteHp -= substituteDamage;
+                Log.Enqueue(new BattleMessage($"The substitute took {substituteDamage} damage!", BattleCue.Info,
+                    defender));
+                if (defender.SubstituteHp <= 0)
+                {
+                    Log.Enqueue(new BattleMessage($"{defender.Name}'s substitute faded!", BattleCue.Info, defender));
+                }
+
+                return;
+            }
+
             defender.CurrentHp -= appliedDamage;
+            defender.LastDamageSource = attacker;
             // Remember damage taken this turn by category so Counter / Mirror Coat can retaliate.
             if (move.Category == MoveCategory.Physical)
             {
@@ -1902,7 +2117,7 @@ internal sealed class Battle
                 {
                     IndirectDamage(attacker, amount, "Liquid Ooze");
                 }
-                else if (attacker.CurrentHp < attacker.MaxHp)
+                else if (attacker.HealBlockTurns <= 0 && attacker.CurrentHp < attacker.MaxHp)
                 {
                     attacker.Heal(amount);
                     Log.Enqueue(new BattleMessage($"{attacker.Name} drained {amount} HP!", BattleCue.Heal, attacker,
@@ -1938,7 +2153,21 @@ internal sealed class Battle
             }
         }
 
-        ApplyEffect(attacker, defender, move);
+        if (move.IsStatus && defender.SubstituteHp > 0 && IsBlockedBySubstitute(move.Effect))
+        {
+            Log.Enqueue(new BattleMessage($"{defender.Name}'s substitute blocked the move!", BattleCue.Info,
+                defender));
+            return;
+        }
+
+        if (move.Effect == MoveEffect.None)
+        {
+            ApplyNamedMoveEffect(attacker, defender, move);
+        }
+        else
+        {
+            ApplyEffect(attacker, defender, move);
+        }
     }
 
     private void ClearStatStages(MonsterInstance monster)
@@ -1997,6 +2226,7 @@ internal sealed class Battle
                 enemyIndex = next;
                 Wild = enemyTeam[enemyIndex];
                 Wild.ResetBattleState();
+                ApplyEntryHazards(Wild, false);
                 Log.Enqueue(new BattleMessage($"{TrainerName} was forced to send out {Wild.Name}!",
                     BattleCue.EnemySwitch, Wild, stateAfter: BattleSnapshot.Capture(Wild)));
                 ApplyEntryAbility(Wild, Active);
@@ -2005,6 +2235,165 @@ internal sealed class Battle
             {
                 Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
             }
+        }
+    }
+
+    private int MovePower(MonsterInstance attacker, MonsterInstance defender, MoveDef move)
+    {
+        if (move.Name is "Brine" && defender.HpFraction <= 0.5f) return move.Power * 2;
+        if (move.Name is "Facade" && attacker.Status is Status.Burn or Status.Poison or Status.Paralysis)
+            return move.Power * 2;
+        if (move.Name is "Hex" or "Venoshock" && defender.Status != Status.None) return move.Power * 2;
+        if (move.Name is "Assurance" && defender.LastPhysicalDamage + defender.LastSpecialDamage > 0)
+            return move.Power * 2;
+        if (move.Name is "Avalanche" or "Revenge" && attacker.LastPhysicalDamage + attacker.LastSpecialDamage > 0)
+            return move.Power * 2;
+        if (move.Name is "Stored Power")
+        {
+            var boosts = Math.Max(0, attacker.AtkStage) + Math.Max(0, attacker.DefStage) +
+                Math.Max(0, attacker.SpAtkStage) + Math.Max(0, attacker.SpDefStage) + Math.Max(0, attacker.SpdStage) +
+                Math.Max(0, attacker.AccuracyStage) + Math.Max(0, attacker.EvasionStage);
+            return move.Power + boosts * 20;
+        }
+
+        if (move.Name is "Flail" or "Reversal")
+        {
+            var fraction = attacker.HpFraction;
+            return fraction <= 1f / 48f ? 200 : fraction <= 1f / 12f ? 150 : fraction <= 1f / 6f ? 100
+                : fraction <= 1f / 3f ? 80 : fraction <= 0.6875f ? 40 : 20;
+        }
+
+        if (move.Name is "Wring Out" or "Hard Press")
+        {
+            return Math.Max(1, (int)(120f * defender.HpFraction));
+        }
+
+        if (move.Name is "Electro Ball")
+        {
+            var ratio = EffectiveSpeed(attacker) / (float)Math.Max(1, EffectiveSpeed(defender));
+            return ratio >= 4 ? 150 : ratio >= 3 ? 120 : ratio >= 2 ? 80 : ratio >= 1 ? 60 : 40;
+        }
+
+        if (move.Name is "Gyro Ball")
+        {
+            return Math.Clamp(25 * EffectiveSpeed(defender) / Math.Max(1, EffectiveSpeed(attacker)), 1, 150);
+        }
+
+        if (move.Name is "Wake-Up Slap" && defender.Status == Status.Sleep)
+        {
+            return move.Power * 2;
+        }
+
+        if (move.Name is "Acrobatics" && !attacker.HasHeldItem) return move.Power * 2;
+        if (move.Name is "Echoed Voice") return move.Power + attacker.RolloutTurns * 40;
+        if (move.Name is "Fury Cutter") return Math.Min(160, move.Power * (1 << Math.Min(2, attacker.FuryCutterHits)));
+        if (move.Name is "Rage Fist") return Math.Min(350, move.Power + attacker.RageHits * 50);
+        if (move.Name is "Expanding Force" && Terrain == BattleTerrain.Psychic) return 120;
+        if (move.Name is "Payback" && EffectiveSpeed(attacker) < EffectiveSpeed(defender)) return move.Power * 2;
+        if (move.Name is "Retaliate" && attacker.LastMoveFailed) return move.Power * 2;
+
+        return move.Power;
+    }
+
+    private void ApplyNamedMoveEffect(MonsterInstance attacker, MonsterInstance defender, MoveDef move)
+    {
+        switch (move.Name)
+        {
+            case "Circle Throw":
+            case "Dragon Tail":
+                ForceOut(attacker, defender);
+                break;
+            case "U-turn":
+            case "Volt Switch":
+            case "Flip Turn":
+                if (ReferenceEquals(attacker, Active) && !attacker.Fainted && !CannotEscape(attacker, defender))
+                {
+                    RequiresSwitch = true;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} came back!", BattleCue.PlayerSwitch, attacker));
+                }
+                break;
+            case "Close Combat":
+            case "Superpower":
+                ApplyStageDown(attacker, StatKind.Atk, 1);
+                ApplyStageDown(attacker, StatKind.Def, 1);
+                break;
+            case "Draco Meteor":
+            case "Leaf Storm":
+            case "Overheat":
+                ApplyStageDown(attacker, StatKind.SpA, 2);
+                break;
+            case "Hammer Arm":
+                ApplyStageDown(attacker, StatKind.Spe, 1);
+                break;
+            case "Steel Beam":
+                IndirectDamage(attacker, attacker.MaxHp / 2, "Steel Beam recoil");
+                break;
+            case "Struggle":
+                IndirectDamage(attacker, attacker.MaxHp / 4, "recoil");
+                break;
+            case "Tri Attack":
+                TryInflict(defender, rng.Next(3) switch
+                {
+                    0 => Status.Burn,
+                    1 => Status.Freeze,
+                    _ => Status.Paralysis,
+                }, attacker);
+                break;
+            case "Wake-Up Slap" when defender.Status == Status.Sleep:
+                defender.CureStatus();
+                Log.Enqueue(new BattleMessage($"{defender.Name} woke up!", BattleCue.Info, defender));
+                break;
+            case "Fell Stinger" when defender.Fainted:
+                RaiseStat(attacker, StatKind.Atk, 3);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Attack rose sharply!", BattleCue.Buff, attacker));
+                break;
+            case "Psychic Fangs":
+            case "Raging Bull":
+                if (ReferenceEquals(defender, Active))
+                    playerReflectTurns = playerLightScreenTurns = 0;
+                else
+                    wildReflectTurns = wildLightScreenTurns = 0;
+                break;
+            case "Belch" when !attacker.HeldBerryConsumed:
+                Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                break;
+            case "Bug Bite":
+            case "Pluck":
+                if (defender.HasHeldItem && defender.HeldItem.Contains("Berry", StringComparison.OrdinalIgnoreCase))
+                {
+                    attacker.HeldBerryConsumed = true;
+                    defender.HeldItem = string.Empty;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} ate the foe's Berry!", BattleCue.Heal, attacker));
+                }
+                break;
+            case "Burning Jealousy":
+                if (defender.AtkStage > 0 || defender.DefStage > 0 || defender.SpAtkStage > 0 ||
+                    defender.SpDefStage > 0 || defender.SpdStage > 0)
+                {
+                    TryInflict(defender, Status.Burn, attacker);
+                }
+                break;
+            case "Alluring Voice":
+                if (defender.AtkStage > 0 || defender.DefStage > 0 || defender.SpAtkStage > 0 ||
+                    defender.SpDefStage > 0 || defender.SpdStage > 0)
+                {
+                    if (defender.ConfusionTurns <= 0) defender.ConfusionTurns = rng.Next(2, 6);
+                    Log.Enqueue(new BattleMessage($"{defender.Name} became confused!", BattleCue.Buff, defender));
+                }
+                break;
+            case "Rage":
+                attacker.RageHits++;
+                break;
+            case "Fury Cutter":
+                attacker.FuryCutterHits = Math.Min(3, attacker.FuryCutterHits + 1);
+                break;
+            case "Rollout":
+            case "Echoed Voice":
+                attacker.RolloutTurns = Math.Min(4, attacker.RolloutTurns + 1);
+                break;
+            case "Throat Chop":
+                defender.HealBlockTurns = Math.Max(defender.HealBlockTurns, 2);
+                break;
         }
     }
 
@@ -2090,9 +2479,17 @@ internal sealed class Battle
                     stateAfter: BattleSnapshot.Capture(attacker)));
                 break;
             case MoveEffect.HealUser:
-                attacker.Heal(attacker.MaxHp / 2);
-                Log.Enqueue(new BattleMessage($"{attacker.Name} mended its wounds.", BattleCue.Heal, attacker,
-                    attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
+                if (attacker.HealBlockTurns > 0)
+                {
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} was prevented from healing!", BattleCue.Info,
+                        attacker));
+                }
+                else
+                {
+                    attacker.Heal(attacker.MaxHp / 2);
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} mended its wounds.", BattleCue.Heal, attacker,
+                        attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
+                }
                 break;
             case MoveEffect.Burn:
                 TryInflict(defender, Status.Burn, attacker);
@@ -2193,6 +2590,299 @@ internal sealed class Battle
                 if (ReferenceEquals(attacker, Active)) playerLightScreenTurns = 5; else wildLightScreenTurns = 5;
                 Log.Enqueue(new BattleMessage($"{attacker.Name}'s side gained Light Screen!", BattleCue.Buff,
                     attacker));
+                break;
+            case MoveEffect.SafeguardSide:
+                if (ReferenceEquals(attacker, Active)) playerSafeguardTurns = 5; else wildSafeguardTurns = 5;
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s side is protected by Safeguard!", BattleCue.Buff,
+                    attacker));
+                break;
+            case MoveEffect.MistSide:
+                if (ReferenceEquals(attacker, Active)) playerMistTurns = 5; else wildMistTurns = 5;
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s side is shrouded in Mist!", BattleCue.Buff,
+                    attacker));
+                break;
+            case MoveEffect.TailwindSide:
+                if (ReferenceEquals(attacker, Active)) playerTailwindTurns = 4; else wildTailwindTurns = 4;
+                Log.Enqueue(new BattleMessage("The tailwind blew from behind the side!", BattleCue.Buff, attacker));
+                break;
+            case MoveEffect.Spikes:
+                if (ReferenceEquals(defender, Active))
+                {
+                    playerSpikesLayers = Math.Min(3, playerSpikesLayers + 1);
+                }
+                else
+                {
+                    wildSpikesLayers = Math.Min(3, wildSpikesLayers + 1);
+                }
+                Log.Enqueue(new BattleMessage("Spikes were scattered around the opposing side!", BattleCue.Buff));
+                break;
+            case MoveEffect.ToxicSpikes:
+                if (ReferenceEquals(defender, Active))
+                {
+                    playerToxicSpikesLayers = Math.Min(2, playerToxicSpikesLayers + 1);
+                }
+                else
+                {
+                    wildToxicSpikesLayers = Math.Min(2, wildToxicSpikesLayers + 1);
+                }
+                Log.Enqueue(new BattleMessage("Toxic Spikes were scattered around the opposing side!", BattleCue.Buff));
+                break;
+            case MoveEffect.StealthRock:
+                if (ReferenceEquals(defender, Active)) playerStealthRock = true; else wildStealthRock = true;
+                Log.Enqueue(new BattleMessage("Pointed stones float in the air around the opposing side!", BattleCue.Buff));
+                break;
+            case MoveEffect.Substitute:
+                var substituteHp = Math.Max(1, attacker.MaxHp / 4);
+                if (attacker.SubstituteHp > 0 || attacker.CurrentHp <= substituteHp)
+                {
+                    Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                }
+                else
+                {
+                    attacker.CurrentHp -= substituteHp;
+                    attacker.SubstituteHp = substituteHp;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} put in a substitute!", BattleCue.Buff, attacker,
+                        attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
+                }
+                break;
+            case MoveEffect.Taunt:
+                defender.TauntTurns = 3;
+                Log.Enqueue(new BattleMessage($"{defender.Name} fell for the taunt!", BattleCue.Buff, defender));
+                break;
+            case MoveEffect.Encore:
+                if (defender.LastMove is null || defender.LastMove.Pp <= 0)
+                {
+                    Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                }
+                else
+                {
+                    defender.EncoreMove = defender.LastMove;
+                    defender.EncoreTurns = 3;
+                    Log.Enqueue(new BattleMessage($"{defender.Name} received an encore!", BattleCue.Buff, defender));
+                }
+                break;
+            case MoveEffect.Disable:
+                if (defender.LastMove is null)
+                {
+                    Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                }
+                else
+                {
+                    defender.DisabledMove = defender.LastMove;
+                    defender.DisableTurns = 4;
+                    Log.Enqueue(new BattleMessage($"{defender.Name}'s {defender.LastMove.Name} was disabled!", BattleCue.Buff,
+                        defender));
+                }
+                break;
+            case MoveEffect.PerishSong:
+                if (Active.PerishTurns == 0) Active.PerishTurns = 4;
+                if (Wild.PerishTurns == 0) Wild.PerishTurns = 4;
+                Log.Enqueue(new BattleMessage("All active battlers heard the Perish Song!", BattleCue.Buff));
+                break;
+            case MoveEffect.DestinyBond:
+                attacker.DestinyBondActive = true;
+                Log.Enqueue(new BattleMessage($"{attacker.Name} is trying to take its foe down with it!", BattleCue.Buff,
+                    attacker));
+                break;
+            case MoveEffect.Stockpile:
+                if (attacker.StockpileCount >= 3)
+                {
+                    Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                }
+                else
+                {
+                    attacker.StockpileCount++;
+                    RaiseStat(attacker, StatKind.Def, 1);
+                    RaiseStat(attacker, StatKind.SpD, 1);
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} stockpiled {attacker.StockpileCount}!", BattleCue.Buff,
+                        attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                }
+                break;
+            case MoveEffect.Swallow:
+                if (attacker.StockpileCount == 0)
+                {
+                    Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                }
+                else
+                {
+                    var fraction = attacker.StockpileCount == 1 ? 4 : attacker.StockpileCount == 2 ? 2 : 1;
+                    attacker.Heal(Math.Max(1, attacker.MaxHp / fraction));
+                    ApplyStageDown(attacker, StatKind.Def, attacker.StockpileCount);
+                    ApplyStageDown(attacker, StatKind.SpD, attacker.StockpileCount);
+                    attacker.StockpileCount = 0;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} swallowed its stockpiled energy!", BattleCue.Heal,
+                        attacker, attacker.CurrentHp, stateAfter: BattleSnapshot.Capture(attacker)));
+                }
+                break;
+            case MoveEffect.SpitUp:
+                ApplyStageDown(attacker, StatKind.Def, attacker.StockpileCount);
+                ApplyStageDown(attacker, StatKind.SpD, attacker.StockpileCount);
+                attacker.StockpileCount = 0;
+                Log.Enqueue(new BattleMessage($"{attacker.Name} released its stockpiled energy!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.TrapDamage:
+                defender.BindingTurns = rng.Next(4, 6);
+                defender.BindingSource = attacker;
+                defender.Trapped = true;
+                Log.Enqueue(new BattleMessage($"{defender.Name} was trapped!", BattleCue.Buff, defender));
+                break;
+            case MoveEffect.BreakScreens:
+                if (ReferenceEquals(defender, Active))
+                {
+                    playerReflectTurns = playerLightScreenTurns = 0;
+                }
+                else
+                {
+                    wildReflectTurns = wildLightScreenTurns = 0;
+                }
+                Log.Enqueue(new BattleMessage("The opposing barriers were shattered!", BattleCue.Buff, defender));
+                break;
+            case MoveEffect.RapidSpin:
+                if (ReferenceEquals(attacker, Active))
+                {
+                    playerSpikesLayers = playerToxicSpikesLayers = 0;
+                    playerStealthRock = false;
+                }
+                else
+                {
+                    wildSpikesLayers = wildToxicSpikesLayers = 0;
+                    wildStealthRock = false;
+                }
+                attacker.BindingTurns = 0;
+                attacker.BindingSource = null;
+                attacker.Trapped = false;
+                attacker.LeechSeeded = false;
+                RaiseStat(attacker, StatKind.Spe, 1);
+                Log.Enqueue(new BattleMessage($"{attacker.Name} blew away the hazards and sped up!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.HealBlock:
+                defender.HealBlockTurns = 2;
+                Log.Enqueue(new BattleMessage($"{defender.Name} was prevented from healing!", BattleCue.Buff, defender));
+                break;
+            case MoveEffect.LowerUserAtkDef:
+                ApplyStageDown(attacker, StatKind.Atk, move.StageChange);
+                ApplyStageDown(attacker, StatKind.Def, move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Attack and Defense fell!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.LowerUserSpAtk:
+                ApplyStageDown(attacker, StatKind.SpA, move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Sp. Atk harshly fell!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.LowerUserSpd:
+                ApplyStageDown(attacker, StatKind.Spe, move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Speed fell!", BattleCue.Buff,
+                    attacker, stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.RaiseAllStats:
+                RaiseStat(attacker, StatKind.Atk, move.StageChange);
+                RaiseStat(attacker, StatKind.Def, move.StageChange);
+                RaiseStat(attacker, StatKind.SpA, move.StageChange);
+                RaiseStat(attacker, StatKind.SpD, move.StageChange);
+                RaiseStat(attacker, StatKind.Spe, move.StageChange);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s stats rose!", BattleCue.Buff, attacker,
+                    stateAfter: BattleSnapshot.Capture(attacker)));
+                break;
+            case MoveEffect.TriStatus:
+                TryInflict(defender, rng.Next(3) switch
+                {
+                    0 => Status.Burn,
+                    1 => Status.Freeze,
+                    _ => Status.Paralysis,
+                }, attacker);
+                break;
+            case MoveEffect.ClearTerrain:
+                if (Terrain != BattleTerrain.None)
+                {
+                    Terrain = BattleTerrain.None;
+                    terrainTurns = 0;
+                    Log.Enqueue(new BattleMessage("The terrain returned to normal!", BattleCue.Buff));
+                }
+                break;
+            case MoveEffect.SkillSwap:
+                if (attacker.Ability is not ("Truant" or "Multitype") && defender.Ability is not ("Truant" or "Multitype"))
+                {
+                    attacker.SwapAbility(defender);
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} and {defender.Name} swapped Abilities!", BattleCue.Buff));
+                }
+                break;
+            case MoveEffect.WaterSport:
+                playerWaterSportTurns = ReferenceEquals(attacker, Active) ? 5 : playerWaterSportTurns;
+                wildWaterSportTurns = ReferenceEquals(attacker, Wild) ? 5 : wildWaterSportTurns;
+                Log.Enqueue(new BattleMessage("Fire's power was weakened!", BattleCue.Buff));
+                break;
+            case MoveEffect.WorkUp:
+                RaiseStat(attacker, StatKind.Atk, 1);
+                RaiseStat(attacker, StatKind.SpA, 1);
+                Log.Enqueue(new BattleMessage($"{attacker.Name}'s Attack and Sp. Atk rose!", BattleCue.Buff, attacker));
+                break;
+            case MoveEffect.WorrySeed:
+                defender.SetAbility("Insomnia");
+                defender.CureStatus();
+                Log.Enqueue(new BattleMessage($"{defender.Name} gained Insomnia!", BattleCue.Buff, defender));
+                break;
+            case MoveEffect.RequiresBerry:
+                Log.Enqueue(new BattleMessage($"{attacker.Name} belched out its Berry!", BattleCue.Info, attacker));
+                break;
+            case MoveEffect.RequiresItem:
+                break;
+            case MoveEffect.ConsumeTargetItem:
+                if (defender.HasHeldItem && defender.HeldItem.Contains("Berry", StringComparison.OrdinalIgnoreCase))
+                {
+                    attacker.HeldBerryConsumed = true;
+                    defender.HeldItem = string.Empty;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} consumed the target's Berry!", BattleCue.Heal,
+                        attacker));
+                }
+                break;
+            case MoveEffect.StealItem:
+                if (!attacker.HasHeldItem && defender.HasHeldItem)
+                {
+                    attacker.HeldItem = defender.HeldItem;
+                    defender.HeldItem = string.Empty;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} stole the target's item!", BattleCue.Buff, attacker));
+                }
+                break;
+            case MoveEffect.RemoveItem:
+                if (defender.HasHeldItem)
+                {
+                    defender.HeldItem = string.Empty;
+                    Log.Enqueue(new BattleMessage($"{defender.Name}'s held item was knocked away!", BattleCue.Buff,
+                        defender));
+                }
+                break;
+            case MoveEffect.FlingItem:
+                if (!attacker.HasHeldItem)
+                {
+                    Log.Enqueue(new BattleMessage("But it failed!", BattleCue.Info, attacker));
+                }
+                else
+                {
+                    attacker.HeldItem = string.Empty;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} flung its held item!", BattleCue.Info, attacker));
+                }
+                break;
+            case MoveEffect.SwitchItems:
+                if (attacker.HasHeldItem || defender.HasHeldItem)
+                {
+                    (attacker.HeldItem, defender.HeldItem) = (defender.HeldItem, attacker.HeldItem);
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} and {defender.Name} switched items!", BattleCue.Buff));
+                }
+                break;
+            case MoveEffect.NaturalGift:
+                if (attacker.HasHeldItem && attacker.HeldItem.Contains("Berry", StringComparison.OrdinalIgnoreCase))
+                {
+                    attacker.HeldItem = string.Empty;
+                    Log.Enqueue(new BattleMessage($"{attacker.Name} used its Berry as a Natural Gift!", BattleCue.Info,
+                        attacker));
+                }
+                break;
+            case MoveEffect.PayDay:
+                PrizeMoney += Math.Max(1, attacker.Level * 5);
+                Log.Enqueue(new BattleMessage("Coins scattered everywhere!", BattleCue.Info, attacker));
                 break;
             case MoveEffect.AquaRing:
                 attacker.AquaRingActive = true;
@@ -2411,6 +3101,11 @@ internal sealed class Battle
         }
 
         Log.Enqueue(new BattleMessage($"{Wild.Name} fainted!", BattleCue.WildFaint));
+        TriggerDestinyBond(Wild, Active);
+        if (Active.Fainted)
+        {
+            return PlayerDown();
+        }
         AwardXp();
 
         // Trainer with reserves: pause so the UI can send out their next Pokémon.
@@ -2433,6 +3128,11 @@ internal sealed class Battle
         }
 
         Log.Enqueue(new BattleMessage($"{Active.Name} fainted!", BattleCue.PlayerFaint));
+        TriggerDestinyBond(Active, Wild);
+        if (Wild.Fainted)
+        {
+            return WildDown();
+        }
         var next = party.FindIndex(m => !m.Fainted);
         if (next < 0)
         {
@@ -2443,6 +3143,19 @@ internal sealed class Battle
 
         RequiresSwitch = true;
         return true;
+    }
+
+    private void TriggerDestinyBond(MonsterInstance fainted, MonsterInstance foe)
+    {
+        if (!fainted.DestinyBondActive || !ReferenceEquals(fainted.LastDamageSource, foe) || foe.Fainted)
+        {
+            return;
+        }
+
+        foe.CurrentHp = 0;
+        Log.Enqueue(new BattleMessage($"{fainted.Name} took {foe.Name} down with it!",
+            ReferenceEquals(foe, Wild) ? BattleCue.WildHurt : BattleCue.PlayerHurt, foe, 0,
+            stateAfter: BattleSnapshot.Capture(foe)));
     }
 
     private void AwardXp()
@@ -2565,8 +3278,38 @@ internal sealed class Battle
             return;
         }
 
+        ResolveFutureSight();
+        if (PlayerDown() || WildDown())
+        {
+            return;
+        }
+
+        BindingTick(Active, BattleCue.PlayerHurt);
+        if (PlayerDown())
+        {
+            return;
+        }
+
+        BindingTick(Wild, BattleCue.WildHurt);
+        if (WildDown())
+        {
+            return;
+        }
+
         YawnTick(Active);
         YawnTick(Wild);
+        PerishTick(Active, BattleCue.PlayerHurt);
+        if (PlayerDown())
+        {
+            return;
+        }
+
+        PerishTick(Wild, BattleCue.WildHurt);
+        if (WildDown())
+        {
+            return;
+        }
+
         EndOfTurnAbilities(Active);
         EndOfTurnAbilities(Wild);
         AdvanceFieldTimers();
@@ -2574,7 +3317,7 @@ internal sealed class Battle
 
     private void FieldHealingTick(MonsterInstance monster)
     {
-        if (monster.Fainted)
+        if (monster.Fainted || monster.HealBlockTurns > 0)
         {
             return;
         }
@@ -2621,7 +3364,7 @@ internal sealed class Battle
         var cue = ReferenceEquals(seeded, Wild) ? BattleCue.WildHurt : BattleCue.PlayerHurt;
         Log.Enqueue(new BattleMessage($"{seeded.Name}'s health was sapped by Leech Seed! ({damage})", cue,
             seeded, seeded.CurrentHp, stateAfter: BattleSnapshot.Capture(seeded)));
-        if (!healer.Fainted && healer.CurrentHp < healer.MaxHp)
+        if (!healer.Fainted && healer.HealBlockTurns <= 0 && healer.CurrentHp < healer.MaxHp)
         {
             healer.Heal(damage);
             Log.Enqueue(new BattleMessage($"{healer.Name} absorbed nutrients!", BattleCue.Heal, healer,
@@ -2703,6 +3446,70 @@ internal sealed class Battle
         }
     }
 
+    private void ResolveFutureSight()
+    {
+        if (futureSightMove is null || --futureSightTurns > 0)
+        {
+            return;
+        }
+
+        var move = futureSightMove;
+        var source = futureSightSource;
+        var target = futureSightTarget;
+        futureSightMove = null;
+        futureSightSource = null;
+        futureSightTarget = null;
+        if (source is null || target is null || target.Fainted)
+        {
+            return;
+        }
+
+        Log.Enqueue(new BattleMessage("The attack foresaw earlier struck!", BattleCue.Info, target));
+        resolvingFutureSight = true;
+        Execute(source, target, move, ReferenceEquals(source, Active) ? BattleCue.PlayerAttack : BattleCue.WildAttack,
+            ReferenceEquals(target, Active) ? BattleCue.PlayerHurt : BattleCue.WildHurt);
+        resolvingFutureSight = false;
+    }
+
+    private void BindingTick(MonsterInstance monster, BattleCue hurtCue)
+    {
+        if (monster.Fainted || monster.BindingTurns <= 0)
+        {
+            return;
+        }
+
+        var damage = Math.Max(1, monster.MaxHp / 8);
+        IndirectDamage(monster, damage, "binding");
+        monster.BindingTurns--;
+        if (monster.BindingTurns == 0)
+        {
+            monster.BindingSource = null;
+            monster.Trapped = false;
+            Log.Enqueue(new BattleMessage($"{monster.Name} was freed from the binding move!", BattleCue.Info,
+                monster));
+        }
+    }
+
+    private void PerishTick(MonsterInstance monster, BattleCue hurtCue)
+    {
+        if (monster.Fainted || monster.PerishTurns <= 0)
+        {
+            return;
+        }
+
+        monster.PerishTurns--;
+        if (monster.PerishTurns > 0)
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name}'s perish count fell to {monster.PerishTurns}!",
+                BattleCue.Info, monster));
+            return;
+        }
+
+        monster.CurrentHp = 0;
+        Log.Enqueue(new BattleMessage($"{monster.Name} perished!", hurtCue, monster, 0,
+            stateAfter: BattleSnapshot.Capture(monster)));
+    }
+
     private void AdvanceFieldTimers()
     {
         if (weatherTurns > 0)
@@ -2745,6 +3552,43 @@ internal sealed class Battle
         TickScreen(ref wildReflectTurns, "The foe's Reflect wore off.");
         TickScreen(ref playerLightScreenTurns, "Your Light Screen wore off.");
         TickScreen(ref wildLightScreenTurns, "The foe's Light Screen wore off.");
+        TickScreen(ref playerSafeguardTurns, "Your Safeguard wore off.");
+        TickScreen(ref wildSafeguardTurns, "The foe's Safeguard wore off.");
+        TickScreen(ref playerMistTurns, "Your Mist wore off.");
+        TickScreen(ref wildMistTurns, "The foe's Mist wore off.");
+        TickScreen(ref playerTailwindTurns, "Your tailwind petered out.");
+        TickScreen(ref wildTailwindTurns, "The foe's tailwind petered out.");
+        TickScreen(ref playerWaterSportTurns, "The weakened Fire effect wore off.");
+        TickScreen(ref wildWaterSportTurns, "The weakened Fire effect wore off.");
+        TickVolatile(Active);
+        TickVolatile(Wild);
+    }
+
+    private void TickVolatile(MonsterInstance monster)
+    {
+        if (monster.TauntTurns > 0 && --monster.TauntTurns == 0)
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name}'s taunt wore off.", BattleCue.Info, monster));
+        }
+
+        if (monster.EncoreTurns > 0 && --monster.EncoreTurns == 0)
+        {
+            monster.EncoreMove = null;
+            Log.Enqueue(new BattleMessage($"{monster.Name}'s encore ended.", BattleCue.Info, monster));
+        }
+
+        if (monster.DisableTurns > 0 && --monster.DisableTurns == 0)
+        {
+            monster.DisabledMove = null;
+            Log.Enqueue(new BattleMessage($"{monster.Name}'s disabled move was restored.", BattleCue.Info, monster));
+        }
+
+        if (monster.HealBlockTurns > 0 && --monster.HealBlockTurns == 0)
+        {
+            Log.Enqueue(new BattleMessage($"{monster.Name} can heal again.", BattleCue.Info, monster));
+        }
+
+        monster.DestinyBondActive = false;
     }
 
     private void TickScreen(ref int turns, string message)

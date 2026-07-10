@@ -81,6 +81,14 @@ internal sealed class MonsterInstance
     public int[] Evs { get; private set; }
     public string Ability { get; private set; } = "Pressure";
     public Gender Gender { get; private set; }
+    public string HeldItem { get; set; } = string.Empty;
+    public bool HasHeldItem => !string.IsNullOrWhiteSpace(HeldItem);
+    public bool HeldBerryConsumed { get; set; }
+    public bool DamagedThisTurn { get; set; }
+    public bool LastMoveFailed { get; set; }
+    public int RageHits { get; set; }
+    public int FuryCutterHits { get; set; }
+    public int RolloutTurns { get; set; }
 
     public int EvTotal
     {
@@ -119,6 +127,18 @@ internal sealed class MonsterInstance
     public bool AquaRingActive { get; set; }
     public bool IngrainActive { get; set; }
     public bool LeechSeeded { get; set; }
+    public int SubstituteHp { get; set; }
+    public int TauntTurns { get; set; }
+    public int EncoreTurns { get; set; }
+    public MoveDef? EncoreMove { get; set; }
+    public int DisableTurns { get; set; }
+    public MoveDef? DisabledMove { get; set; }
+    public int PerishTurns { get; set; }
+    public bool DestinyBondActive { get; set; }
+    public int StockpileCount { get; set; }
+    public int BindingTurns { get; set; }
+    public MonsterInstance? BindingSource { get; set; }
+    public int HealBlockTurns { get; set; }
     public bool FlashFireActive { get; set; } // Flash Fire absorbed a Fire move this battle
     public bool Trapped { get; set; }   // Mean Look / Block / Arena Trap: cannot flee or switch out
     public bool Grounded { get; set; }  // Smack Down: knocked out of the air, losing Ground immunity
@@ -128,6 +148,7 @@ internal sealed class MonsterInstance
     public MoveDef? LastMove { get; set; }  // the last move this creature used (Mirror Move, etc.)
     public int LastPhysicalDamage { get; set; } // physical damage taken this turn (Counter)
     public int LastSpecialDamage { get; set; }  // special damage taken this turn (Mirror Coat)
+    public MonsterInstance? LastDamageSource { get; set; }
     public MoveDef? LockedMove { get; set; } // a rampage move (Outrage/Thrash) the user is locked into
     public int LockedTurns { get; set; }     // remaining forced turns of the locked-in move
 
@@ -159,6 +180,8 @@ internal sealed class MonsterInstance
     }
 
     public bool HasType(Element type) => Species.HasType(type);
+    public void SwapAbility(MonsterInstance other) => (Ability, other.Ability) = (other.Ability, Ability);
+    public void SetAbility(string ability) => Ability = ability;
 
     public int OffensiveStat(MoveCategory category, bool critical)
     {
@@ -192,6 +215,18 @@ internal sealed class MonsterInstance
         AquaRingActive = false;
         IngrainActive = false;
         LeechSeeded = false;
+        SubstituteHp = 0;
+        TauntTurns = 0;
+        EncoreTurns = 0;
+        EncoreMove = null;
+        DisableTurns = 0;
+        DisabledMove = null;
+        PerishTurns = 0;
+        DestinyBondActive = false;
+        StockpileCount = 0;
+        BindingTurns = 0;
+        BindingSource = null;
+        HealBlockTurns = 0;
         FlashFireActive = false;
         Trapped = false;
         Grounded = false;
@@ -201,6 +236,13 @@ internal sealed class MonsterInstance
         LastMove = null;
         LastPhysicalDamage = 0;
         LastSpecialDamage = 0;
+        LastDamageSource = null;
+        DamagedThisTurn = false;
+        LastMoveFailed = false;
+        RageHits = 0;
+        FuryCutterHits = 0;
+        RolloutTurns = 0;
+        HeldBerryConsumed = false;
         LockedMove = null;
         LockedTurns = 0;
         RevertTransform(); // a copy from Transform is lost on switch/at battle start

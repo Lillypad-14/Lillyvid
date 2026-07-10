@@ -77,6 +77,46 @@ internal enum MoveEffect : byte
     Rest,             // the user falls asleep and fully heals
     TrickRoom,        // reverses turn order (slower moves first) for five turns
     LockInMove,       // locks the user into a rampage for 2-3 turns, then confuses it (Outrage)
+    SafeguardSide,    // blocks major status conditions on the user's side for five turns
+    MistSide,         // blocks stat drops on the user's side for five turns
+    TailwindSide,     // doubles the user's side's Speed for four turns
+    Spikes,           // lays up to three layers of entry hazards
+    ToxicSpikes,      // lays up to two poison entry-hazard layers
+    StealthRock,      // lays Rock-type entry hazards
+    Substitute,       // trades one quarter max HP for a damage-absorbing substitute
+    Taunt,            // prevents the target using status moves for three turns
+    Encore,           // locks the target into its last move for three turns
+    Disable,          // disables the target's last move for four turns
+    PerishSong,       // all active battlers faint after three turns unless switched
+    DestinyBond,      // takes down the next foe that knocks the user out
+    Stockpile,        // stores energy and raises Defense / Sp. Def, max three stacks
+    SpitUp,           // releases Stockpile energy as damage and removes the boosts
+    Swallow,          // consumes Stockpile energy to heal and removes the boosts
+    TrapDamage,       // binds the target and damages it for four to five turns
+    BreakScreens,     // removes Reflect and Light Screen from the target's side
+    RapidSpin,        // removes the user's hazards / binding / Leech Seed and raises Speed
+    HealBlock,        // prevents the target from healing for two turns
+    LowerUserAtkDef,  // lowers the user's Attack and Defense
+    LowerUserSpAtk,   // sharply lowers the user's Sp. Atk
+    LowerUserSpd,     // lowers the user's Speed
+    RaiseAllStats,    // raises Attack, Defense, Sp. Atk, Sp. Def, and Speed
+    TriStatus,        // randomly burns, freezes, or paralyzes the target
+    ClearTerrain,     // clears the active terrain
+    SkillSwap,        // swaps the user's Ability with the target's
+    WaterSport,       // weakens Fire moves for five turns
+    WorkUp,           // raises Attack and Sp. Atk
+    WorrySeed,        // changes the target's Ability to Insomnia
+    RequiresBerry,    // requires the user to have consumed a Berry
+    RequiresItem,     // requires the target to hold an item
+    ConsumeTargetItem,// consumes a target Berry
+    StealItem,        // takes the target's held item
+    RemoveItem,       // removes the target's held item
+    FlingItem,        // uses the user's held item as the attack
+    SwitchItems,      // swaps held items
+    NaturalGift,      // uses the user's Berry as the attack
+    PayDay,           // awards additional battle money
+    FocusPunch,       // fails if the user was damaged before acting
+    FutureSight,      // schedules a delayed Psychic strike
 }
 
 internal enum MoveCategory : byte
