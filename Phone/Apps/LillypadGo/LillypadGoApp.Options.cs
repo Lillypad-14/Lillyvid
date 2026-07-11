@@ -64,7 +64,7 @@ internal sealed partial class LillypadGoApp
         }
 
         var trackingMin = new Vector2(content.Min.X + 14f * scale, content.Min.Y + 68f * scale);
-        var trackingMax = new Vector2(content.Max.X - 14f * scale, trackingMin.Y + 146f * scale);
+        var trackingMax = new Vector2(content.Max.X - 14f * scale, trackingMin.Y + 176f * scale);
         LgUi.Card(drawList, trackingMin, trackingMax, 14f * scale, scale);
 
         Typography.Draw(new Vector2(trackingMin.X + 14f * scale, trackingMin.Y + 12f * scale), "Overworld",
@@ -90,12 +90,35 @@ internal sealed partial class LillypadGoApp
         }
 
         var worldBattles = State.WorldBattlesEnabled;
-        var worldBattlesRect = new Rect(new Vector2(trackingMin.X + 14f * scale, trackingMax.Y - 34f * scale),
-            new Vector2(trackingMax.X - 14f * scale, trackingMax.Y - 10f * scale));
+        var worldBattlesRect = new Rect(new Vector2(trackingMin.X + 14f * scale, trackingMin.Y + 114f * scale),
+            new Vector2(trackingMax.X - 14f * scale, trackingMin.Y + 138f * scale));
         if (DrawCheckboxRow(worldBattlesRect, theme, scale, ref worldBattles, "Battles also play out in the world"))
         {
             State.WorldBattlesEnabled = worldBattles;
             State.Save();
+        }
+
+        // Opt-in immersive mode. The hover warning spells out the key capture so nobody is
+        // surprised that 1–8 stop reaching their game hotbar mid-battle.
+        var immersive = State.ImmersiveModeEnabled;
+        var immersiveRect = new Rect(new Vector2(trackingMin.X + 14f * scale, trackingMax.Y - 32f * scale),
+            new Vector2(trackingMax.X - 14f * scale, trackingMax.Y - 8f * scale));
+        if (DrawCheckboxRow(immersiveRect, theme, scale, ref immersive, "Immerse mode — hunt & battle in the world"))
+        {
+            State.ImmersiveModeEnabled = immersive;
+            State.Save();
+        }
+
+        if (ImGui.IsMouseHoveringRect(immersiveRect.Min, immersiveRect.Max))
+        {
+            ShowTooltip("Immerse mode (opt-in)\n\n" +
+                "Wild Pokémon spawn around you in the game world — click one to engage. Battles run " +
+                "from an on-screen battle hotbar: slots 1–4 are your lead's moves (hover for full move " +
+                "info), 5 Bag, 6 Swap, 7 Run, 8 opens the phone.\n\n" +
+                "⚠ WARNING: while a battle is active, keyboard keys 1–8 are captured for these battle " +
+                "actions and will NOT trigger your normal game hotbar. Your real hotbars are never " +
+                "modified or overwritten — the capture ends the moment the battle does.\n\n" +
+                "The phone keeps working normally alongside this mode.");
         }
 
         var cardMin = new Vector2(content.Min.X + 14f * scale, trackingMax.Y + 12f * scale);

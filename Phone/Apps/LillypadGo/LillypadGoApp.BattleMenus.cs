@@ -470,9 +470,22 @@ internal sealed partial class LillypadGoApp
         var titleStyle = TextStyles.Headline;
         var metaStyle = TextStyles.Caption1;
         var badgeStyle = TextStyles.Caption2;
-        var title = FitLabel(move.Name, rect.Width - 20f * scale, titleStyle);
-        Typography.DrawCentered(new Vector2(rect.Center.X, rect.Min.Y + 16f * scale), title, ink,
-            titleStyle);
+
+        // Long move names shrink to fit rather than ellipsizing — the immersive hotbar's
+        // cards are narrower than the phone's, and "Self-Destr…" reads terribly.
+        var titleAvail = rect.Width - 20f * scale;
+        var titleWidth = Typography.Measure(move.Name, titleStyle).X;
+        if (titleWidth <= titleAvail)
+        {
+            Typography.DrawCentered(new Vector2(rect.Center.X, rect.Min.Y + 16f * scale), move.Name, ink,
+                titleStyle);
+        }
+        else
+        {
+            var fittedScale = titleStyle.Scale * MathF.Max(0.62f, titleAvail / titleWidth);
+            Typography.DrawCentered(new Vector2(rect.Center.X, rect.Min.Y + 16f * scale), move.Name, ink,
+                fittedScale, titleStyle.Weight);
+        }
 
         var typeText = FitLabel(Elements.Name(move.Element), rect.Width * 0.42f, metaStyle);
         Typography.Draw(new Vector2(x, rect.Min.Y + 33f * scale), typeText, ink with { W = 0.84f }, metaStyle);

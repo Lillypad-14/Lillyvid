@@ -88,4 +88,52 @@ internal static class WorldBattleStage
         snapshot = null!;
         return false;
     }
+
+    // ---- Back-channel: where the renderer actually put the battlers this frame, so the
+    // phone app can hit-test the world enemy (hover tooltip) and hang HP plates over both
+    // battlers' heads (immersive mode). UI thread only.
+    private static Vector3 stagePlayerCenter;
+    private static float stagePlayerHalfHeight;
+    private static Vector3 stageWildCenter;
+    private static float stageWildHalfHeight;
+    private static long stageReportMs;
+
+    public static void ReportStage(Vector3 playerCenter, float playerHalfHeight, Vector3 wildCenter,
+        float wildHalfHeight)
+    {
+        stagePlayerCenter = playerCenter;
+        stagePlayerHalfHeight = playerHalfHeight;
+        stageWildCenter = wildCenter;
+        stageWildHalfHeight = wildHalfHeight;
+        stageReportMs = Environment.TickCount64;
+    }
+
+    public static bool TryGetStage(out Vector3 playerCenter, out float playerHalfHeight,
+        out Vector3 wildCenter, out float wildHalfHeight)
+    {
+        playerCenter = stagePlayerCenter;
+        playerHalfHeight = stagePlayerHalfHeight;
+        wildCenter = stageWildCenter;
+        wildHalfHeight = stageWildHalfHeight;
+        return Environment.TickCount64 - stageReportMs <= (long)(StaleSeconds * 1000f);
+    }
+}
+
+// Wild Pokémon roaming the game world in immersive mode. The app owns the spawn logic and
+// publishes render snapshots here; FollowerRenderer draws them as billboards. UI thread only.
+internal static class WorldSpawnStage
+{
+    public readonly record struct SpawnSnap(string SpeciesId, Vector3 Position, Vector3 Facing, float AnimSeed);
+
+    public static SpawnSnap[] Current { get; private set; } = [];
+
+    public static void Publish(SpawnSnap[] spawns)
+    {
+        Current = spawns;
+    }
+
+    public static void Clear()
+    {
+        Current = [];
+    }
 }

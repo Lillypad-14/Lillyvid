@@ -321,6 +321,15 @@ public sealed partial class MainWindow
         this.TickNativeScreenRecovery();
         this.pokemonFollower.Update(this.presentHookProbe);
 
+        // Immerse mode needs the Lillypad Go app alive even before the phone is first
+        // opened this session; creating the phone screen instantiates it.
+        if (Phone.Plugin.LillypadGo?.ImmersiveModeEnabled == true)
+        {
+            this.phoneScreen ??= new Phone.PhoneScreen(Phone.Plugin.Cfg);
+        }
+
+        Phone.Apps.LillypadGo.LillypadGoApp.Instance?.DrawImmersiveOverlay();
+
         if (!this.worldScreenEnabled || this.worldScreenAnchor is not { } anchor)
         {
             this.presentHookProbe.ClearNativeQuad();

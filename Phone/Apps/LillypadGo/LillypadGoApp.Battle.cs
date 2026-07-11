@@ -23,6 +23,10 @@ internal sealed partial class LillypadGoApp
             return;
         }
 
+        // The phone is running the battle this frame; the immersive overlay must not
+        // double-tick playback/animations (see TickBattleHeadless).
+        battleTickedThisFrame = true;
+
         var scale = ImGuiHelpers.GlobalScale;
         var drawList = ImGui.GetWindowDrawList();
 

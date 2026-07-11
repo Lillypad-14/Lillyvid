@@ -245,6 +245,12 @@ internal sealed partial class LillypadGoApp : IPhoneApp
 
     public void Dispose()
     {
+        if (ReferenceEquals(Instance, this))
+        {
+            Instance = null;
+        }
+
+        WorldSpawnStage.Clear();
         PokemonSprites.Dispose();
         MoveFxSprites.Dispose();
         BiomeBgTextures.Dispose();
@@ -254,6 +260,7 @@ internal sealed partial class LillypadGoApp : IPhoneApp
     public void Draw(in PhoneContext context)
     {
         time += ImGui.GetIO().DeltaTime;
+        appDrewThisFrame = true;
         var dt = MathF.Min(ImGui.GetIO().DeltaTime, 0.1f);
         var content = context.Content;
         var theme = context.Theme;

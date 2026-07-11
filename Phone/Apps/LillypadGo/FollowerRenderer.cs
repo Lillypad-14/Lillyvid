@@ -31,6 +31,7 @@ internal sealed class FollowerRenderer
     private const float BattlePlayerRange = 1.8f;    // active battler, in front of the player
     private const float BattleEnemyRange = 4.8f;     // the enemy faces it from further out
     private const float BattleMonHeight = 1.35f;     // battlers stand a touch larger than the follower
+    private const float SpawnHeight = 1.15f;         // immersive-mode wild spawns
 
     private enum Mode
     {
@@ -77,7 +78,8 @@ internal sealed class FollowerRenderer
             snap = liveSnap;
         }
 
-        if (player is null || (lead is null && snap is null))
+        var spawns = WorldSpawnStage.Current;
+        if (player is null || (lead is null && snap is null && spawns.Length == 0))
         {
             probe.ClearNativeWorldSprites();
             this.placed = false;
@@ -118,19 +120,23 @@ internal sealed class FollowerRenderer
         }
 
         this.battleActive = false;
-        if (lead is null)
+        this.spriteList.Clear();
+        if (lead is not null)
         {
-            probe.ClearNativeWorldSprites();
+            this.AppendFollower(lead, player.Position, player.Rotation, cameraPosition, dt);
+        }
+        else
+        {
             this.placed = false;
-            return;
         }
 
-        this.UpdateFollower(probe, lead, player.Position, player.Rotation, cameraPosition, dt);
+        this.AppendSpawns(spawns, cameraPosition);
+        probe.SetNativeWorldSprites(this.spriteList);
     }
 
     // ---- Overworld follower -----------------------------------------------------------
 
-    private void UpdateFollower(PresentHookProbe probe, MonsterInstance lead, Vector3 playerPosition,
+    private void AppendFollower(MonsterInstance lead, Vector3 playerPosition,
         float playerRotation, Vector3 cameraPosition, float dt)
     {
         var playerForward = new Vector3(MathF.Sin(playerRotation), 0f, MathF.Cos(playerRotation));
@@ -249,16 +255,32 @@ internal sealed class FollowerRenderer
         if (!PokemonSprites.TryGetFrame(lead.Species.Id, showBack, this.animTime, out var frame))
         {
             // The spritesheet streams in on first use; skip drawing until it is ready.
-            probe.ClearNativeWorldSprites();
             return;
         }
 
-        this.spriteList.Clear();
         var right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, toCamera));
         var center = this.position + new Vector3(0f, hop + (SpriteHeight * 0.5f), 0f);
         this.spriteList.Add(Billboard(center, SpriteHeight * frame.Aspect * 0.5f, SpriteHeight * 0.5f,
             right, (nint)frame.Handle.Handle, frame.Uv0.X, frame.Uv1.X, Vector4.One, pointSample: true));
-        probe.SetNativeWorldSprites(this.spriteList);
+    }
+
+    // Immersive-mode wild spawns roaming the world, published by the app (WorldSpawnStage).
+    private void AppendSpawns(WorldSpawnStage.SpawnSnap[] spawns, Vector3 cameraPosition)
+    {
+        foreach (var spawn in spawns)
+        {
+            var toCamera = HorizontalDirection(cameraPosition - spawn.Position);
+            var showBack = Vector3.Dot(spawn.Facing, toCamera) < 0f;
+            if (!PokemonSprites.TryGetFrame(spawn.SpeciesId, showBack, this.animTime + spawn.AnimSeed, out var frame))
+            {
+                continue;
+            }
+
+            var right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, toCamera));
+            var center = spawn.Position + new Vector3(0f, SpawnHeight * 0.5f, 0f);
+            this.spriteList.Add(Billboard(center, SpawnHeight * frame.Aspect * 0.5f, SpawnHeight * 0.5f,
+                right, (nint)frame.Handle.Handle, frame.Uv0.X, frame.Uv1.X, Vector4.One, pointSample: true));
+        }
     }
 
     private void ScheduleIdleAction()
@@ -317,6 +339,9 @@ internal sealed class FollowerRenderer
         var wildH = BattleMonHeight * snap.WildBaseScale;
         var playerCenter = this.position + new Vector3(0f, hop + (playerH * 0.5f), 0f);
         var wildCenter = this.battleWildFeet + new Vector3(0f, wildH * 0.5f, 0f);
+
+        // Let the app hit-test the world enemy and hang HP plates over both battlers.
+        WorldBattleStage.ReportStage(playerCenter, playerH * 0.5f, wildCenter, wildH * 0.5f);
 
         var planeDelta = wildCenter - playerCenter;
         var planeRight = HorizontalDirection(planeDelta);
@@ -577,8 +602,9 @@ internal sealed class FollowerRenderer
 
     // The terrain height under a point via the game's collision mesh; falls back to
     // fallbackY when the raycast misses or hits something implausibly far away (e.g. the
-    // probe started above a bridge while the player is under it).
-    private static unsafe float GroundY(Vector3 at, float fallbackY)
+    // probe started above a bridge while the player is under it). Shared with the app's
+    // immersive spawner.
+    internal static unsafe float GroundY(Vector3 at, float fallbackY, float tolerance = 4f)
     {
         var probeTop = MathF.Max(at.Y, fallbackY) + 2.5f;
         if (BGCollisionModule.RaycastMaterialFilter(
@@ -586,7 +612,7 @@ internal sealed class FollowerRenderer
                 new Vector3(0f, -1f, 0f),
                 out var hit,
                 30f) &&
-            MathF.Abs(hit.Point.Y - fallbackY) < 4f)
+            MathF.Abs(hit.Point.Y - fallbackY) < tolerance)
         {
             return hit.Point.Y;
         }

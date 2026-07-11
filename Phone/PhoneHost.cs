@@ -33,6 +33,7 @@ internal static class Plugin
     public static IGameGui GameGui => global::VideoSyncPrototype.Plugin.GameGui;
     public static IObjectTable ObjectTable => global::VideoSyncPrototype.Plugin.ObjectTable;
     public static IFramework Framework => global::VideoSyncPrototype.Plugin.Framework;
+    public static IKeyState KeyState => global::VideoSyncPrototype.Plugin.KeyState;
 
     // The phone module persists its own settings (theme, home layout, game high scores)
     // to a dedicated file, decoupled from Lillypad's Dalamud IPluginConfiguration so its

@@ -42,6 +42,16 @@ internal sealed class LillypadGoState
     // Mirrors phone battles into the game world (battlers + move effects in front of the player).
     public bool WorldBattlesEnabled { get; set; } = true;
 
+    // Opt-in immersive mode: wild Pokémon spawn in the game world and battles are playable
+    // from an on-screen hotbar (keys 1–8) without opening the phone. Off by default.
+    public bool ImmersiveModeEnabled { get; set; }
+
+    // Where the user parked the immersive hotbar (screen px; negative = default bottom-center)
+    // and whether they collapsed it to just its header strip.
+    public float ImmersiveBarX { get; set; } = -1f;
+    public float ImmersiveBarY { get; set; } = -1f;
+    public bool ImmersiveBarCollapsed { get; set; }
+
     // Transient (not serialized).
     public MonsterInstance? Pending { get; set; }
     public bool InBattle { get; set; }
@@ -303,6 +313,10 @@ internal sealed class LillypadGoState
                 BackgroundTrackingEnabled = BackgroundTrackingEnabled,
                 FollowerEnabled = FollowerEnabled,
                 WorldBattlesEnabled = WorldBattlesEnabled,
+                ImmersiveModeEnabled = ImmersiveModeEnabled,
+                ImmersiveBarX = ImmersiveBarX,
+                ImmersiveBarY = ImmersiveBarY,
+                ImmersiveBarCollapsed = ImmersiveBarCollapsed,
                 Seen = Seen.ToArray(),
                 Badges = Badges.ToArray(),
                 OwnedTms = OwnedTms.ToArray(),
@@ -361,6 +375,10 @@ internal sealed class LillypadGoState
         BackgroundTrackingEnabled = dto.BackgroundTrackingEnabled ?? true;
         FollowerEnabled = dto.FollowerEnabled ?? true;
         WorldBattlesEnabled = dto.WorldBattlesEnabled ?? true;
+        ImmersiveModeEnabled = dto.ImmersiveModeEnabled ?? false;
+        ImmersiveBarX = dto.ImmersiveBarX ?? -1f;
+        ImmersiveBarY = dto.ImmersiveBarY ?? -1f;
+        ImmersiveBarCollapsed = dto.ImmersiveBarCollapsed ?? false;
         if (dto.Seen is not null)
         {
             foreach (var id in dto.Seen)
@@ -506,6 +524,10 @@ internal sealed class LillypadGoState
         public bool? BackgroundTrackingEnabled { get; set; }
         public bool? FollowerEnabled { get; set; }
         public bool? WorldBattlesEnabled { get; set; }
+        public bool? ImmersiveModeEnabled { get; set; }
+        public float? ImmersiveBarX { get; set; }
+        public float? ImmersiveBarY { get; set; }
+        public bool? ImmersiveBarCollapsed { get; set; }
         public string[]? Seen { get; set; }
         public int[]? Badges { get; set; }
         public string[]? OwnedTms { get; set; }

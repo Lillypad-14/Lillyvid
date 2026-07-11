@@ -28,7 +28,11 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
+    [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+
+    // Lets deeply nested features (e.g. Lillypad Go's immersive hotbar) summon the main window.
+    internal static Action? OpenMainWindow { get; private set; }
 
     private static readonly Regex SyncCodeRegex = new(@"(?:VS2:[A-Za-z0-9_-]{16,}|F14YT1-[A-Za-z0-9_-]+)", RegexOptions.Compiled);
     private static readonly Regex Watch2GetherRegex = new(@"(?:W2G1:[A-Za-z0-9_-]{16,}|https?://w2g\.tv/[^\s<>""]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -60,6 +64,7 @@ public sealed class Plugin : IDalamudPlugin
             });
         }
 
+        OpenMainWindow = this.OpenMainUi;
         PluginInterface.UiBuilder.Draw += this.Draw;
         PluginInterface.UiBuilder.OpenMainUi += this.OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += this.OpenMainUi;
@@ -70,6 +75,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        OpenMainWindow = null;
         PluginInterface.UiBuilder.Draw -= this.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= this.OpenMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= this.OpenMainUi;
