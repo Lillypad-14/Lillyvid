@@ -21,8 +21,8 @@ namespace VideoSyncPrototype.Phone.Apps.LillypadGo;
 // popups play out between them.
 internal sealed class FollowerRenderer
 {
-    private const float FollowDistance = 2.0f;       // resting spot behind the player, in yalms
-    private const float ResumeFollowDistance = 3.4f; // this far from the player → run to catch up
+    private const float FollowDistance = 2.4f;       // resting spot behind the player, in yalms
+    private const float ResumeFollowDistance = 4.8f; // this far from the player → run to catch up
     private const float MoveDeadzone = 0.35f;        // no jitter once close enough to a target
     private const float SnapDistance = 25f;          // teleport past this (zone jumps, mounts)
     private const float WanderSpeed = 1.7f;          // idle amble, much slower than catch-up

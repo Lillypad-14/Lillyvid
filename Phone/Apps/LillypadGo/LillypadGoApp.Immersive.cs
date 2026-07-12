@@ -50,7 +50,9 @@ internal sealed partial class LillypadGoApp
         public float AnimSeed;
     }
 
-    private const int MaxWorldSpawns = 3;
+    // Keep the field lively without turning the native sprite pass into a crowd scene.
+    private const int MaxWorldSpawns = 8;
+    private const float WorldSpawnCullDistance = 100f;
     private readonly List<WorldSpawn> worldSpawns = new();
     private float nextSpawnCheckAt;
     private uint spawnTerritory;
@@ -67,6 +69,11 @@ internal sealed partial class LillypadGoApp
     private bool immersiveRunConfirm;
     private bool immersiveLogOpen;
     private bool immersiveBarDragging;
+    private bool immersiveBarPositionApplied;
+    private bool immersiveBarSizeApplied;
+    private bool immersiveBarSizeWasCollapsed;
+    private bool immersiveBarResetPending;
+    private bool immersiveBarLayoutDirty;
     private readonly bool[] immersiveKeyWasDown = new bool[8];
     private readonly bool[] immersiveKeyPressed = new bool[8];
 
@@ -261,7 +268,7 @@ internal sealed partial class LillypadGoApp
         {
             var spawn = worldSpawns[i];
             if (immersiveTime > spawn.DespawnAt ||
-                Vector3.Distance(spawn.Position, player.Position) > 45f)
+                Vector3.Distance(spawn.Position, player.Position) > WorldSpawnCullDistance)
             {
                 if (ReferenceEquals(engageTarget, spawn))
                 {
@@ -274,8 +281,8 @@ internal sealed partial class LillypadGoApp
 
         if (immersiveTime >= nextSpawnCheckAt)
         {
-            nextSpawnCheckAt = immersiveTime + 6f;
-            if (worldSpawns.Count < MaxWorldSpawns && rng.NextDouble() < 0.65)
+            nextSpawnCheckAt = immersiveTime + 4f;
+            if (worldSpawns.Count < MaxWorldSpawns && rng.NextDouble() < 0.8)
             {
                 RollWorldSpawn(player.Position, player.Rotation);
             }
@@ -364,12 +371,12 @@ internal sealed partial class LillypadGoApp
                 // Ahead of the player, within ~±70° of their facing, a bit further out so
                 // they walk up to it.
                 angle = playerRotation + (((float)rng.NextDouble() - 0.5f) * 2.4f);
-                distance = 12f + ((float)rng.NextDouble() * 12f);
+                distance = 18f + ((float)rng.NextDouble() * 24f);
             }
             else
             {
                 angle = (float)(rng.NextDouble() * Math.PI * 2.0);
-                distance = 8f + ((float)rng.NextDouble() * 12f);
+                distance = 14f + ((float)rng.NextDouble() * 28f);
             }
 
             var position = playerPosition + (new Vector3(MathF.Sin(angle), 0f, MathF.Cos(angle)) * distance);
@@ -538,22 +545,40 @@ internal sealed partial class LillypadGoApp
     // Draggable by its header strip, collapsible to just the header, both persisted.
     private void DrawImmersiveBar(float scale, Vector2 display, bool battleLive)
     {
-        var width = BarWidth * scale;
+        var defaultWidth = BarWidth * scale;
         var headerHeight = 24f * scale;
         var collapsed = State.ImmersiveBarCollapsed;
-        var height = collapsed ? headerHeight + 6f * scale : headerHeight + (BarContentHeight * scale);
+        var defaultHeight = headerHeight + (BarContentHeight * scale);
+        var width = State.ImmersiveBarWidth > 0f ? State.ImmersiveBarWidth : defaultWidth;
+        var height = collapsed
+            ? headerHeight + 6f * scale
+            : State.ImmersiveBarHeight > 0f ? State.ImmersiveBarHeight : defaultHeight;
+        var minWidth = 650f * scale;
+        var minHeight = collapsed ? headerHeight + (6f * scale) : headerHeight + (72f * scale);
+        width = Math.Clamp(width, minWidth, MathF.Max(minWidth, display.X));
+        height = Math.Clamp(height, minHeight, MathF.Max(minHeight, display.Y));
 
         // Position: the user's parked spot, else the default bottom-center perch.
         var pos = State.ImmersiveBarX >= 0f && State.ImmersiveBarY >= 0f
             ? new Vector2(State.ImmersiveBarX, State.ImmersiveBarY)
             : new Vector2((display.X - width) * 0.5f,
-                display.Y - (headerHeight + (BarContentHeight * scale)) - 44f * scale);
+                display.Y - height - 44f * scale);
         pos.X = Math.Clamp(pos.X, 0f, MathF.Max(0f, display.X - width));
         pos.Y = Math.Clamp(pos.Y, 0f, MathF.Max(0f, display.Y - height));
 
-        ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new Vector2(width, height));
-        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize |
+        if (!immersiveBarPositionApplied)
+        {
+            ImGui.SetNextWindowPos(pos);
+            immersiveBarPositionApplied = true;
+        }
+        if (!immersiveBarSizeApplied || immersiveBarSizeWasCollapsed != collapsed)
+        {
+            ImGui.SetNextWindowSize(new Vector2(width, height));
+            immersiveBarSizeApplied = true;
+            immersiveBarSizeWasCollapsed = collapsed;
+        }
+        ImGui.SetNextWindowSizeConstraints(new Vector2(minWidth, minHeight), display);
+        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoTitleBar |
             ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoCollapse |
             ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoSavedSettings |
             ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoMove;
@@ -567,10 +592,17 @@ internal sealed partial class LillypadGoApp
         LgUi.Interactive = true;
         var dl = ImGui.GetWindowDrawList();
         var min = ImGui.GetWindowPos();
-        var max = min + new Vector2(width, height);
-        DrawCombatBox(dl, min, max, scale);
+        var actualSize = ImGui.GetWindowSize();
+        width = actualSize.X;
+        height = actualSize.Y;
+        var max = min + actualSize;
+        var availableContentHeight = MathF.Max(1f, height - headerHeight);
+        var layoutScale = scale * Math.Clamp(
+            MathF.Min(width / defaultWidth, availableContentHeight / (BarContentHeight * scale)),
+            0.55f, 1.4f);
+        DrawCombatBox(dl, min, max, layoutScale);
 
-        this.DrawBarHeader(dl, min, max, headerHeight, scale, battleLive, pos, display, width, height);
+        this.DrawBarHeader(dl, min, max, headerHeight, layoutScale, battleLive, display, width, height);
 
         if (collapsed)
         {
@@ -580,6 +612,7 @@ internal sealed partial class LillypadGoApp
                 this.HandleCollapsedKeys();
             }
 
+            this.CaptureImmersiveBarSize(collapsed);
             LgUi.Interactive = prevInteractive;
             ImGui.End();
             return;
@@ -591,34 +624,34 @@ internal sealed partial class LillypadGoApp
         var mon = battleLive ? displayedPlayer ?? battle!.Active : State.Party.FirstOrDefault(m => !m.Fainted);
         if (mon is not null)
         {
-            MonsterArt.Draw(dl, new Vector2(min.X + 38f * scale, contentTop + 59f * scale), 24f * scale,
+            MonsterArt.Draw(dl, new Vector2(min.X + 38f * layoutScale, contentTop + 59f * layoutScale), 24f * layoutScale,
                 mon.Species, 1f, MonsterPose.Idle(time), back: true);
-            var infoX = min.X + 72f * scale;
-            Typography.Draw(new Vector2(infoX, contentTop + 16f * scale),
-                FitLabel(mon.Name, 112f * scale, TextStyles.SubheadlineEmphasized),
+            var infoX = min.X + 72f * layoutScale;
+            Typography.Draw(new Vector2(infoX, contentTop + 16f * layoutScale),
+                FitLabel(mon.Name, 112f * layoutScale, TextStyles.SubheadlineEmphasized),
                 PhoneTheme.Default.TextStrong, TextStyles.SubheadlineEmphasized);
-            Typography.Draw(new Vector2(infoX, contentTop + 36f * scale), $"Lv {mon.Level}",
+            Typography.Draw(new Vector2(infoX, contentTop + 36f * layoutScale), $"Lv {mon.Level}",
                 RosterUi.CardMuted, TextStyles.Caption1);
             var hp = battleLive ? animatedPlayerHp : mon.CurrentHp;
-            LgUi.HpBar(dl, new Vector2(infoX, contentTop + 58f * scale),
-                new Vector2(infoX + 106f * scale, contentTop + 66f * scale),
+            LgUi.HpBar(dl, new Vector2(infoX, contentTop + 58f * layoutScale),
+                new Vector2(infoX + 106f * layoutScale, contentTop + 66f * layoutScale),
                 Math.Clamp(hp / MathF.Max(1f, mon.MaxHp), 0f, 1f));
-            Typography.Draw(new Vector2(infoX, contentTop + 72f * scale),
+            Typography.Draw(new Vector2(infoX, contentTop + 72f * layoutScale),
                 $"{(int)MathF.Round(hp)}/{mon.MaxHp} HP", RosterUi.CardMuted, TextStyles.Caption2);
         }
         else
         {
-            Typography.Draw(new Vector2(min.X + 18f * scale, contentTop + 24f * scale), "No healthy",
+            Typography.Draw(new Vector2(min.X + 18f * layoutScale, contentTop + 24f * layoutScale), "No healthy",
                 RosterUi.CardMuted, TextStyles.Caption1);
             Typography.Draw(new Vector2(min.X + 18f * scale, contentTop + 42f * scale), "Pokémon",
                 RosterUi.CardMuted, TextStyles.Caption1);
         }
 
         // Party pips: one dot per slot, coloured by health, hover for the full profile.
-        var pipY = contentTop + 94f * scale;
+        var pipY = contentTop + 94f * layoutScale;
         for (var i = 0; i < LillypadGoState.PartyLimit; i++)
         {
-            var pipCenter = new Vector2(min.X + (20f + (i * 16f)) * scale, pipY);
+            var pipCenter = new Vector2(min.X + (20f + (i * 16f)) * layoutScale, pipY);
             if (i < State.Party.Count)
             {
                 var member = State.Party[i];
@@ -630,11 +663,11 @@ internal sealed partial class LillypadGoApp
                         : fraction > 0.22f
                             ? new Vector4(0.92f, 0.72f, 0.26f, 1f)
                             : new Vector4(0.88f, 0.3f, 0.28f, 1f);
-                dl.AddCircleFilled(pipCenter, 4.5f * scale, ImGui.GetColorU32(pipColor));
-                dl.AddCircle(pipCenter, 4.5f * scale, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.5f)), 12,
-                    1f * scale);
-                if (ImGui.IsMouseHoveringRect(pipCenter - (new Vector2(6f, 6f) * scale),
-                        pipCenter + (new Vector2(6f, 6f) * scale)))
+                dl.AddCircleFilled(pipCenter, 4.5f * layoutScale, ImGui.GetColorU32(pipColor));
+                dl.AddCircle(pipCenter, 4.5f * layoutScale, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.5f)), 12,
+                    1f * layoutScale);
+                if (ImGui.IsMouseHoveringRect(pipCenter - (new Vector2(6f, 6f) * layoutScale),
+                        pipCenter + (new Vector2(6f, 6f) * layoutScale)))
                 {
                     ShowTooltip(BuildMonsterTooltip(member,
                         member.Fainted ? "Fainted." : $"{member.CurrentHp}/{member.MaxHp} HP."));
@@ -642,33 +675,33 @@ internal sealed partial class LillypadGoApp
             }
             else
             {
-                dl.AddCircle(pipCenter, 4.5f * scale, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.18f)), 12,
-                    1f * scale);
+                dl.AddCircle(pipCenter, 4.5f * layoutScale, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.18f)), 12,
+                    1f * layoutScale);
             }
         }
 
         // Status zone: the battle text (with the phone's coloured move names, accent rail
         // and reveal fade), or an idle hint.
-        var lineX = min.X + 196f * scale;
-        var lineWidth = max.X - lineX - 16f * scale;
+        var lineX = min.X + 196f * layoutScale;
+        var lineWidth = max.X - lineX - 16f * layoutScale;
         if (battleLive && message is not null && battleText.Count > 0)
         {
             var entry = battleText[^1];
             var alpha = Math.Clamp(entry.Age / 0.12f, 0f, 1f);
-            dl.AddRectFilled(new Vector2(lineX - 9f * scale, contentTop + 9f * scale),
-                new Vector2(lineX - 6f * scale, contentTop + 38f * scale),
-                ImGui.GetColorU32((entry.MoveColor ?? Accent) with { W = alpha }), 2f * scale);
+            dl.AddRectFilled(new Vector2(lineX - 9f * layoutScale, contentTop + 9f * layoutScale),
+                new Vector2(lineX - 6f * layoutScale, contentTop + 38f * layoutScale),
+                ImGui.GetColorU32((entry.MoveColor ?? Accent) with { W = alpha }), 2f * layoutScale);
             var wrapped = WrapBattleText(entry, lineWidth);
             for (var lineIndex = 0; lineIndex < Math.Min(2, wrapped.Count); lineIndex++)
             {
-                DrawBattleTextLine(new Vector2(lineX, contentTop + (8f + (lineIndex * 17f)) * scale),
+                DrawBattleTextLine(new Vector2(lineX, contentTop + (8f + (lineIndex * 17f)) * layoutScale),
                     wrapped[lineIndex], PhoneTheme.Default.TextStrong with { W = alpha }, alpha,
                     TextStyles.BodyEmphasized);
             }
 
             if (messageTimer > 0.18f)
             {
-                Typography.Draw(new Vector2(max.X - 46f * scale, contentTop + 26f * scale), "click",
+                Typography.Draw(new Vector2(max.X - 46f * layoutScale, contentTop + 26f * layoutScale), "click",
                     RosterUi.CardMuted with { W = 0.62f }, TextStyles.Caption2);
             }
         }
@@ -679,7 +712,7 @@ internal sealed partial class LillypadGoApp
                 : worldSpawns.Count > 0
                     ? $"{worldSpawns.Count} wild Pokémon nearby — click one to engage!"
                     : "Wild Pokémon will appear as you explore.";
-            Typography.Draw(new Vector2(lineX, contentTop + 8f * scale),
+            Typography.Draw(new Vector2(lineX, contentTop + 8f * layoutScale),
                 FitLabel(lineText, lineWidth, TextStyles.Body), RosterUi.CardMuted, TextStyles.Body);
 
             // The phone's move-menu heading (Choice-item locks, blocked status moves) so a
@@ -689,7 +722,7 @@ internal sealed partial class LillypadGoApp
                 var heading = MoveMenuHeading();
                 if (heading != "Choose a move")
                 {
-                    Typography.Draw(new Vector2(lineX, contentTop + 25f * scale),
+                    Typography.Draw(new Vector2(lineX, contentTop + 25f * layoutScale),
                         FitLabel(heading, lineWidth, TextStyles.Caption2),
                         new Vector4(0.93f, 0.76f, 0.36f, 0.85f), TextStyles.Caption2);
                 }
@@ -698,28 +731,75 @@ internal sealed partial class LillypadGoApp
 
         if (battleLive && awaitingResult)
         {
-            DrawBarResult(dl, lineX, contentTop, scale);
+            DrawBarResult(dl, lineX, contentTop, layoutScale);
+            this.CaptureImmersiveBarSize(collapsed);
             LgUi.Interactive = prevInteractive;
             ImGui.End();
             return;
         }
 
-        DrawBarSlots(dl, lineX, contentTop, max, scale, battleLive);
+        DrawBarSlots(dl, lineX, contentTop, max, layoutScale, battleLive);
+        this.CaptureImmersiveBarSize(collapsed);
         LgUi.Interactive = prevInteractive;
         ImGui.End();
     }
 
-    // The header strip: grip dots + title on a drag handle, LOG and collapse chips on the
+    private void CaptureImmersiveBarSize(bool collapsed)
+    {
+        if (immersiveBarResetPending)
+        {
+            immersiveBarResetPending = false;
+            return;
+        }
+
+        var actual = ImGui.GetWindowSize();
+        var actualPos = ImGui.GetWindowPos();
+        if (actual.X <= 0f || actual.Y <= 0f)
+        {
+            return;
+        }
+
+        var changed = MathF.Abs(State.ImmersiveBarWidth - actual.X) > 1f ||
+                      MathF.Abs(State.ImmersiveBarX - actualPos.X) > 1f ||
+                      MathF.Abs(State.ImmersiveBarY - actualPos.Y) > 1f;
+        if (!collapsed)
+        {
+            changed |= MathF.Abs(State.ImmersiveBarHeight - actual.Y) > 1f;
+        }
+
+        State.ImmersiveBarWidth = actual.X;
+        State.ImmersiveBarX = actualPos.X;
+        State.ImmersiveBarY = actualPos.Y;
+        if (!collapsed)
+        {
+            State.ImmersiveBarHeight = actual.Y;
+        }
+
+        if (changed)
+        {
+            immersiveBarLayoutDirty = true;
+        }
+
+        if (immersiveBarLayoutDirty && !ImGui.IsMouseDown(ImGuiMouseButton.Left) && !immersiveBarDragging)
+        {
+            immersiveBarLayoutDirty = false;
+            State.Save();
+        }
+    }
+
+    // The header strip: grip dots + title on a drag handle, reset/LOG/collapse chips on the
     // right. Dragging moves the whole bar; the spot persists in the save.
     private void DrawBarHeader(ImDrawListPtr dl, Vector2 min, Vector2 max, float headerHeight, float scale,
-        bool battleLive, Vector2 pos, Vector2 display, float width, float height)
+        bool battleLive, Vector2 display, float width, float height)
     {
         var chipTop = min.Y + 4f * scale;
         var chipBottom = min.Y + headerHeight - 2f * scale;
         var collapseRect = new Rect(new Vector2(max.X - 34f * scale, chipTop),
             new Vector2(max.X - 8f * scale, chipBottom));
-        var logRect = new Rect(new Vector2(max.X - 78f * scale, chipTop),
-            new Vector2(max.X - 38f * scale, chipBottom));
+        var resetRect = new Rect(new Vector2(max.X - 112f * scale, chipTop),
+            new Vector2(max.X - 82f * scale, chipBottom));
+        var logRect = new Rect(new Vector2(max.X - 158f * scale, chipTop),
+            new Vector2(max.X - 116f * scale, chipBottom));
 
         // Drag handle: everything left of the chips.
         ImGui.SetCursorScreenPos(min);
@@ -728,13 +808,18 @@ internal sealed partial class LillypadGoApp
         if (ImGui.IsItemActive())
         {
             immersiveBarDragging = true;
-            var next = pos + ImGui.GetIO().MouseDelta;
-            State.ImmersiveBarX = Math.Clamp(next.X, 0f, MathF.Max(0f, display.X - width));
-            State.ImmersiveBarY = Math.Clamp(next.Y, 0f, MathF.Max(0f, display.Y - height));
+            var next = min + ImGui.GetIO().MouseDelta;
+            next.X = Math.Clamp(next.X, 0f, MathF.Max(0f, display.X - width));
+            next.Y = Math.Clamp(next.Y, 0f, MathF.Max(0f, display.Y - height));
+            ImGui.SetWindowPos(next);
+            State.ImmersiveBarX = next.X;
+            State.ImmersiveBarY = next.Y;
+            immersiveBarLayoutDirty = true;
         }
         else if (immersiveBarDragging)
         {
             immersiveBarDragging = false;
+            immersiveBarLayoutDirty = false;
             State.Save();
         }
 
@@ -768,6 +853,26 @@ internal sealed partial class LillypadGoApp
             RosterUi.ColorButton(logRect, "LOG", immersiveLogOpen ? RosterUi.Green : RosterUi.Blue, scale, true))
         {
             immersiveLogOpen = !immersiveLogOpen;
+        }
+
+        if (RosterUi.ColorButton(resetRect, "R", GamePalette.Cell, scale, true))
+        {
+            State.ImmersiveBarX = -1f;
+            State.ImmersiveBarY = -1f;
+            State.ImmersiveBarWidth = -1f;
+            State.ImmersiveBarHeight = -1f;
+            State.ImmersiveBarCollapsed = false;
+            immersiveBarPositionApplied = false;
+            immersiveBarSizeApplied = false;
+            immersiveBarSizeWasCollapsed = false;
+            immersiveBarResetPending = true;
+            immersiveBarLayoutDirty = false;
+            State.Save();
+        }
+
+        if (ImGui.IsMouseHoveringRect(resetRect.Min, resetRect.Max))
+        {
+            ShowTooltip("Reset the hotbar position and size.");
         }
 
         if (RosterUi.ColorButton(collapseRect, State.ImmersiveBarCollapsed ? "+" : "–",

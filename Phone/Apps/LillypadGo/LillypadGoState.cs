@@ -50,6 +50,8 @@ internal sealed class LillypadGoState
     // and whether they collapsed it to just its header strip.
     public float ImmersiveBarX { get; set; } = -1f;
     public float ImmersiveBarY { get; set; } = -1f;
+    public float ImmersiveBarWidth { get; set; } = -1f;
+    public float ImmersiveBarHeight { get; set; } = -1f;
     public bool ImmersiveBarCollapsed { get; set; }
 
     // Transient (not serialized).
@@ -316,6 +318,8 @@ internal sealed class LillypadGoState
                 ImmersiveModeEnabled = ImmersiveModeEnabled,
                 ImmersiveBarX = ImmersiveBarX,
                 ImmersiveBarY = ImmersiveBarY,
+                ImmersiveBarWidth = ImmersiveBarWidth,
+                ImmersiveBarHeight = ImmersiveBarHeight,
                 ImmersiveBarCollapsed = ImmersiveBarCollapsed,
                 Seen = Seen.ToArray(),
                 Badges = Badges.ToArray(),
@@ -378,6 +382,8 @@ internal sealed class LillypadGoState
         ImmersiveModeEnabled = dto.ImmersiveModeEnabled ?? false;
         ImmersiveBarX = dto.ImmersiveBarX ?? -1f;
         ImmersiveBarY = dto.ImmersiveBarY ?? -1f;
+        ImmersiveBarWidth = dto.ImmersiveBarWidth ?? -1f;
+        ImmersiveBarHeight = dto.ImmersiveBarHeight ?? -1f;
         ImmersiveBarCollapsed = dto.ImmersiveBarCollapsed ?? false;
         if (dto.Seen is not null)
         {
@@ -527,6 +533,8 @@ internal sealed class LillypadGoState
         public bool? ImmersiveModeEnabled { get; set; }
         public float? ImmersiveBarX { get; set; }
         public float? ImmersiveBarY { get; set; }
+        public float? ImmersiveBarWidth { get; set; }
+        public float? ImmersiveBarHeight { get; set; }
         public bool? ImmersiveBarCollapsed { get; set; }
         public string[]? Seen { get; set; }
         public int[]? Badges { get; set; }
