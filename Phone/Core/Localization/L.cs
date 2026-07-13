@@ -562,6 +562,34 @@ internal static class L
         public static readonly LocString CouldntPlay = new("music.couldntPlay", "Couldn't play this track");
         public static readonly LocString NowPlayingState = new("music.nowPlayingState", "Now playing");
         public static readonly LocString PlaybackFailed = new("music.playbackFailed", "Playback failed");
+        public static readonly LocString NoResultsSub = new("music.noResultsSub", "Check the spelling or try different keywords");
+        public static readonly LocString SearchEmptyTitle = new("music.searchEmptyTitle", "Play what you love");
+        public static readonly LocString SearchEmptySub = new("music.searchEmptySub", "Search for songs and artists");
+        public static readonly LocString Paused = new("music.paused", "Paused");
+        public static readonly LocString GoodMorning = new("music.goodMorning", "Good morning");
+        public static readonly LocString GoodAfternoon = new("music.goodAfternoon", "Good afternoon");
+        public static readonly LocString GoodEvening = new("music.goodEvening", "Good evening");
+        public static readonly LocString MadeForYou = new("music.madeForYou", "Made for you");
+        public static readonly LocString PlayingFrom = new("music.playingFrom", "Playing from");
+        public static readonly LocString SourceSearch = new("music.sourceSearch", "Search results");
+        public static readonly LocString SourceRadioSearch = new("music.sourceRadioSearch", "Radio search");
+        public static readonly LocString SearchStations = new("music.searchStations", "Search stations");
+        public static readonly LocString RadioSearchTitle = new("music.radioSearchTitle", "Find your station");
+        public static readonly LocString RadioSearchSub = new("music.radioSearchSub", "Search by name, genre, or country");
+        public static readonly LocString Spotify = new("music.spotify", "Spotify");
+        public static readonly LocString SpotifyHomeSub = new("music.spotifyHomeSub", "Control the Spotify desktop app");
+        public static readonly LocString SpotifyConnect = new("music.spotifyConnect", "Connect Spotify");
+        public static readonly LocString SpotifyDisconnect = new("music.spotifyDisconnect", "Disconnect");
+        public static readonly LocString SpotifySetupTitle = new("music.spotifySetupTitle", "Set up Spotify");
+        public static readonly LocString SpotifySetupBody = new("music.spotifySetupBody", "Spotify requires each user to register their own app. Create one on the Spotify Developer Dashboard, set its redirect URI to http://127.0.0.1:2984/callback, then paste the Client ID here.");
+        public static readonly LocString SpotifyClientIdHint = new("music.spotifyClientIdHint", "Paste your Client ID");
+        public static readonly LocString SpotifyOpenDashboard = new("music.spotifyOpenDashboard", "Open dashboard");
+        public static readonly LocString SpotifyConnecting = new("music.spotifyConnecting", "Finish signing in in your browser…");
+        public static readonly LocString SpotifyPremiumTitle = new("music.spotifyPremiumTitle", "Premium required");
+        public static readonly LocString SpotifyPremiumBody = new("music.spotifyPremiumBody", "Spotify only lets apps control playback on Premium accounts.");
+        public static readonly LocString SpotifyNoDeviceTitle = new("music.spotifyNoDeviceTitle", "No active device");
+        public static readonly LocString SpotifyNoDeviceBody = new("music.spotifyNoDeviceBody", "Open Spotify on your PC and start a track — then control it from here.");
+        public static readonly LocString SpotifyPlayingOn = new("music.spotifyPlayingOn", "Playing on {0}");
     }
 
     internal static class Messages
@@ -1259,6 +1287,8 @@ internal static class L
         public static readonly LocString InMinutes = new("time.inMinutes", "in {0}m");
         public static readonly LocString InHours = new("time.inHours", "in {0}h");
         public static readonly LocString InHoursMinutes = new("time.inHoursMinutes", "in {0}h {1}m");
+        public static readonly LocString Today = new("time.today", "Today");
+        public static readonly LocString Yesterday = new("time.yesterday", "Yesterday");
     }
 
     internal static class Plugin

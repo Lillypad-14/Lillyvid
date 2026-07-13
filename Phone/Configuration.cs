@@ -1,5 +1,7 @@
+using SpotifyAPI.Web;
 using VideoSyncPrototype.Phone.Core.Games;
 using VideoSyncPrototype.Phone.Core.Home;
+using VideoSyncPrototype.Phone.Core.Songs;
 using VideoSyncPrototype.Phone.Core.Theme;
 using VideoSyncPrototype.Phone.Core.Wallpapers;
 
@@ -23,6 +25,12 @@ internal sealed class Configuration
     public List<CustomWallpaper> CustomWallpapers { get; set; } = new();
     public HomeLayout? Home { get; set; }
     public List<GameStatRecord> GameStats { get; set; } = new();
+    public List<SongRecord> SongRecents { get; set; } = new();
+
+    // Spotify remote. The client id is per-user: Spotify now requires each user to register their
+    // own app (see THIRD-PARTY-NOTICES). The token is stored as-is, like FantasyPlayer does.
+    public string SpotifyClientId { get; set; } = string.Empty;
+    public PKCETokenResponse? SpotifyToken { get; set; }
 
     // Wired by the host at startup so Save() persists the whole plugin config.
     [NonSerialized] private Action? saveHook;

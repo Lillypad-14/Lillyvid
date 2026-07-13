@@ -15,6 +15,59 @@ to users who interact with it. Networked Aetherphone features (voice calls, mess
 notifications, control center, onboarding) were intentionally not ported, as they depend
 on Aetherphone's own backend services.
 
+## Music app
+
+The Music app is likewise ported from Aetherphone (same source and AGPL-3.0-or-later terms
+as above), comprising:
+
+- `Phone/Apps/Music/` — the app itself (home, search, radio stations, Now Playing sheet,
+  mini player).
+- `Phone/Core/Radio/`, `Phone/Core/Songs/`, `Phone/Core/Playback/`, `Phone/Core/Net/` — the
+  radio directory, song search, NAudio players and the HTTP/disk media caches it runs on.
+- Supporting UI components it needs (`AppSkin`, `AppPalette(s)`, `ArtworkCache`, `Equalizer`,
+  `SearchField`, `TransportButton`, `MediaGlyph`, `InfiniteScroll`, `LoadingPulse`,
+  `HoverButton`, `HoverTooltip`, `SoftWrapField`, `ArtGradient`, `Scrubber`) and additive members
+  on the existing `Typography`, `UiInteract`, `Palette` and `Rect` helpers.
+- `Phone/Core/Shell/DynamicIsland.cs` — the now-playing island. Adapted, not verbatim: Aetherphone's
+  island also renders in-call state via `CallHub`, and telephony is not part of this fork, so only
+  the music activity is reproduced.
+
+Radio station metadata is fetched at runtime from the **Radio Browser** community directory
+(https://www.radio-browser.info), and song search/streaming goes through **YouTube** via
+YoutubeExplode. No audio content is bundled with this plugin; it is streamed on demand from
+those third-party services, which have their own terms of use.
+
+## Spotify remote (Music app)
+
+`Phone/Core/Spotify/SpotifyState.cs` is ported from **FantasyPlayer** by **Critical-Impact**:
+
+- Source: https://github.com/Critical-Impact/FantasyPlayer
+- License: **MIT**
+
+`SpotifyController.cs` and the app's Spotify screen are original code written against it.
+
+Note on what this is: Spotify's Web API does **not** permit third-party audio streaming. It only
+reports and controls playback on a Spotify client the user is already running, and only for
+**Spotify Premium** accounts. So this feature is a remote control — the audio comes from the user's
+own Spotify desktop app, not from this plugin.
+
+Spotify additionally requires each user to register **their own** Spotify application and supply its
+Client ID (no shared client ID is distributed with this plugin). The redirect URI is
+`http://127.0.0.1:2984/callback`, matching FantasyPlayer's, and authorisation uses OAuth PKCE via a
+short-lived local callback server. The resulting refresh token is stored in the plugin's own config
+file.
+
+- **SpotifyAPI-NET** (`SpotifyAPI.Web`, `SpotifyAPI.Web.Auth`) by Jonas Dellinger — Spotify Web API
+  client and PKCE auth server. License: **MIT**. Pulls in **EmbedIO** / **Swan** (MIT) for the
+  local callback listener.
+
+## Audio and media libraries (Music app)
+
+- **NAudio** (`NAudio.WinMM`, `NAudio.Wasapi`) by Mark Heath — audio output/decoding.
+  License: **MIT**.
+- **YoutubeExplode** by Oleksii Holub (Tyrrrz) — song search and stream resolution.
+  License: **LGPL-3.0**.
+
 ## Inter font family
 
 `Fonts/Inter-*.ttf` — the **Inter** typeface by Rasmus Andersson, used by the phone UI.

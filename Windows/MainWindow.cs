@@ -243,7 +243,7 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         var cfg = Phone.Plugin.Cfg;
         var standalone = cfg?.StandaloneMode == true;
-        // The phone is on screen either as the Games tab, or as the whole (standalone) window.
+        // The phone is on screen either as the Apps tab, or as the whole (standalone) window.
         var phoneShown = standalone || this.gamesTabActive;
         var flags = ImGuiWindowFlags.None;
 
@@ -308,6 +308,14 @@ public sealed partial class MainWindow : Window, IDisposable
         // own top-level tab so the layout scales without touching the video UI.
         if (ImGui.BeginTabBar("##videosync-top-tabs"))
         {
+            var gamesTabOpen = ImGui.BeginTabItem("Apps");
+            this.gamesTabActive = gamesTabOpen;
+            if (gamesTabOpen)
+            {
+                this.DrawGamesTab();
+                ImGui.EndTabItem();
+            }
+
             if (ImGui.BeginTabItem("Video"))
             {
                 this.DrawVideoTabs(running);
@@ -341,14 +349,6 @@ public sealed partial class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem("Fun"))
             {
                 this.funTab.Draw();
-                ImGui.EndTabItem();
-            }
-
-            var gamesTabOpen = ImGui.BeginTabItem("Games");
-            this.gamesTabActive = gamesTabOpen;
-            if (gamesTabOpen)
-            {
-                this.DrawGamesTab();
                 ImGui.EndTabItem();
             }
 

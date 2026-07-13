@@ -43,7 +43,8 @@ internal sealed class LillypadGoState
     public bool WorldBattlesEnabled { get; set; } = true;
 
     // Opt-in immersive mode: wild Pokémon spawn in the game world and battles are playable
-    // from an on-screen hotbar (keys 1–8) without opening the phone. Off by default.
+    // from an on-screen hotbar (keys 1–8) without opening the phone. Off by default; the starter
+    // screen surfaces the toggle up front so new players can opt in before their first step.
     public bool ImmersiveModeEnabled { get; set; }
 
     // Where the user parked the immersive hotbar (screen px; negative = default bottom-center)

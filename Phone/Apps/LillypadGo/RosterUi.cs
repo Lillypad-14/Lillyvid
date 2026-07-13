@@ -286,7 +286,14 @@ internal static class RosterUi
     }
 
     // The navy search bar chrome + a transparent hint input laid over it. Returns true on Enter.
-    public static bool SearchBar(Rect r, string id, string hint, ref string text, float scale)
+    public static bool SearchBar(Rect r, string id, string hint, ref string text, float scale) =>
+        TextField(r, id, hint, ref text, 16, scale, magnifier: true);
+
+    // The navy inset text field behind SearchBar: shadowed gradient trough, dark edge and a light
+    // inner hairline, with a transparent ImGui input laid over it. `magnifier` adds the search
+    // glyph and indents the text. Returns true on Enter.
+    public static bool TextField(Rect r, string id, string hint, ref string text, int maxLength, float scale,
+        bool magnifier = false)
     {
         var dl = ImGui.GetWindowDrawList();
         var radius = MathF.Min(10f * scale, r.Height * 0.5f);
@@ -298,14 +305,16 @@ internal static class RosterUi
         Squircle.Stroke(dl, r.Min + new Vector2(1.6f, 1.6f) * scale, r.Max - new Vector2(1.6f, 1.6f) * scale,
             radius - 1.6f * scale, ImGui.GetColorU32(NavyLine with { W = 0.35f }), 1f * scale);
 
-        // magnifier glyph
-        var iconCenter = new Vector2(r.Min.X + 13f * scale, r.Center.Y);
-        var white = ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.92f));
-        dl.AddCircle(iconCenter - new Vector2(1f, 1f) * scale, 4f * scale, white, 16, 1.8f * scale);
-        dl.AddLine(iconCenter + new Vector2(2f, 2f) * scale, iconCenter + new Vector2(5.4f, 5.4f) * scale, white,
-            2f * scale);
+        if (magnifier)
+        {
+            var iconCenter = new Vector2(r.Min.X + 13f * scale, r.Center.Y);
+            var white = ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.92f));
+            dl.AddCircle(iconCenter - new Vector2(1f, 1f) * scale, 4f * scale, white, 16, 1.8f * scale);
+            dl.AddLine(iconCenter + new Vector2(2f, 2f) * scale, iconCenter + new Vector2(5.4f, 5.4f) * scale, white,
+                2f * scale);
+        }
 
-        var fieldMin = new Vector2(r.Min.X + 24f * scale, r.Min.Y);
+        var fieldMin = new Vector2(r.Min.X + (magnifier ? 24f : 10f) * scale, r.Min.Y);
         var framePadY = MathF.Max(1f, (r.Height - ImGui.GetTextLineHeight()) * 0.5f);
         ImGui.SetCursorScreenPos(fieldMin);
         ImGui.SetNextItemWidth(r.Max.X - fieldMin.X - 6f * scale);
@@ -317,7 +326,7 @@ internal static class RosterUi
         using (ImRaii.PushColor(ImGuiCol.Text, new Vector4(1f, 1f, 1f, 0.95f)))
         using (ImRaii.PushColor(ImGuiCol.TextDisabled, new Vector4(0.62f, 0.72f, 0.83f, 0.7f)))
         {
-            submitted = ImGui.InputTextWithHint(id, hint, ref text, 16, ImGuiInputTextFlags.EnterReturnsTrue);
+            submitted = ImGui.InputTextWithHint(id, hint, ref text, maxLength, ImGuiInputTextFlags.EnterReturnsTrue);
         }
 
         return submitted;

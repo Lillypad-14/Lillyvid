@@ -22,7 +22,33 @@ internal sealed partial class LillypadGoApp
         BiomeBackdrop.Draw(drawList, content, Biome.Grassland, time, false);
         LgUi.Header(content, theme, Accent,"Choose your first partner", "Walk Eorzea to find more in the wild.", scale);
 
-        var top = content.Min.Y + 72f * scale;
+        // Immerse mode is offered up front rather than buried in Options, since it changes how the
+        // whole game is played. Off by default — this is the opt-in.
+        var immerseMin = new Vector2(content.Min.X + 14f * scale, content.Min.Y + 68f * scale);
+        var immerseMax = new Vector2(content.Max.X - 14f * scale, content.Min.Y + 104f * scale);
+        LgUi.Card(drawList, immerseMin, immerseMax, 12f * scale, scale);
+        var immersive = State.ImmersiveModeEnabled;
+        var immerseRow = new Rect(new Vector2(immerseMin.X + 12f * scale, immerseMin.Y),
+            new Vector2(immerseMax.X - 12f * scale, immerseMax.Y));
+        if (DrawToggleRow(immerseRow, scale, ref immersive, "Immerse mode — hunt & battle in the world"))
+        {
+            State.ImmersiveModeEnabled = immersive;
+            State.Save();
+        }
+
+        if (ImGui.IsMouseHoveringRect(immerseRow.Min, immerseRow.Max))
+        {
+            ShowTooltip("Immerse mode (opt-in)\n\n" +
+                "Wild Pokémon spawn around you in the game world — click one to engage. Battles run " +
+                "from an on-screen battle hotbar: slots 1–4 are your lead's moves (hover for full move " +
+                "info), 5 Bag, 6 Swap, 7 Run, 8 opens the phone.\n\n" +
+                "⚠ WARNING: while a battle is active, keyboard keys 1–8 are captured for these battle " +
+                "actions and will NOT trigger your normal game hotbar. Your real hotbars are never " +
+                "modified or overwritten — the capture ends the moment the battle does.\n\n" +
+                "You can turn this off any time in Options.");
+        }
+
+        var top = immerseMax.Y + 8f * scale;
         var bottom = content.Max.Y - 54f * scale; // leave room for the confirm button
         var available = bottom - top;
         var cardH = MathF.Min(available / StarterIds.Length, 132f * scale);

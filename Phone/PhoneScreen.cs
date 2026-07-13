@@ -5,6 +5,7 @@ using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using VideoSyncPrototype.Phone.Apps.Games;
 using VideoSyncPrototype.Phone.Apps.LillypadGo;
+using VideoSyncPrototype.Phone.Apps.Music;
 using VideoSyncPrototype.Phone.Core;
 using VideoSyncPrototype.Phone.Core.Animation;
 using VideoSyncPrototype.Phone.Core.Apps;
@@ -17,7 +18,7 @@ using VideoSyncPrototype.Phone.Windows.Components;
 
 namespace VideoSyncPrototype.Phone;
 
-// Trimmed phone shell for Lillypad Toolkit's "Games" tab. Faithfully reproduces
+// Trimmed phone shell for Lillypad Toolkit's "Apps" tab. Faithfully reproduces
 // Aetherphone's (https://github.com/XeldarAlz/FFXIV-Aetherphone, AGPL-3.0-or-later)
 // device chrome, wallpaper, status bar, home screen and slide navigation, hosting the
 // Games app and its 16 mini-games. Aetherphone's networked shell surfaces (calls,
@@ -29,11 +30,21 @@ internal sealed class PhoneScreen : IDisposable
     private readonly IReadOnlyList<IPhoneApp> apps;
     private readonly NavigationStack navigation;
     private readonly HomeScreen home;
+    private readonly MusicServices music;
+    private readonly DynamicIsland island;
 
     public PhoneScreen(Configuration config)
     {
         themes = new ThemeProvider(config);
-        apps = new IPhoneApp[] { new GamesApp(new GameStatsStore(config)), new LillypadGoApp() };
+        music = new MusicServices(config, Plugin.PluginInterface.ConfigDirectory, Plugin.TextureProvider);
+        island = new DynamicIsland(music.Playback);
+        apps = new IPhoneApp[]
+        {
+            new GamesApp(new GameStatsStore(config)),
+            new LillypadGoApp(),
+            new MusicApp(music.Radio, music.SongSearch, music.Playback, music.History, music.Media, music.Http,
+                Plugin.TextureProvider),
+        };
         navigation = new NavigationStack(apps);
         home = new HomeScreen(apps);
     }
@@ -57,7 +68,15 @@ internal sealed class PhoneScreen : IDisposable
             var screen = DeviceChrome.DrawBody(device, theme, true);
             navigation.Advance(delta);
             UiAnchors.BeginFrame(false);
-            DrawContent(screen, theme);
+
+            // The now-playing island floats above everything, so while the cursor is over it the
+            // content underneath (home icons, the foreground app) must not react to the click.
+            var islandCaptures = !navigation.IsTransitioning && island.CapturesPointer(screen);
+            using (InputShield.Engage(islandCaptures))
+            {
+                DrawContent(screen, theme);
+            }
+
             DrawChrome(screen, theme);
             DeviceChrome.DrawBrightnessVeil(screen, theme, 1f);
         }
@@ -85,6 +104,9 @@ internal sealed class PhoneScreen : IDisposable
     private void DrawChrome(Rect screen, PhoneTheme theme)
     {
         StatusBar.Draw(screen, theme);
+
+        // Drawn over the status bar: the island grows out of the same pill the clock sits beside.
+        island.Draw(screen, theme, navigation, navigation.Current?.Id);
         DrawHomeIndicator(screen, theme);
         DrawStandaloneToggle(screen, theme);
         DrawPositionLock(screen, theme);
@@ -200,5 +222,8 @@ internal sealed class PhoneScreen : IDisposable
         {
             apps[index].Dispose();
         }
+
+        // After the apps, so nothing is still drawing from the players/caches as they tear down.
+        music.Dispose();
     }
 }
